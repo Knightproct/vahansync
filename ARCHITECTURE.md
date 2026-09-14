@@ -1,8 +1,8 @@
-# Vahana Fleet OS — production architecture
+# VahanSync — production architecture
 
 ## Product direction
 
-Vahana is a multi-tenant operating system for Indian fleet operators. The system of record is the backend, not the browser: every operational change is authenticated, scoped to an organization, validated, and audit logged.
+VahanSync is a multi-tenant operating system for Indian fleet operators. The system of record is the backend, not the browser: every operational change is authenticated, scoped to an organization, validated, and audit logged.
 
 The first operational domains are now API-backed: fleet, vehicle components, preventive maintenance plans, work orders, workshop parts and movements, compliance documents, expenses, vendors, and purchase orders. The UI consumes these resources through the versioned API rather than treating seeded presentation data as authoritative.
 

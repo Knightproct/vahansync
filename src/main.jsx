@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client'
 import './styles.css'
 import { createVehicle, createWorkOrder, getComponents, getDocuments, getExpenses, getMaintenancePlans, getNotifications, getParts, getPurchaseOrders, getVehicles, getVendors, getWorkOrders, login } from './api'
 
+const isPublicPage = window.location.pathname === '/'
+
 const navItems = [
   { id: 'overview', label: 'Overview', icon: '⌂' },
   { id: 'fleet', label: 'Fleet', icon: '▱', count: '48' },
@@ -51,6 +53,7 @@ function App() {
   const [apiError, setApiError] = useState('')
 
   useEffect(() => {
+    if (isPublicPage) return
     const bootstrap = async () => {
       try {
         let accessToken = token
@@ -95,6 +98,12 @@ function App() {
     bootstrap()
   }, [token])
 
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {})
+    }
+  }, [])
+
   const filteredVehicles = useMemo(
     () => fleet.filter((vehicle) => `${vehicle.reg} ${vehicle.model} ${vehicle.depot}`.toLowerCase().includes(search.toLowerCase())),
     [fleet, search],
@@ -107,8 +116,9 @@ function App() {
     window.setTimeout(() => setToast(''), 2800)
   }
 
-  if (apiState === 'loading') return <AppState title="Connecting to Vahana" detail="Loading your organization data securely..." />
-  if (apiState === 'error') return <AppState title="Vahana API unavailable" detail={`${apiError}. Start the backend service and reload this workspace.`} />
+  if (isPublicPage) return <Landing />
+  if (apiState === 'loading') return <AppState title="Connecting to VahanSync" detail="Loading your organization data securely..." />
+  if (apiState === 'error') return <AppState title="VahanSync API unavailable" detail={`${apiError}. Start the backend service and reload this workspace.`} />
   if (apiState === 'unauthenticated') return <LoginScreen onAuthenticated={(accessToken) => { window.sessionStorage.setItem('vahana:access-token', accessToken); setToken(accessToken) }} />
 
   return (
@@ -117,8 +127,8 @@ function App() {
         <div className="brand">
           <div className="brand-mark">V</div>
           <div>
-            <strong>vahana</strong>
-            <span>Fleet OS</span>
+            <strong>VahanSync</strong>
+            <span>Fleet operations OS</span>
           </div>
         </div>
 
@@ -193,6 +203,40 @@ function AppState({ title, detail }) {
   return <div className="app-state"><div className="brand-mark">V</div><h1>{title}</h1><p>{detail}</p></div>
 }
 
+function Landing() {
+  return <div className="landing">
+    <header className="landing-nav">
+      <a className="landing-brand" href="/"><span className="brand-mark">V</span><span><strong>VahanSync</strong><small>Fleet operations OS</small></span></a>
+      <nav><a href="#platform">Platform</a><a href="#workflows">Workflows</a><a href="#india">Built for India</a></nav>
+      <a className="landing-login" href="/app">Sign in <span>→</span></a>
+    </header>
+    <main>
+      <section className="hero">
+        <div className="hero-copy">
+          <span className="landing-kicker">The operating system for modern fleets</span>
+          <h1>Run every vehicle, workshop, and rupee from one calm command centre.</h1>
+          <p>VahanSync brings fleet health, component lifecycle, maintenance, inventory, compliance, fuel, tolls, and finance together for Indian operators.</p>
+          <div className="hero-actions"><a className="hero-button" href="/app">Open VahanSync <span>↗</span></a><a className="hero-text-link" href="#platform">Explore the platform <span>↓</span></a></div>
+          <div className="hero-proof"><span>●</span><span>One source of truth for operations</span><span>·</span><span>INR-native cost controls</span></div>
+        </div>
+        <div className="hero-visual">
+          <div className="visual-window"><div className="visual-top"><span className="visual-dot"></span><span className="visual-dot"></span><span className="visual-dot"></span><small>VahanSync command centre</small></div><div className="visual-body"><div className="visual-sidebar"><b>V</b><i></i><i></i><i></i><i></i></div><div className="visual-dashboard"><span>FLEET HEALTH</span><strong>94.2%</strong><div className="visual-bars"><i></i><i></i><i></i><i></i></div><div className="visual-cards"><div></div><div></div><div></div></div></div></div></div>
+          <div className="floating-card"><span>Compliance readiness</span><strong>98%</strong><small>↑ 12% this month</small></div>
+        </div>
+      </section>
+      <section className="trust-row"><span>DESIGNED FOR</span><strong>Logistics operators</strong><strong>Contract fleets</strong><strong>Workshop networks</strong><strong>Transport enterprises</strong></section>
+      <section className="platform-section" id="platform"><div className="section-intro"><span className="landing-kicker">One connected platform</span><h2>From vehicle register to financial close.</h2><p>Every operational detail stays connected, so teams act on the same live picture instead of chasing spreadsheets.</p></div><div className="feature-grid"><Feature icon="01" title="Fleet intelligence" text="Track every vehicle, component, depot, status, and odometer movement in one live register." /><Feature icon="02" title="Workshop control" text="Turn maintenance plans into work orders, parts issues, stock movements, and measurable uptime." /><Feature icon="03" title="Compliance & cost" text="Keep documents, expiry alerts, fuel, tolls, GST-ready expenses, and approvals audit-ready." /></div></section>
+      <section className="india-section" id="india"><div><span className="landing-kicker">Built for Indian operations</span><h2>Local realities, enterprise discipline.</h2><p>VahanSync speaks the language of Indian fleet teams: registration numbers, FASTag, PUC, fitness, insurance, GST, INR paise precision, and multi-depot control.</p><a className="hero-text-link" href="/app">See the command centre <span>→</span></a></div><div className="india-stat-grid"><div><strong>24×7</strong><span>Operational visibility</span></div><div><strong>₹</strong><span>Paise-precise ledgers</span></div><div><strong>360°</strong><span>Vehicle lifecycle</span></div><div><strong>1</strong><span>Source of truth</span></div></div></section>
+      <section className="cta-section" id="workflows"><span className="landing-kicker">Make every kilometre count</span><h2>Your fleet has a lot moving.<br />Your system should feel simple.</h2><a className="hero-button" href="/app">Enter VahanSync <span>↗</span></a></section>
+    </main>
+    <footer className="landing-footer"><a className="landing-brand" href="/"><span className="brand-mark">V</span><span><strong>VahanSync</strong><small>Fleet operations OS</small></span></a><span>© 2026 VahanSync. Built for fleet operators in India.</span><a href="/app">Sign in →</a></footer>
+  </div>
+}
+
+function Feature({ icon, title, text }) {
+  return <article className="feature-card"><span>{icon}</span><h3>{title}</h3><p>{text}</p><a href="/app">Explore <b>→</b></a></article>
+}
+
 function LoginScreen({ onAuthenticated }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -208,7 +252,7 @@ function LoginScreen({ onAuthenticated }) {
     }
   }
 
-  return <div className="login-screen"><form className="login-card" onSubmit={submit}><div className="brand-mark">V</div><span className="eyebrow">Vahana Fleet OS</span><h1>Sign in to your workspace</h1><p>Secure access to your fleet operations command centre.</p><label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required placeholder="you@company.com" /></label><label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required minLength="8" /></label>{error && <div className="form-error">{error}</div>}<button className="primary-button" type="submit">Sign in</button></form></div>
+  return <div className="login-screen"><form className="login-card" onSubmit={submit}><div className="brand-mark">V</div><span className="eyebrow">VahanSync</span><h1>Sign in to your workspace</h1><p>Secure access to your fleet operations command centre.</p><label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required placeholder="you@company.com" /></label><label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required minLength="8" /></label>{error && <div className="form-error">{error}</div>}<button className="primary-button" type="submit">Sign in</button></form></div>
 }
 
 function PageHeader({ eyebrow, title, subtitle, action, onAction }) {

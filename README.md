@@ -1,6 +1,6 @@
-# Vahana Fleet OS
+# VahanSync
 
-Vahana is an India-focused, multi-tenant fleet operations ERP for operators who need one system of record for vehicles, components, workshop inventory, maintenance, costs, and regulatory compliance.
+VahanSync is an India-focused, multi-tenant fleet operations ERP for operators who need one system of record for vehicles, components, workshop inventory, maintenance, costs, and regulatory compliance.
 
 ## Run locally
 
