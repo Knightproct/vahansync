@@ -1,4 +1,4 @@
-import { StrictMode, useMemo, useState } from 'react'
+import { StrictMode, useEffect, useMemo, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import './styles.css'
 
@@ -37,15 +37,29 @@ const inventory = [
   { part: 'Clutch plate assembly', sku: 'CL-EC-6042', category: 'Drivetrain', stock: 2, min: 2, cost: '₹18,900', supplier: 'Eicher Motors' },
 ]
 
+const VEHICLES_STORAGE_KEY = 'vahana:vehicles'
+
 function App() {
   const [active, setActive] = useState('overview')
   const [search, setSearch] = useState('')
   const [showAdd, setShowAdd] = useState(false)
   const [toast, setToast] = useState('')
+  const [fleet, setFleet] = useState(() => {
+    try {
+      const storedVehicles = window.localStorage.getItem(VEHICLES_STORAGE_KEY)
+      return storedVehicles ? JSON.parse(storedVehicles) : vehicles
+    } catch {
+      return vehicles
+    }
+  })
+
+  useEffect(() => {
+    window.localStorage.setItem(VEHICLES_STORAGE_KEY, JSON.stringify(fleet))
+  }, [fleet])
 
   const filteredVehicles = useMemo(
-    () => vehicles.filter((vehicle) => `${vehicle.reg} ${vehicle.model} ${vehicle.depot}`.toLowerCase().includes(search.toLowerCase())),
-    [search],
+    () => fleet.filter((vehicle) => `${vehicle.reg} ${vehicle.model} ${vehicle.depot}`.toLowerCase().includes(search.toLowerCase())),
+    [fleet, search],
   )
 
   const title = navItems.find((item) => item.id === active)?.label ?? 'Overview'
@@ -118,7 +132,7 @@ function App() {
         </header>
 
         <div className="page">
-          {active === 'overview' && <Overview onAdd={() => setShowAdd(true)} onNotify={notify} />}
+          {active === 'overview' && <Overview vehicles={fleet} onAdd={() => setShowAdd(true)} onNotify={notify} />}
           {active === 'fleet' && <Fleet vehicles={filteredVehicles} onAdd={() => setShowAdd(true)} />}
           {active === 'maintenance' && <Maintenance onNotify={notify} />}
           {active === 'workshop' && <Workshop onNotify={notify} />}
@@ -127,7 +141,7 @@ function App() {
         </div>
       </main>
 
-      {showAdd && <AddVehicleModal onClose={() => setShowAdd(false)} onSave={() => { setShowAdd(false); notify('Vehicle added to your fleet.'); }} />}
+      {showAdd && <AddVehicleModal onClose={() => setShowAdd(false)} onSave={(vehicle) => { setFleet((currentFleet) => [vehicle, ...currentFleet]); setShowAdd(false); notify('Vehicle added to your fleet.'); }} />}
       {toast && <div className="toast"><span>✓</span>{toast}</div>}
     </div>
   )
@@ -140,12 +154,12 @@ function PageHeader({ eyebrow, title, subtitle, action, onAction }) {
   </div>
 }
 
-function Overview({ onAdd, onNotify }) {
+function Overview({ vehicles: fleet, onAdd, onNotify }) {
   return <div>
     <PageHeader eyebrow="Monday, 15 June 2024" title="Good morning, Arjun" subtitle="Here’s what’s happening across your fleet today." action="Add vehicle" onAction={onAdd} />
     <div className="metric-grid">
       <MetricCard label="Fleet health" value="86.4%" change="+2.8%" detail="vs last month" icon="◒" tone="navy" />
-      <MetricCard label="Active vehicles" value="42 / 48" change="+3" detail="this month" icon="▱" tone="blue" />
+      <MetricCard label="Active vehicles" value={`${fleet.filter((vehicle) => vehicle.status === 'On route').length} / ${fleet.length}`} change="+3" detail="this month" icon="▱" tone="blue" />
       <MetricCard label="Open work orders" value="07" change="-4" detail="vs last week" icon="⌁" tone="orange" />
       <MetricCard label="This month’s cost" value="₹12.8L" change="+8.4%" detail="vs last month" icon="₹" tone="purple" />
     </div>
@@ -162,7 +176,7 @@ function Overview({ onAdd, onNotify }) {
         </div>
         <div className="mini-table">
           <div className="mini-row mini-head"><span>Vehicle</span><span>Status</span><span>Health</span></div>
-          {vehicles.slice(0, 3).map((vehicle) => <div className="mini-row" key={vehicle.reg}><div className="vehicle-cell"><div className={`vehicle-dot ${vehicle.accent}`}></div><div><strong>{vehicle.reg}</strong><small>{vehicle.model}</small></div></div><Status status={vehicle.status} /><div className="health-cell"><span>{vehicle.health}%</span><div className="health-bar"><i style={{ width: `${vehicle.health}%` }}></i></div></div></div>)}
+          {fleet.slice(0, 3).map((vehicle) => <div className="mini-row" key={vehicle.reg}><div className="vehicle-cell"><div className={`vehicle-dot ${vehicle.accent}`}></div><div><strong>{vehicle.reg}</strong><small>{vehicle.model}</small></div></div><Status status={vehicle.status} /><div className="health-cell"><span>{vehicle.health}%</span><div className="health-bar"><i style={{ width: `${vehicle.health}%` }}></i></div></div></div>)}
         </div>
       </section>
       <section className="panel">
@@ -206,7 +220,20 @@ function Costs({ onNotify }) {
 }
 
 function AddVehicleModal({ onClose, onSave }) {
-  return <div className="modal-backdrop" onMouseDown={onClose}><div className="modal" onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><span className="eyebrow">Fleet register</span><h2>Add a vehicle</h2></div><button onClick={onClose}>×</button></div><p>Start tracking its documents, components, costs, and maintenance history.</p><div className="form-grid"><label>Registration number<input placeholder="e.g. MH 12 AB 1234" /></label><label>Vehicle type<select defaultValue=""><option value="" disabled>Select type</option><option>Heavy truck</option><option>Tipper</option><option>Multi-axle</option></select></label><label>Make & model<input placeholder="e.g. Tata Prima 5530" /></label><label>Home depot<input placeholder="Select depot" /></label></div><div className="modal-actions"><button className="secondary-button" onClick={onClose}>Cancel</button><button className="primary-button" onClick={onSave}>Add vehicle</button></div></div></div>
+  const [form, setForm] = useState({ reg: '', type: '', model: '', depot: '' })
+  const [error, setError] = useState('')
+
+  const updateField = (field, value) => setForm((currentForm) => ({ ...currentForm, [field]: value }))
+  const submit = (event) => {
+    event.preventDefault()
+    if (!form.reg.trim() || !form.type || !form.model.trim() || !form.depot.trim()) {
+      setError('Complete all vehicle details before saving.')
+      return
+    }
+    onSave({ reg: form.reg.trim().toUpperCase(), model: form.model.trim(), type: form.type, depot: form.depot.trim(), status: 'Idle / parked', health: 100, km: '0 km', driver: 'Unassigned', accent: 'blue' })
+  }
+
+  return <div className="modal-backdrop" onMouseDown={onClose}><form className="modal" onMouseDown={(event) => event.stopPropagation()} onSubmit={submit}><div className="modal-header"><div><span className="eyebrow">Fleet register</span><h2>Add a vehicle</h2></div><button type="button" onClick={onClose}>×</button></div><p>Start tracking its documents, components, costs, and maintenance history.</p><div className="form-grid"><label>Registration number<input value={form.reg} onChange={(event) => updateField('reg', event.target.value)} placeholder="e.g. MH 12 AB 1234" /></label><label>Vehicle type<select value={form.type} onChange={(event) => updateField('type', event.target.value)}><option value="" disabled>Select type</option><option>Heavy truck</option><option>Tipper</option><option>Multi-axle</option></select></label><label>Make & model<input value={form.model} onChange={(event) => updateField('model', event.target.value)} placeholder="e.g. Tata Prima 5530" /></label><label>Home depot<input value={form.depot} onChange={(event) => updateField('depot', event.target.value)} placeholder="e.g. Pune Central" /></label></div>{error && <div className="form-error">{error}</div>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button type="submit" className="primary-button">Add vehicle</button></div></form></div>
 }
 
 createRoot(document.getElementById('root')).render(<StrictMode><App /></StrictMode>)
