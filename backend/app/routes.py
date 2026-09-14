@@ -9,8 +9,8 @@ from sqlalchemy.orm import Session, selectinload
 
 from .config import get_settings
 from .database import get_db
-from .dependencies import get_current_user, require_roles
-from .models import AuditLog, ComplianceDocument, DocumentAsset, Expense, FuelTransaction, InventoryMovement, InventoryTransaction, MaintenancePlan, OperationalNotification, Organization, Part, PurchaseOrder, PurchaseOrderLine, StockLocation, TelematicsDevice, TelemetryReading, TollTransaction, User, Vehicle, VehicleComponent, Vendor, WorkOrder, utc_now
+from .dependencies import get_current_user, require_permission, require_roles
+from .models import AuditLog, ComplianceDocument, DocumentAsset, Expense, FuelTransaction, InventoryMovement, InventoryTransaction, MaintenancePlan, NotificationPreference, NotificationDelivery, OperationalNotification, Organization, Part, PurchaseOrder, PurchaseOrderLine, StockLocation, TelematicsDevice, TelemetryReading, TollTransaction, User, Vehicle, VehicleComponent, Vendor, WorkOrder, utc_now
 from .schemas import (
     ComponentCreate,
     ComponentRead,
@@ -33,6 +33,9 @@ from .schemas import (
     MaintenancePlanCreate,
     MaintenancePlanRead,
     NotificationRead,
+    NotificationPreferenceRead,
+    NotificationPreferenceUpdate,
+    NotificationDeliveryRead,
     NotificationStatusUpdate,
     PartCreate,
     PartRead,
@@ -48,7 +51,12 @@ from .schemas import (
     TelemetryReadingCreate,
     TelemetryReadingRead,
     Token,
+    SubscriptionChange,
+    SubscriptionPlanRead,
+    SubscriptionRead,
     UserRead,
+    UserCreate,
+    UserRoleUpdate,
     VehicleCreate,
     VehicleRead,
     VendorCreate,
@@ -61,6 +69,41 @@ from .security import create_access_token, hash_password, verify_password
 from .storage import resolve_object, save_upload
 
 router = APIRouter(prefix="/api/v1")
+
+SUBSCRIPTION_PLANS = {
+    "starter": {
+        "code": "starter",
+        "name": "Starter",
+        "monthly_price_paise": 249900,
+        "included_vehicles": 10,
+        "included_users": 5,
+        "features": ["Fleet register", "Maintenance", "Compliance vault", "Basic finance"],
+    },
+    "growth": {
+        "code": "growth",
+        "name": "Growth",
+        "monthly_price_paise": 749900,
+        "included_vehicles": 50,
+        "included_users": 20,
+        "features": ["Everything in Starter", "Workshop inventory", "Procurement", "Fuel and toll", "Notifications"],
+    },
+    "scale": {
+        "code": "scale",
+        "name": "Scale",
+        "monthly_price_paise": 1999900,
+        "included_vehicles": 200,
+        "included_users": 75,
+        "features": ["Everything in Growth", "Telematics", "Advanced finance", "Multi-depot controls", "Priority support"],
+    },
+    "enterprise": {
+        "code": "enterprise",
+        "name": "Enterprise",
+        "monthly_price_paise": None,
+        "included_vehicles": None,
+        "included_users": None,
+        "features": ["Custom fleet volume", "SSO", "Dedicated onboarding", "Custom integrations", "SLA"],
+    },
+}
 
 
 @router.post("/auth/login", response_model=Token)
@@ -92,6 +135,162 @@ def current_user(user: User = Depends(get_current_user)) -> User:
     return user
 
 
+@router.get("/users", response_model=list[UserRead])
+def list_users(
+    user: User = Depends(require_roles("owner", "admin")),
+    database: Session = Depends(get_db),
+) -> list[User]:
+    return list(database.scalars(select(User).where(User.organization_id == user.organization_id).order_by(User.full_name.asc())).all())
+
+
+@router.post("/users", response_model=UserRead, status_code=status.HTTP_201_CREATED)
+def create_user(
+    payload: UserCreate,
+    request: Request,
+    user: User = Depends(require_roles("owner", "admin")),
+    database: Session = Depends(get_db),
+) -> User:
+    email = payload.email.lower()
+    if database.scalar(select(User).where(User.email == email)) is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A user with this email already exists")
+    member = User(
+        organization_id=user.organization_id,
+        email=email,
+        full_name=payload.full_name.strip(),
+        password_hash=hash_password(payload.password),
+        role=payload.role,
+    )
+    database.add(member)
+    database.flush()
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="user.created",
+        entity_type="user",
+        entity_id=str(member.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps({"email": member.email, "role": member.role}),
+    ))
+    database.commit()
+    database.refresh(member)
+    return member
+
+
+@router.patch("/users/{user_id}", response_model=UserRead)
+def update_user_role(
+    user_id: int,
+    payload: UserRoleUpdate,
+    request: Request,
+    user: User = Depends(require_roles("owner", "admin")),
+    database: Session = Depends(get_db),
+) -> User:
+    member = database.scalar(select(User).where(User.id == user_id, User.organization_id == user.organization_id))
+    if member is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    member.role = payload.role
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="user.role_updated",
+        entity_type="user",
+        entity_id=str(member.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps({"role": member.role}),
+    ))
+    database.commit()
+    database.refresh(member)
+    return member
+
+
+@router.get("/subscription/plans", response_model=list[SubscriptionPlanRead])
+def list_subscription_plans() -> list[dict]:
+    return list(SUBSCRIPTION_PLANS.values())
+
+
+@router.get("/subscription", response_model=SubscriptionRead)
+def get_subscription(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> SubscriptionRead:
+    organization = database.get(Organization, user.organization_id)
+    plan = SUBSCRIPTION_PLANS.get(organization.subscription_plan, SUBSCRIPTION_PLANS["starter"])
+    return SubscriptionRead(
+        plan=plan,
+        status=organization.subscription_status,
+        trial_ends_on=organization.trial_ends_on,
+        renews_on=organization.subscription_renews_on,
+        vehicle_count=database.query(Vehicle).filter(Vehicle.organization_id == user.organization_id).count(),
+        user_count=database.query(User).filter(User.organization_id == user.organization_id).count(),
+    )
+
+
+@router.patch("/subscription", response_model=SubscriptionRead)
+def change_subscription(
+    payload: SubscriptionChange,
+    request: Request,
+    user: User = Depends(require_roles("owner", "admin")),
+    database: Session = Depends(get_db),
+) -> SubscriptionRead:
+    organization = database.get(Organization, user.organization_id)
+    organization.subscription_plan = payload.plan_code
+    organization.subscription_status = "pending_activation"
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="subscription.plan_changed",
+        entity_type="organization_subscription",
+        entity_id=str(organization.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps({"plan": payload.plan_code}),
+    ))
+    database.commit()
+    return get_subscription(user, database)
+
+
+@router.get("/notification-preferences", response_model=list[NotificationPreferenceRead])
+def list_notification_preferences(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[NotificationPreference]:
+    return list(database.scalars(select(NotificationPreference).where(
+        NotificationPreference.organization_id == user.organization_id,
+        NotificationPreference.user_id == user.id,
+    ).order_by(NotificationPreference.notification_type)).all())
+
+
+@router.put("/notification-preferences", response_model=NotificationPreferenceRead)
+def update_notification_preference(
+    payload: NotificationPreferenceUpdate,
+    user: User = Depends(require_permission("notifications")),
+    database: Session = Depends(get_db),
+) -> NotificationPreference:
+    preference = database.scalar(select(NotificationPreference).where(
+        NotificationPreference.organization_id == user.organization_id,
+        NotificationPreference.user_id == user.id,
+        NotificationPreference.notification_type == payload.notification_type,
+    ))
+    if preference is None:
+        preference = NotificationPreference(
+            organization_id=user.organization_id,
+            user_id=user.id,
+            notification_type=payload.notification_type,
+        )
+        database.add(preference)
+    preference.in_app = payload.in_app
+    preference.email = payload.email
+    preference.sms = payload.sms
+    preference.whatsapp = payload.whatsapp
+    preference.push = payload.push
+    database.commit()
+    database.refresh(preference)
+    return preference
+
+
+@router.get("/notification-deliveries", response_model=list[NotificationDeliveryRead])
+def list_notification_deliveries(
+    user: User = Depends(require_permission("notifications")),
+    database: Session = Depends(get_db),
+) -> list[NotificationDelivery]:
+    return list(database.scalars(select(NotificationDelivery).where(
+        NotificationDelivery.organization_id == user.organization_id,
+        NotificationDelivery.user_id == user.id,
+    ).order_by(NotificationDelivery.id.desc()).limit(100)).all())
+
+
 @router.get("/vehicles", response_model=list[VehicleRead])
 def list_vehicles(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[Vehicle]:
     return list(database.scalars(select(Vehicle).where(Vehicle.organization_id == user.organization_id).order_by(Vehicle.id.desc())).all())
@@ -101,7 +300,7 @@ def list_vehicles(user: User = Depends(get_current_user), database: Session = De
 def create_vehicle(
     payload: VehicleCreate,
     request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("fleet")),
     database: Session = Depends(get_db),
 ) -> Vehicle:
     registration_number = payload.registration_number.strip().upper()
@@ -145,7 +344,7 @@ def list_components(user: User = Depends(get_current_user), database: Session = 
 def create_component(
     payload: ComponentCreate,
     request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("maintenance")),
     database: Session = Depends(get_db),
 ) -> VehicleComponent:
     vehicle = database.scalar(select(Vehicle).where(Vehicle.id == payload.vehicle_id, Vehicle.organization_id == user.organization_id))
@@ -177,7 +376,7 @@ def list_work_orders(user: User = Depends(get_current_user), database: Session =
 def create_work_order(
     payload: WorkOrderCreate,
     request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("maintenance")),
     database: Session = Depends(get_db),
 ) -> WorkOrder:
     vehicle = database.scalar(select(Vehicle).where(Vehicle.id == payload.vehicle_id, Vehicle.organization_id == user.organization_id))
@@ -205,7 +404,7 @@ def update_work_order(
     work_order_id: int,
     payload: WorkOrderUpdate,
     request: Request,
-    user: User = Depends(require_roles("owner", "admin", "manager")),
+    user: User = Depends(require_permission("maintenance")),
     database: Session = Depends(get_db),
 ) -> WorkOrder:
     work_order = database.scalar(select(WorkOrder).where(WorkOrder.id == work_order_id, WorkOrder.organization_id == user.organization_id))
@@ -237,7 +436,7 @@ def list_maintenance_plans(user: User = Depends(get_current_user), database: Ses
 def create_maintenance_plan(
     payload: MaintenancePlanCreate,
     request: Request,
-    user: User = Depends(require_roles("owner", "admin", "manager")),
+    user: User = Depends(require_permission("maintenance")),
     database: Session = Depends(get_db),
 ) -> MaintenancePlan:
     vehicle = database.scalar(select(Vehicle).where(Vehicle.id == payload.vehicle_id, Vehicle.organization_id == user.organization_id))
@@ -271,7 +470,7 @@ def list_parts(user: User = Depends(get_current_user), database: Session = Depen
 def create_part(
     payload: PartCreate,
     request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("inventory")),
     database: Session = Depends(get_db),
 ) -> Part:
     existing = database.scalar(select(Part).where(Part.organization_id == user.organization_id, Part.sku == payload.sku.strip().upper()))
@@ -298,7 +497,7 @@ def create_part(
 def create_inventory_transaction(
     payload: InventoryTransactionCreate,
     request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("inventory")),
     database: Session = Depends(get_db),
 ) -> Part:
     part = database.scalar(select(Part).where(Part.id == payload.part_id, Part.organization_id == user.organization_id))
@@ -339,7 +538,7 @@ def list_stock_locations(user: User = Depends(get_current_user), database: Sessi
 def create_stock_location(
     payload: StockLocationCreate,
     request: Request,
-    user: User = Depends(require_roles("owner", "admin", "manager")),
+    user: User = Depends(require_permission("inventory")),
     database: Session = Depends(get_db),
 ) -> StockLocation:
     code = payload.code.strip().upper()
@@ -372,7 +571,7 @@ def list_inventory_movements(user: User = Depends(get_current_user), database: S
 def create_inventory_movement(
     payload: InventoryMovementCreate,
     request: Request,
-    user: User = Depends(require_roles("owner", "admin", "manager")),
+    user: User = Depends(require_permission("inventory")),
     database: Session = Depends(get_db),
 ) -> InventoryMovement:
     part = database.scalar(select(Part).where(Part.id == payload.part_id, Part.organization_id == user.organization_id))
@@ -416,7 +615,7 @@ def list_documents(user: User = Depends(get_current_user), database: Session = D
 def create_document(
     payload: DocumentCreate,
     request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("compliance")),
     database: Session = Depends(get_db),
 ) -> ComplianceDocument:
     if payload.vehicle_id is not None:
@@ -445,7 +644,7 @@ def update_document(
     document_id: int,
     payload: DocumentUpdate,
     request: Request,
-    user: User = Depends(require_roles("owner", "admin", "manager")),
+    user: User = Depends(require_permission("compliance")),
     database: Session = Depends(get_db),
 ) -> ComplianceDocument:
     document = database.scalar(select(ComplianceDocument).where(ComplianceDocument.id == document_id, ComplianceDocument.organization_id == user.organization_id))
@@ -473,7 +672,7 @@ def upload_document_file(
     document_id: int,
     request: Request,
     file: UploadFile = File(...),
-    user: User = Depends(require_roles("owner", "admin", "manager")),
+    user: User = Depends(require_permission("compliance")),
     database: Session = Depends(get_db),
 ) -> DocumentAsset:
     document = database.scalar(select(ComplianceDocument).where(ComplianceDocument.id == document_id, ComplianceDocument.organization_id == user.organization_id))
@@ -588,7 +787,7 @@ def sync_notifications(user: User, database: Session) -> None:
             existing.detail = str(alert["detail"])
             existing.severity = str(alert["severity"])
             continue
-        database.add(OperationalNotification(
+        notification = OperationalNotification(
             organization_id=user.organization_id,
             notification_type=str(alert["type"]),
             severity=str(alert["severity"]),
@@ -598,7 +797,44 @@ def sync_notifications(user: User, database: Session) -> None:
             entity_id=entity_id,
             dedupe_key=dedupe_key,
             status="unread",
-        ))
+        )
+        database.add(notification)
+        database.flush()
+        recipients = database.scalars(select(User).where(User.organization_id == user.organization_id)).all()
+        for recipient in recipients:
+            preference = database.scalar(select(NotificationPreference).where(
+                NotificationPreference.organization_id == user.organization_id,
+                NotificationPreference.user_id == recipient.id,
+                NotificationPreference.notification_type == str(alert["type"]),
+            ))
+            channels = ["in_app"]
+            if preference is not None:
+                channels = []
+                if preference.in_app:
+                    channels.append("in_app")
+                if preference.email:
+                    channels.append("email")
+                if preference.sms:
+                    channels.append("sms")
+                if preference.whatsapp:
+                    channels.append("whatsapp")
+                if preference.push:
+                    channels.append("push")
+            for channel in channels:
+                existing_delivery = database.scalar(select(NotificationDelivery).where(
+                    NotificationDelivery.notification_id == notification.id,
+                    NotificationDelivery.user_id == recipient.id,
+                    NotificationDelivery.channel == channel,
+                ))
+                if existing_delivery is None:
+                    database.add(NotificationDelivery(
+                        organization_id=user.organization_id,
+                        notification_id=notification.id,
+                        user_id=recipient.id,
+                        channel=channel,
+                        status="queued" if channel != "in_app" else "delivered",
+                        sent_at=utc_now() if channel == "in_app" else None,
+                    ))
     database.commit()
 
 
@@ -617,7 +853,7 @@ def update_notification(
     notification_id: int,
     payload: NotificationStatusUpdate,
     request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("notifications")),
     database: Session = Depends(get_db),
 ) -> OperationalNotification:
     notification = database.scalar(select(OperationalNotification).where(
@@ -651,7 +887,7 @@ def list_expenses(user: User = Depends(get_current_user), database: Session = De
 def create_expense(
     payload: ExpenseCreate,
     request: Request,
-    user: User = Depends(require_roles("owner", "admin", "manager")),
+    user: User = Depends(require_permission("finance")),
     database: Session = Depends(get_db),
 ) -> Expense:
     if payload.vehicle_id is not None:
@@ -683,7 +919,7 @@ def update_expense_status(
     expense_id: int,
     payload: ExpenseStatusUpdate,
     request: Request,
-    user: User = Depends(require_roles("owner", "admin", "manager")),
+    user: User = Depends(require_permission("finance")),
     database: Session = Depends(get_db),
 ) -> Expense:
     expense = database.scalar(select(Expense).where(
@@ -750,7 +986,7 @@ def list_fuel_transactions(user: User = Depends(get_current_user), database: Ses
 def create_fuel_transaction(
     payload: FuelTransactionCreate,
     request: Request,
-    user: User = Depends(require_roles("owner", "admin", "manager")),
+    user: User = Depends(require_permission("finance")),
     database: Session = Depends(get_db),
 ) -> FuelTransaction:
     vehicle = database.scalar(select(Vehicle).where(Vehicle.id == payload.vehicle_id, Vehicle.organization_id == user.organization_id))
@@ -792,7 +1028,7 @@ def list_toll_transactions(user: User = Depends(get_current_user), database: Ses
 def create_toll_transaction(
     payload: TollTransactionCreate,
     request: Request,
-    user: User = Depends(require_roles("owner", "admin", "manager")),
+    user: User = Depends(require_permission("finance")),
     database: Session = Depends(get_db),
 ) -> TollTransaction:
     vehicle = database.scalar(select(Vehicle).where(Vehicle.id == payload.vehicle_id, Vehicle.organization_id == user.organization_id))
@@ -828,7 +1064,7 @@ def list_telematics_devices(user: User = Depends(get_current_user), database: Se
 def create_telematics_device(
     payload: TelematicsDeviceCreate,
     request: Request,
-    user: User = Depends(require_roles("owner", "admin", "manager")),
+    user: User = Depends(require_permission("fleet")),
     database: Session = Depends(get_db),
 ) -> TelematicsDevice:
     vehicle = database.scalar(select(Vehicle).where(Vehicle.id == payload.vehicle_id, Vehicle.organization_id == user.organization_id))
@@ -862,7 +1098,7 @@ def ingest_telemetry(
     device_id: int,
     payload: TelemetryReadingCreate,
     request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("fleet")),
     database: Session = Depends(get_db),
 ) -> TelemetryReading:
     device = database.scalar(select(TelematicsDevice).where(
@@ -920,7 +1156,7 @@ def list_vendors(user: User = Depends(get_current_user), database: Session = Dep
 def create_vendor(
     payload: VendorCreate,
     request: Request,
-    user: User = Depends(require_roles("owner", "admin", "manager")),
+    user: User = Depends(require_permission("procurement")),
     database: Session = Depends(get_db),
 ) -> Vendor:
     vendor = Vendor(organization_id=user.organization_id, **payload.model_dump())
@@ -950,7 +1186,7 @@ def list_purchase_orders(user: User = Depends(get_current_user), database: Sessi
 def create_purchase_order(
     payload: PurchaseOrderCreate,
     request: Request,
-    user: User = Depends(require_roles("owner", "admin", "manager")),
+    user: User = Depends(require_permission("procurement")),
     database: Session = Depends(get_db),
 ) -> PurchaseOrder:
     vendor = database.scalar(select(Vendor).where(Vendor.id == payload.vendor_id, Vendor.organization_id == user.organization_id, Vendor.active.is_(True)))
@@ -1002,7 +1238,7 @@ def update_purchase_order_status(
     purchase_order_id: int,
     payload: PurchaseOrderStatusUpdate,
     request: Request,
-    user: User = Depends(require_roles("owner", "admin", "manager")),
+    user: User = Depends(require_permission("procurement")),
     database: Session = Depends(get_db),
 ) -> PurchaseOrder:
     order = database.scalar(select(PurchaseOrder).where(PurchaseOrder.id == purchase_order_id, PurchaseOrder.organization_id == user.organization_id))

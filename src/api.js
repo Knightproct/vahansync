@@ -40,6 +40,26 @@ export function getVehicles(token) {
   }).then((vehicles) => vehicles.map(mapVehicle))
 }
 
+export function getCurrentUser(token) {
+  return request('/api/v1/auth/me', { headers: { Authorization: `Bearer ${token}` } })
+}
+
+export function getSubscription(token) {
+  return request('/api/v1/subscription', { headers: { Authorization: `Bearer ${token}` } })
+}
+
+export function getNotificationPreferences(token) {
+  return request('/api/v1/notification-preferences', { headers: { Authorization: `Bearer ${token}` } })
+}
+
+export function updateNotificationPreference(token, preference) {
+  return request('/api/v1/notification-preferences', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(preference),
+  })
+}
+
 export function createVehicle(token, vehicle) {
   return request('/api/v1/vehicles', {
     method: 'POST',

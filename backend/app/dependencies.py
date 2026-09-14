@@ -32,3 +32,28 @@ def require_roles(*roles: str):
         return user
 
     return dependency
+
+
+ROLE_PERMISSIONS = {
+    "owner": {"*"},
+    "admin": {"admin", "fleet", "workshop", "inventory", "finance", "compliance", "procurement", "notifications"},
+    "manager": {"fleet", "maintenance", "workshop", "inventory", "finance", "compliance", "procurement", "notifications"},
+    "fleet_manager": {"fleet", "maintenance", "compliance", "notifications"},
+    "workshop_manager": {"maintenance", "workshop", "inventory", "notifications"},
+    "inventory_manager": {"inventory", "procurement", "notifications"},
+    "driver": {"driver", "fleet", "notifications"},
+    "technician": {"maintenance", "workshop", "inventory", "notifications"},
+    "accountant": {"finance", "procurement", "notifications"},
+    "compliance_officer": {"compliance", "notifications"},
+    "operator": {"fleet", "maintenance", "compliance", "notifications"},
+}
+
+
+def require_permission(permission: str):
+    def dependency(user: User = Depends(get_current_user)) -> User:
+        permissions = ROLE_PERMISSIONS.get(user.role, set())
+        if "*" not in permissions and permission not in permissions:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Role {user.role} cannot access {permission}")
+        return user
+
+    return dependency

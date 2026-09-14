@@ -59,6 +59,23 @@ The current operations slice also includes:
 - Telematics device registration, validated readings, last-seen state, and latest-vehicle telemetry
 - Configurable identity-provider metadata and token-version session revocation
 - Structured request timing logs, storage-provider boundaries, health detail, and recovery runbook
+- Granular organisation roles with role-aware navigation and workspace messaging for fleet, workshop, inventory, drivers, technicians, finance, compliance, and operations
+- User membership management for owners and administrators
+- Notification preferences and queued delivery records for in-app, email, SMS, WhatsApp, and push channels
+- Subscription catalogue and organisation plan state with Starter, Growth, Scale, and Enterprise tiers
+
+## Recommended subscription model
+
+VahanSync is priced by managed fleet size rather than by every operational action:
+
+| Plan | Fleet size | Included users | Monthly price |
+| --- | ---: | ---: | ---: |
+| Starter | Up to 10 vehicles | 5 | ₹2,499 |
+| Growth | Up to 50 vehicles | 20 | ₹7,499 |
+| Scale | Up to 200 vehicles | 75 | ₹19,999 |
+| Enterprise | Custom | Custom | Contact sales |
+
+The product models trialing, pending activation, renewal, plan limits, and audit history. Payment checkout and external message delivery remain provider adapters so production credentials can be added without coupling the ERP to a single billing or messaging vendor.
 
 For non-development environments, set a unique `VAHANA_JWT_SECRET` and a non-default `VAHANA_SEED_ADMIN_PASSWORD`. Set `VAHANA_STORAGE_PATH` to a persistent volume or select an approved object-storage adapter with `VAHANA_STORAGE_BACKEND` and its provider settings. The current local bootstrap uses `Base.metadata.create_all` for development and tests; production rollout should run a reviewed schema migration before starting the API.
 

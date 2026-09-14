@@ -30,6 +30,72 @@ class UserRead(BaseModel):
     organization_id: int
 
 
+class UserCreate(BaseModel):
+    email: EmailStr
+    full_name: str = Field(min_length=2, max_length=160)
+    password: str = Field(min_length=8)
+    role: str = Field(pattern=r"^(admin|fleet_manager|workshop_manager|inventory_manager|driver|technician|accountant|compliance_officer|operator)$")
+
+
+class UserRoleUpdate(BaseModel):
+    role: str = Field(pattern=r"^(admin|fleet_manager|workshop_manager|inventory_manager|driver|technician|accountant|compliance_officer|operator)$")
+
+
+class NotificationPreferenceRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    notification_type: str
+    in_app: bool
+    email: bool
+    sms: bool
+    whatsapp: bool
+    push: bool
+
+
+class NotificationPreferenceUpdate(BaseModel):
+    notification_type: str = Field(min_length=2, max_length=80)
+    in_app: bool = True
+    email: bool = False
+    sms: bool = False
+    whatsapp: bool = False
+    push: bool = False
+
+
+class NotificationDeliveryRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    notification_id: int
+    user_id: int
+    channel: str
+    status: str
+    provider_message_id: str | None
+    sent_at: datetime | None
+
+
+class SubscriptionPlanRead(BaseModel):
+    code: str
+    name: str
+    monthly_price_paise: int | None
+    included_vehicles: int | None
+    included_users: int | None
+    features: list[str]
+
+
+class SubscriptionRead(BaseModel):
+    plan: SubscriptionPlanRead
+    status: str
+    trial_ends_on: str | None
+    renews_on: str | None
+    vehicle_count: int
+    user_count: int
+
+
+class SubscriptionChange(BaseModel):
+    plan_code: str = Field(pattern=r"^(starter|growth|scale|enterprise)$")
+
+
 class VehicleCreate(BaseModel):
     registration_number: str = Field(min_length=3, max_length=32)
     model: str = Field(min_length=2, max_length=160)

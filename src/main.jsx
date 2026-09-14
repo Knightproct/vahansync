@@ -1,17 +1,17 @@
 import React, { StrictMode, useEffect, useMemo, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import './styles.css'
-import { createVehicle, createWorkOrder, getComponents, getDocuments, getExpenses, getMaintenancePlans, getNotifications, getParts, getPurchaseOrders, getVehicles, getVendors, getWorkOrders, login } from './api'
+import { createVehicle, createWorkOrder, getComponents, getCurrentUser, getDocuments, getExpenses, getMaintenancePlans, getNotifications, getParts, getPurchaseOrders, getSubscription, getVehicles, getVendors, getWorkOrders, login } from './api'
 
 const isPublicPage = window.location.pathname === '/'
 
 const navItems = [
-  { id: 'overview', label: 'Overview', icon: '⌂' },
-  { id: 'fleet', label: 'Fleet', icon: '▱', count: '48' },
-  { id: 'maintenance', label: 'Maintenance', icon: '⌁', count: '07' },
-  { id: 'workshop', label: 'Workshop', icon: '⌘' },
-  { id: 'documents', label: 'Documents', icon: '▤', count: '12' },
-  { id: 'costs', label: 'Costs & finance', icon: '₹' },
+  { id: 'overview', label: 'Overview', icon: '⌂', permissions: ['fleet', 'maintenance', 'finance', 'compliance'] },
+  { id: 'fleet', label: 'Fleet', icon: '▱', count: '48', permissions: ['fleet'] },
+  { id: 'maintenance', label: 'Maintenance', icon: '⌁', count: '07', permissions: ['maintenance'] },
+  { id: 'workshop', label: 'Workshop', icon: '⌘', permissions: ['workshop', 'inventory'] },
+  { id: 'documents', label: 'Documents', icon: '▤', count: '12', permissions: ['compliance'] },
+  { id: 'costs', label: 'Costs & finance', icon: '₹', permissions: ['finance'] },
 ]
 
 const maintenance = [
@@ -48,6 +48,8 @@ function App() {
   const [vendors, setVendors] = useState([])
   const [purchaseOrders, setPurchaseOrders] = useState([])
   const [notifications, setNotifications] = useState([])
+  const [currentUser, setCurrentUser] = useState(null)
+  const [subscription, setSubscription] = useState(null)
   const [token, setToken] = useState(() => window.sessionStorage.getItem('vahana:access-token'))
   const [apiState, setApiState] = useState('loading')
   const [apiError, setApiError] = useState('')
@@ -67,7 +69,9 @@ function App() {
           setApiState('unauthenticated')
           return
         }
-        const [loadedFleet, loadedWorkOrders, loadedParts, loadedDocuments, loadedExpenses, loadedComponents, loadedPlans, loadedVendors, loadedPurchaseOrders, loadedNotifications] = await Promise.all([
+        const [loadedUser, loadedSubscription, loadedFleet, loadedWorkOrders, loadedParts, loadedDocuments, loadedExpenses, loadedComponents, loadedPlans, loadedVendors, loadedPurchaseOrders, loadedNotifications] = await Promise.all([
+          getCurrentUser(accessToken),
+          getSubscription(accessToken),
           getVehicles(accessToken),
           getWorkOrders(accessToken),
           getParts(accessToken),
@@ -79,6 +83,8 @@ function App() {
           getPurchaseOrders(accessToken),
           getNotifications(accessToken),
         ])
+        setCurrentUser(loadedUser)
+        setSubscription(loadedSubscription)
         setFleet(loadedFleet)
         setWorkOrders(loadedWorkOrders)
         setParts(loadedParts)
@@ -110,6 +116,19 @@ function App() {
   )
 
   const title = navItems.find((item) => item.id === active)?.label ?? 'Overview'
+  const rolePermissions = currentUser?.role === 'owner' ? new Set(['*']) : new Set({
+    admin: ['admin', 'fleet', 'workshop', 'inventory', 'finance', 'compliance'],
+    manager: ['fleet', 'maintenance', 'workshop', 'inventory', 'finance', 'compliance'],
+    fleet_manager: ['fleet', 'maintenance', 'compliance'],
+    workshop_manager: ['maintenance', 'workshop', 'inventory'],
+    inventory_manager: ['inventory', 'workshop'],
+    driver: ['fleet', 'maintenance'],
+    technician: ['maintenance', 'workshop', 'inventory'],
+    accountant: ['finance'],
+    compliance_officer: ['compliance'],
+    operator: ['fleet', 'maintenance', 'compliance'],
+  }[currentUser?.role] || [])
+  const visibleNavItems = navItems.filter((item) => rolePermissions.has('*') || item.permissions.some((permission) => rolePermissions.has(permission)))
 
   const notify = (message) => {
     setToast(message)
@@ -132,18 +151,19 @@ function App() {
           </div>
         </div>
 
-        <div className="workspace-switcher">
+          <div className="workspace-switcher">
           <div className="workspace-avatar">RK</div>
           <div>
             <span className="eyebrow">Workspace</span>
-            <strong>Rajput Logistics</strong>
+            <strong>{currentUser?.full_name || 'Rajput Logistics'}</strong>
           </div>
           <span className="chevron">⌄</span>
         </div>
+        <div className="role-chip">{currentUser?.role?.replaceAll('_', ' ') || 'workspace'} · {subscription?.plan?.name || 'plan'}</div>
 
         <nav className="nav-list">
           <span className="nav-section">Command centre</span>
-          {navItems.map((item) => (
+          {visibleNavItems.map((item) => (
             <button className={`nav-item ${active === item.id ? 'active' : ''}`} key={item.id} onClick={() => setActive(item.id)}>
               <span className="nav-icon">{item.icon}</span>
               <span>{item.label}</span>
@@ -184,7 +204,7 @@ function App() {
         </header>
 
         <div className="page">
-          {active === 'overview' && <Overview vehicles={fleet} workOrders={workOrders} documents={documentsData} expenses={expenses} onAdd={() => setShowAdd(true)} onNotify={notify} />}
+          {active === 'overview' && <Overview role={currentUser?.role} vehicles={fleet} workOrders={workOrders} documents={documentsData} expenses={expenses} onAdd={() => setShowAdd(true)} onNotify={notify} />}
           {active === 'fleet' && <Fleet vehicles={filteredVehicles} onAdd={() => setShowAdd(true)} />}
           {active === 'maintenance' && <Maintenance workOrders={workOrders} components={components} plans={maintenancePlans} vehicles={fleet} token={token} onCreated={(workOrder) => setWorkOrders((current) => [workOrder, ...current])} onNotify={notify} />}
           {active === 'workshop' && <Workshop parts={parts} vendors={vendors} purchaseOrders={purchaseOrders} onNotify={notify} />}
@@ -262,9 +282,21 @@ function PageHeader({ eyebrow, title, subtitle, action, onAction }) {
   </div>
 }
 
-function Overview({ vehicles: fleet, workOrders, documents, expenses, onAdd, onNotify }) {
+function Overview({ role, vehicles: fleet, workOrders, documents, expenses, onAdd, onNotify }) {
+  const workspace = {
+    owner: ['Command centre', 'Good morning, your organisation is ready for today.'],
+    admin: ['Admin workspace', 'Keep people, permissions, operations, and controls moving.'],
+    fleet_manager: ['Fleet manager workspace', 'Monitor availability, vehicle health, assignments, and compliance risk.'],
+    workshop_manager: ['Workshop manager workspace', 'Coordinate jobs, technicians, parts, and turnaround time.'],
+    inventory_manager: ['Inventory manager workspace', 'Keep every workshop supplied with the right part at the right time.'],
+    driver: ['Driver workspace', 'See your assigned vehicle, open defects, inspections, and route readiness.'],
+    technician: ['Technician workspace', 'Work through assigned jobs, parts, checklists, and completion updates.'],
+    accountant: ['Finance workspace', 'Review expenses, fuel, tolls, GST, vendors, and approvals.'],
+    compliance_officer: ['Compliance workspace', 'Stay ahead of PUC, insurance, fitness, permits, and renewals.'],
+    operator: ['Operations workspace', 'Coordinate live fleet activity, maintenance, and daily exceptions.'],
+  }[role] || ['Operations workspace', 'Here’s what’s happening across your fleet today.']
   return <div>
-    <PageHeader eyebrow="Monday, 15 June 2024" title="Good morning, Arjun" subtitle="Here’s what’s happening across your fleet today." action="Add vehicle" onAction={onAdd} />
+    <PageHeader eyebrow={workspace[0]} title={workspace[1]} subtitle="VahanSync shows the work relevant to your role, with organisation-wide controls behind it." action={['owner', 'admin', 'fleet_manager'].includes(role) ? 'Add vehicle' : undefined} onAction={onAdd} />
     <div className="metric-grid">
       <MetricCard label="Fleet health" value="86.4%" change="+2.8%" detail="vs last month" icon="◒" tone="navy" />
       <MetricCard label="Active vehicles" value={`${fleet.filter((vehicle) => vehicle.status === 'On route').length} / ${fleet.length}`} change="+3" detail="this month" icon="▱" tone="blue" />

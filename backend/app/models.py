@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -18,6 +18,10 @@ class Organization(Base):
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     slug: Mapped[str] = mapped_column(String(80), unique=True, nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    subscription_plan: Mapped[str] = mapped_column(String(32), default="starter", nullable=False)
+    subscription_status: Mapped[str] = mapped_column(String(24), default="trialing", nullable=False)
+    trial_ends_on: Mapped[Optional[str]] = mapped_column(String(20))
+    subscription_renews_on: Mapped[Optional[str]] = mapped_column(String(20))
     users: Mapped[list["User"]] = relationship(back_populates="organization")
     vehicles: Mapped[list["Vehicle"]] = relationship(back_populates="organization")
 
@@ -30,7 +34,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     full_name: Mapped[str] = mapped_column(String(160), nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
-    role: Mapped[str] = mapped_column(String(32), default="admin", nullable=False)
+    role: Mapped[str] = mapped_column(String(48), default="admin", nullable=False)
     token_version: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
     organization: Mapped[Organization] = relationship(back_populates="users")
@@ -197,6 +201,35 @@ class OperationalNotification(Base):
     status: Mapped[str] = mapped_column(String(20), default="unread", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class NotificationPreference(Base):
+    __tablename__ = "notification_preferences"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    notification_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    in_app: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    email: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    sms: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    whatsapp: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    push: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class NotificationDelivery(Base):
+    __tablename__ = "notification_deliveries"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    notification_id: Mapped[int] = mapped_column(ForeignKey("operational_notifications.id"), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    channel: Mapped[str] = mapped_column(String(24), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="queued", nullable=False)
+    provider_message_id: Mapped[Optional[str]] = mapped_column(String(160))
+    sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
 
 class Expense(Base):
