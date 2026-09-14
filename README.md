@@ -1,29 +1,44 @@
 # Vahana Fleet OS
 
-Vahana is an India-focused fleet operations ERP foundation for operators who need one place to manage vehicles, components, workshop inventory, maintenance, costs, and compliance documents.
+Vahana is an India-focused, multi-tenant fleet operations ERP for operators who need one system of record for vehicles, components, workshop inventory, maintenance, costs, and regulatory compliance.
 
 ## Run locally
+
+Install the web dependencies:
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open the local Vite URL shown in the terminal. The production build can be verified with:
+In a second terminal, create the API environment once and start the backend:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r backend/requirements.txt
+npm run api
+```
+
+The seeded development account is `admin@example.com` / `ChangeMe!123`. Replace these values with `VAHANA_SEED_ADMIN_EMAIL` and `VAHANA_SEED_ADMIN_PASSWORD` before sharing an environment.
+
+Open the local Vite URL shown in the terminal. The production web build and API tests can be verified with:
 
 ```bash
 npm run build
+npm run test:api
 ```
 
-## Product foundation
+## Production foundation
 
-The current frontend prototype covers:
+The browser is now a client of the Vahana API. Local development uses SQLite, while production is designed for PostgreSQL through `VAHANA_DATABASE_URL`.
 
-- Fleet health and active vehicle monitoring
-- Vehicle register with depots, drivers, health, and route status
-- Preventive maintenance queue and work-order planning
-- Workshop parts catalogue and reorder visibility
-- Document vault with expiry status
-- Operating cost, fuel, maintenance, and expense views
+The first production slice includes:
 
-The next implementation layers should add persistent storage, authentication and roles, telematics integrations, GST-ready finance workflows, vendor portals, and mobile workflows for drivers and workshop technicians.
+- Multi-tenant organizations and organization-scoped vehicle queries
+- JWT authentication with password hashing and role-ready memberships
+- Vehicle register API with duplicate registration protection
+- Audit event creation for vehicle mutations
+- API-backed fleet dashboard and add-vehicle workflow
+- Health endpoint, request IDs, CORS configuration, and automated API coverage
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for domain boundaries and the enterprise delivery sequence.

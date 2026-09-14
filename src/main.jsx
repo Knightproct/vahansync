@@ -1,6 +1,7 @@
 import { StrictMode, useEffect, useMemo, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import './styles.css'
+import { createVehicle, getVehicles, login } from './api'
 
 const navItems = [
   { id: 'overview', label: 'Overview', icon: '⌂' },
@@ -9,13 +10,6 @@ const navItems = [
   { id: 'workshop', label: 'Workshop', icon: '⌘' },
   { id: 'documents', label: 'Documents', icon: '▤', count: '12' },
   { id: 'costs', label: 'Costs & finance', icon: '₹' },
-]
-
-const vehicles = [
-  { reg: 'MH 12 QX 4821', model: 'Ashok Leyland 3520', type: 'Heavy truck', depot: 'Pune Central', status: 'On route', health: 92, km: '84,920 km', driver: 'Amit Kulkarni', accent: 'blue' },
-  { reg: 'KA 03 MN 7712', model: 'Tata Prima 5530', type: 'Heavy truck', depot: 'Bengaluru Yard', status: 'In workshop', health: 68, km: '142,860 km', driver: 'Unassigned', accent: 'orange' },
-  { reg: 'GJ 01 RT 6388', model: 'BharatBenz 2823C', type: 'Tipper', depot: 'Ahmedabad Hub', status: 'On route', health: 87, km: '67,430 km', driver: 'Rakesh Yadav', accent: 'green' },
-  { reg: 'TN 38 AB 1904', model: 'Eicher Pro 6042', type: 'Multi-axle', depot: 'Chennai North', status: 'Due for service', health: 74, km: '112,200 km', driver: 'S. Prakash', accent: 'purple' },
 ]
 
 const maintenance = [
@@ -37,25 +31,39 @@ const inventory = [
   { part: 'Clutch plate assembly', sku: 'CL-EC-6042', category: 'Drivetrain', stock: 2, min: 2, cost: '₹18,900', supplier: 'Eicher Motors' },
 ]
 
-const VEHICLES_STORAGE_KEY = 'vahana:vehicles'
-
 function App() {
   const [active, setActive] = useState('overview')
   const [search, setSearch] = useState('')
   const [showAdd, setShowAdd] = useState(false)
   const [toast, setToast] = useState('')
-  const [fleet, setFleet] = useState(() => {
-    try {
-      const storedVehicles = window.localStorage.getItem(VEHICLES_STORAGE_KEY)
-      return storedVehicles ? JSON.parse(storedVehicles) : vehicles
-    } catch {
-      return vehicles
-    }
-  })
+  const [fleet, setFleet] = useState([])
+  const [token, setToken] = useState(() => window.sessionStorage.getItem('vahana:access-token'))
+  const [apiState, setApiState] = useState('loading')
+  const [apiError, setApiError] = useState('')
 
   useEffect(() => {
-    window.localStorage.setItem(VEHICLES_STORAGE_KEY, JSON.stringify(fleet))
-  }, [fleet])
+    const bootstrap = async () => {
+      try {
+        let accessToken = token
+        if (!accessToken && import.meta.env.DEV) {
+          const session = await login(import.meta.env.VITE_DEV_EMAIL || 'admin@example.com', import.meta.env.VITE_DEV_PASSWORD || 'ChangeMe!123')
+          accessToken = session.access_token
+          window.sessionStorage.setItem('vahana:access-token', accessToken)
+          setToken(accessToken)
+        }
+        if (!accessToken) {
+          setApiState('unauthenticated')
+          return
+        }
+        setFleet(await getVehicles(accessToken))
+        setApiState('ready')
+      } catch (error) {
+        setApiError(error.message)
+        setApiState('error')
+      }
+    }
+    bootstrap()
+  }, [token])
 
   const filteredVehicles = useMemo(
     () => fleet.filter((vehicle) => `${vehicle.reg} ${vehicle.model} ${vehicle.depot}`.toLowerCase().includes(search.toLowerCase())),
@@ -68,6 +76,10 @@ function App() {
     setToast(message)
     window.setTimeout(() => setToast(''), 2800)
   }
+
+  if (apiState === 'loading') return <AppState title="Connecting to Vahana" detail="Loading your organization data securely..." />
+  if (apiState === 'error') return <AppState title="Vahana API unavailable" detail={`${apiError}. Start the backend service and reload this workspace.`} />
+  if (apiState === 'unauthenticated') return <LoginScreen onAuthenticated={(accessToken) => { window.sessionStorage.setItem('vahana:access-token', accessToken); setToken(accessToken) }} />
 
   return (
     <div className="app-shell">
@@ -141,10 +153,32 @@ function App() {
         </div>
       </main>
 
-      {showAdd && <AddVehicleModal onClose={() => setShowAdd(false)} onSave={(vehicle) => { setFleet((currentFleet) => [vehicle, ...currentFleet]); setShowAdd(false); notify('Vehicle added to your fleet.'); }} />}
+      {showAdd && <AddVehicleModal onClose={() => setShowAdd(false)} onSave={async (vehicle) => { try { const createdVehicle = await createVehicle(token, vehicle); setFleet((currentFleet) => [createdVehicle, ...currentFleet]); setShowAdd(false); notify('Vehicle added to your fleet.'); } catch (error) { notify(error.message) } }} />}
       {toast && <div className="toast"><span>✓</span>{toast}</div>}
     </div>
   )
+}
+
+function AppState({ title, detail }) {
+  return <div className="app-state"><div className="brand-mark">V</div><h1>{title}</h1><p>{detail}</p></div>
+}
+
+function LoginScreen({ onAuthenticated }) {
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+
+  const submit = async (event) => {
+    event.preventDefault()
+    try {
+      const session = await login(email, password)
+      onAuthenticated(session.access_token)
+    } catch (requestError) {
+      setError(requestError.message)
+    }
+  }
+
+  return <div className="login-screen"><form className="login-card" onSubmit={submit}><div className="brand-mark">V</div><span className="eyebrow">Vahana Fleet OS</span><h1>Sign in to your workspace</h1><p>Secure access to your fleet operations command centre.</p><label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required placeholder="you@company.com" /></label><label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required minLength="8" /></label>{error && <div className="form-error">{error}</div>}<button className="primary-button" type="submit">Sign in</button></form></div>
 }
 
 function PageHeader({ eyebrow, title, subtitle, action, onAction }) {

@@ -4,6 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "api": ".venv/bin/uvicorn backend.app.main:app --reload --port 8000",
+    "test:api": ".venv/bin/pytest backend/tests -q",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview"
