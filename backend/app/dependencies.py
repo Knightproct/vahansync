@@ -16,15 +16,24 @@ def get_current_user(token: str = Depends(oauth2_scheme), database: Session = De
     try:
         settings = get_settings()
         if settings.auth_provider == "supabase":
-            claims = decode_supabase_token(token)
-            subject = str(claims["sub"])
-            email = str(claims.get("email", "")).lower()
-            user = database.scalar(select(User).where(User.supabase_user_id == subject))
-            if user is None and email:
-                user = database.scalar(select(User).where(User.email == email))
-                if user is not None:
-                    user.supabase_user_id = subject
-                    database.commit()
+            try:
+                claims = decode_supabase_token(token)
+                subject = str(claims["sub"])
+                email = str(claims.get("email", "")).lower()
+                user = database.scalar(select(User).where(User.supabase_user_id == subject))
+                if user is None and email:
+                    user = database.scalar(select(User).where(User.email == email))
+                    if user is not None:
+                        user.supabase_user_id = subject
+                        database.commit()
+            except Exception:
+                if settings.environment.lower() != "development":
+                    raise
+                user_id = decode_access_token(token)
+                token_version = decode_token_version(token)
+                user = database.get(User, user_id)
+                if user is None or user.token_version != token_version:
+                    raise credentials_error
         else:
             user_id = decode_access_token(token)
             token_version = decode_token_version(token)
