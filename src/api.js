@@ -1,6 +1,7 @@
 import { supabase } from './supabase'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+const useSupabaseAuth = Boolean(supabase) && !API_BASE_URL.includes('localhost')
 function mapVehicle(vehicle) {
   return {
     ...vehicle,
@@ -29,14 +30,12 @@ async function request(path, options = {}) {
 }
 
 export async function login(email, password) {
-  if (supabase) {
+  if (useSupabaseAuth) {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     if (!error && data.session) {
       return { access_token: data.session.access_token, token_type: 'bearer' }
     }
-    if (!import.meta.env.DEV) {
-      throw new Error(error?.message || 'Unable to sign in')
-    }
+    throw new Error(error?.message || 'Unable to sign in')
   }
   return request('/api/v1/auth/login', {
     method: 'POST',
