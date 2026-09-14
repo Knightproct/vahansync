@@ -70,6 +70,6 @@ def test_organization_onboarding_invitation_and_assignment_visibility(tmp_path: 
         invalid_role = client.post("/api/v1/invitations", headers=driver_headers, json={
             "email": "admin@northstar.example",
             "full_name": "Not Allowed",
-            "role": "admin",
+            "role": "owner",
         })
         assert invalid_role.status_code == 403

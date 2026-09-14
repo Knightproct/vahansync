@@ -50,7 +50,7 @@ class OrganizationSignupRead(BaseModel):
 class InvitationCreate(BaseModel):
     email: EmailStr
     full_name: str = Field(min_length=2, max_length=160)
-    role: str = Field(pattern=r"^(admin|fleet_manager|workshop_manager|inventory_manager|driver|technician|accountant|compliance_officer|operator)$")
+    role: str = Field(pattern=r"^(fleet_manager|inventory_manager|driver|technician|accountant)$")
     expires_in_days: int = Field(default=7, ge=1, le=30)
 
 
@@ -83,11 +83,11 @@ class UserCreate(BaseModel):
     email: EmailStr
     full_name: str = Field(min_length=2, max_length=160)
     password: str = Field(min_length=8)
-    role: str = Field(pattern=r"^(admin|fleet_manager|workshop_manager|inventory_manager|driver|technician|accountant|compliance_officer|operator)$")
+    role: str = Field(pattern=r"^(fleet_manager|inventory_manager|driver|technician|accountant)$")
 
 
 class UserRoleUpdate(BaseModel):
-    role: str = Field(pattern=r"^(admin|fleet_manager|workshop_manager|inventory_manager|driver|technician|accountant|compliance_officer|operator)$")
+    role: str = Field(pattern=r"^(fleet_manager|inventory_manager|driver|technician|accountant)$")
 
 
 class NotificationPreferenceRead(BaseModel):

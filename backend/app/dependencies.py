@@ -60,16 +60,11 @@ def require_roles(*roles: str):
 
 ROLE_PERMISSIONS = {
     "owner": {"*"},
-    "admin": {"admin", "fleet", "workshop", "inventory", "finance", "compliance", "procurement", "notifications"},
-    "manager": {"fleet", "maintenance", "workshop", "inventory", "finance", "compliance", "procurement", "notifications"},
     "fleet_manager": {"fleet", "maintenance", "compliance", "notifications"},
-    "workshop_manager": {"maintenance", "workshop", "inventory", "notifications"},
-    "inventory_manager": {"inventory", "procurement", "notifications"},
-    "driver": {"driver", "fleet", "notifications"},
+    "inventory_manager": {"inventory", "procurement", "workshop", "notifications"},
+    "driver": {"driver", "fleet", "maintenance", "finance", "notifications"},
     "technician": {"maintenance", "workshop", "inventory", "notifications"},
     "accountant": {"finance", "procurement", "notifications"},
-    "compliance_officer": {"compliance", "notifications"},
-    "operator": {"fleet", "maintenance", "compliance", "notifications"},
 }
 
 

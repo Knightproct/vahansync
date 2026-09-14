@@ -207,7 +207,7 @@ def current_user(user: User = Depends(get_current_user)) -> User:
 
 @router.get("/invitations", response_model=list[InvitationRead])
 def list_invitations(
-    user: User = Depends(require_roles("owner", "admin")),
+    user: User = Depends(require_roles("owner")),
     database: Session = Depends(get_db),
 ) -> list[OrganizationInvitation]:
     return list(database.scalars(
@@ -221,7 +221,7 @@ def list_invitations(
 def create_invitation(
     payload: InvitationCreate,
     request: Request,
-    user: User = Depends(require_roles("owner", "admin")),
+    user: User = Depends(require_roles("owner")),
     database: Session = Depends(get_db),
 ) -> dict:
     email = payload.email.lower()
@@ -271,7 +271,7 @@ def create_invitation(
 def revoke_invitation(
     invitation_id: int,
     request: Request,
-    user: User = Depends(require_roles("owner", "admin")),
+    user: User = Depends(require_roles("owner")),
     database: Session = Depends(get_db),
 ) -> OrganizationInvitation:
     invitation = database.scalar(select(OrganizationInvitation).where(
@@ -335,7 +335,7 @@ def accept_invitation(payload: InvitationAccept, database: Session = Depends(get
 
 @router.get("/users", response_model=list[UserRead])
 def list_users(
-    user: User = Depends(require_roles("owner", "admin")),
+    user: User = Depends(require_roles("owner")),
     database: Session = Depends(get_db),
 ) -> list[User]:
     return list(database.scalars(select(User).where(User.organization_id == user.organization_id).order_by(User.full_name.asc())).all())
@@ -345,7 +345,7 @@ def list_users(
 def create_user(
     payload: UserCreate,
     request: Request,
-    user: User = Depends(require_roles("owner", "admin")),
+    user: User = Depends(require_roles("owner")),
     database: Session = Depends(get_db),
 ) -> User:
     email = payload.email.lower()
@@ -379,7 +379,7 @@ def update_user_role(
     user_id: int,
     payload: UserRoleUpdate,
     request: Request,
-    user: User = Depends(require_roles("owner", "admin")),
+    user: User = Depends(require_roles("owner")),
     database: Session = Depends(get_db),
 ) -> User:
     member = database.scalar(select(User).where(User.id == user_id, User.organization_id == user.organization_id))
@@ -423,7 +423,7 @@ def get_subscription(user: User = Depends(get_current_user), database: Session =
 def change_subscription(
     payload: SubscriptionChange,
     request: Request,
-    user: User = Depends(require_roles("owner", "admin")),
+    user: User = Depends(require_roles("owner")),
     database: Session = Depends(get_db),
 ) -> SubscriptionRead:
     organization = database.get(Organization, user.organization_id)
@@ -445,7 +445,7 @@ def change_subscription(
 @router.post("/subscription/checkout", response_model=SubscriptionCheckoutRead)
 def create_subscription_checkout(
     payload: SubscriptionChange,
-    user: User = Depends(require_roles("owner", "admin")),
+    user: User = Depends(require_roles("owner")),
     database: Session = Depends(get_db),
 ) -> SubscriptionCheckoutRead:
     settings = get_settings()
@@ -525,7 +525,7 @@ async def razorpay_webhook(request: Request, database: Session = Depends(get_db)
 @router.post("/subscription/verify", response_model=SubscriptionRead)
 def verify_subscription_payment(
     payload: RazorpaySubscriptionVerify,
-    user: User = Depends(require_roles("owner", "admin")),
+    user: User = Depends(require_roles("owner")),
     database: Session = Depends(get_db),
 ) -> SubscriptionRead:
     settings = get_settings()
@@ -657,7 +657,12 @@ def create_vehicle(
 
 @router.get("/components", response_model=list[ComponentRead])
 def list_components(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[VehicleComponent]:
-    return list(database.scalars(select(VehicleComponent).where(VehicleComponent.organization_id == user.organization_id).order_by(VehicleComponent.id.desc())).all())
+    statement = select(VehicleComponent).where(VehicleComponent.organization_id == user.organization_id)
+    if user.role == "driver":
+        statement = statement.where(VehicleComponent.vehicle_id.in_(
+            select(Vehicle.id).where(Vehicle.assigned_driver_id == user.id)
+        ))
+    return list(database.scalars(statement.order_by(VehicleComponent.id.desc())).all())
 
 
 @router.post("/components", response_model=ComponentRead, status_code=status.HTTP_201_CREATED)
@@ -709,7 +714,7 @@ def create_work_order(
         assignee = database.scalar(select(User).where(
             User.id == payload.assigned_user_id,
             User.organization_id == user.organization_id,
-            User.role.in_(("technician", "workshop_manager")),
+            User.role.in_(("technician",)),
         ))
         if assignee is None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Assigned user must be a workshop user in this organization")
@@ -937,7 +942,12 @@ def create_inventory_movement(
 
 @router.get("/documents", response_model=list[DocumentRead])
 def list_documents(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[ComplianceDocument]:
-    documents = list(database.scalars(select(ComplianceDocument).where(ComplianceDocument.organization_id == user.organization_id).order_by(ComplianceDocument.expires_on.asc())).all())
+    statement = select(ComplianceDocument).where(ComplianceDocument.organization_id == user.organization_id)
+    if user.role == "driver":
+        statement = statement.where(ComplianceDocument.vehicle_id.in_(
+            select(Vehicle.id).where(Vehicle.assigned_driver_id == user.id)
+        ))
+    documents = list(database.scalars(statement.order_by(ComplianceDocument.expires_on.asc())).all())
     today = date.today().isoformat()
     for document in documents:
         if document.expires_on < today:

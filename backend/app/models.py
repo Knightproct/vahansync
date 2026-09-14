@@ -37,7 +37,7 @@ class User(Base):
     full_name: Mapped[str] = mapped_column(String(160), nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     supabase_user_id: Mapped[Optional[str]] = mapped_column(String(80), unique=True, index=True)
-    role: Mapped[str] = mapped_column(String(48), default="admin", nullable=False)
+    role: Mapped[str] = mapped_column(String(48), default="owner", nullable=False)
     token_version: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
     organization: Mapped[Organization] = relationship(back_populates="users")

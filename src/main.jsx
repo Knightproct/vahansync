@@ -118,16 +118,11 @@ function App() {
 
   const title = navItems.find((item) => item.id === active)?.label ?? 'Overview'
   const rolePermissions = currentUser?.role === 'owner' ? new Set(['*']) : new Set({
-    admin: ['admin', 'fleet', 'workshop', 'inventory', 'finance', 'compliance'],
-    manager: ['fleet', 'maintenance', 'workshop', 'inventory', 'finance', 'compliance'],
     fleet_manager: ['fleet', 'maintenance', 'compliance'],
-    workshop_manager: ['maintenance', 'workshop', 'inventory'],
     inventory_manager: ['inventory', 'workshop'],
     driver: ['fleet', 'maintenance'],
     technician: ['maintenance', 'workshop', 'inventory'],
     accountant: ['finance'],
-    compliance_officer: ['compliance'],
-    operator: ['fleet', 'maintenance', 'compliance'],
   }[currentUser?.role] || [])
   const visibleNavItems = navItems.filter((item) => rolePermissions.has('*') || item.permissions.some((permission) => rolePermissions.has(permission)))
 
@@ -180,7 +175,7 @@ function App() {
           <button className="nav-item" onClick={() => notify('Settings are available to workspace admins.')}>
             <span className="nav-icon">⚙</span><span>Settings</span>
           </button>
-          {(currentUser?.role === 'owner' || currentUser?.role === 'admin') && <button className="nav-item" onClick={() => setShowInvite(true)}>
+          {currentUser?.role === 'owner' && <button className="nav-item" onClick={() => setShowInvite(true)}>
             <span className="nav-icon">+</span><span>Invite teammate</span>
           </button>}
         </nav>
@@ -325,7 +320,7 @@ function InviteModal({ token, onClose, onCreated }) {
       setError(requestError.message)
     }
   }
-  return <div className="modal-backdrop"><form className="modal-card" onSubmit={submit}><div className="modal-header"><div><span className="eyebrow">Organisation access</span><h2>Invite a teammate</h2></div><button type="button" className="icon-button" onClick={onClose}>×</button></div><p>Assign one workspace role. The invitee creates their own password from the secure link.</p><label>Full name<input value={form.full_name} onChange={(event) => setForm({ ...form, full_name: event.target.value })} required /></label><label>Email<input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required /></label><label>Role<select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })}><option value="fleet_manager">Fleet manager</option><option value="workshop_manager">Workshop manager</option><option value="inventory_manager">Inventory manager</option><option value="driver">Driver</option><option value="technician">Technician</option><option value="accountant">Accountant</option><option value="compliance_officer">Compliance officer</option><option value="operator">Operator</option><option value="admin">Admin</option></select></label>{error && <div className="form-error">{error}</div>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button className="primary-button" type="submit">Create invitation</button></div></form></div>
+  return <div className="modal-backdrop"><form className="modal-card" onSubmit={submit}><div className="modal-header"><div><span className="eyebrow">Organisation access</span><h2>Invite a teammate</h2></div><button type="button" className="icon-button" onClick={onClose}>×</button></div><p>Assign one workspace role. The invitee creates their own password from the secure link.</p><label>Full name<input value={form.full_name} onChange={(event) => setForm({ ...form, full_name: event.target.value })} required /></label><label>Email<input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required /></label><label>Role<select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })}><option value="fleet_manager">Fleet manager</option><option value="inventory_manager">Inventory manager</option><option value="driver">Driver</option><option value="technician">Mechanic / technician</option><option value="accountant">Accountant</option></select></label>{error && <div className="form-error">{error}</div>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button className="primary-button" type="submit">Create invitation</button></div></form></div>
 }
 
 function PageHeader({ eyebrow, title, subtitle, action, onAction }) {
@@ -337,19 +332,15 @@ function PageHeader({ eyebrow, title, subtitle, action, onAction }) {
 
 function Overview({ role, vehicles: fleet, workOrders, documents, expenses, onAdd, onNotify }) {
   const workspace = {
-    owner: ['Command centre', 'Good morning, your organisation is ready for today.'],
-    admin: ['Admin workspace', 'Keep people, permissions, operations, and controls moving.'],
+    owner: ['Owner command centre', 'Control people, policy, billing, and every operational area.'],
     fleet_manager: ['Fleet manager workspace', 'Monitor availability, vehicle health, assignments, and compliance risk.'],
-    workshop_manager: ['Workshop manager workspace', 'Coordinate jobs, technicians, parts, and turnaround time.'],
     inventory_manager: ['Inventory manager workspace', 'Keep every workshop supplied with the right part at the right time.'],
     driver: ['Driver workspace', 'See your assigned vehicle, open defects, inspections, and route readiness.'],
     technician: ['Technician workspace', 'Work through assigned jobs, parts, checklists, and completion updates.'],
-    accountant: ['Finance workspace', 'Review expenses, fuel, tolls, GST, vendors, and approvals.'],
-    compliance_officer: ['Compliance workspace', 'Stay ahead of PUC, insurance, fitness, permits, and renewals.'],
-    operator: ['Operations workspace', 'Coordinate live fleet activity, maintenance, and daily exceptions.'],
+    accountant: ['Finance workspace', 'Keep expenses, GST, vendors, and reconciliations accurate.'],
   }[role] || ['Operations workspace', 'Here’s what’s happening across your fleet today.']
   return <div>
-    <PageHeader eyebrow={workspace[0]} title={workspace[1]} subtitle="VahanSync shows the work relevant to your role, with organisation-wide controls behind it." action={['owner', 'admin', 'fleet_manager'].includes(role) ? 'Add vehicle' : undefined} onAction={onAdd} />
+    <PageHeader eyebrow={workspace[0]} title={workspace[1]} subtitle="VahanSync shows the work relevant to your role, with organisation-wide controls behind it." action={['owner', 'fleet_manager'].includes(role) ? 'Add vehicle' : undefined} onAction={onAdd} />
     <div className="metric-grid">
       <MetricCard label="Fleet health" value="86.4%" change="+2.8%" detail="vs last month" icon="◒" tone="navy" />
       <MetricCard label="Active vehicles" value={`${fleet.filter((vehicle) => vehicle.status === 'On route').length} / ${fleet.length}`} change="+3" detail="this month" icon="▱" tone="blue" />

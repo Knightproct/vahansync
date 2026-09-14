@@ -59,8 +59,8 @@ The current operations slice also includes:
 - Telematics device registration, validated readings, last-seen state, and latest-vehicle telemetry
 - Configurable identity-provider metadata and token-version session revocation
 - Structured request timing logs, storage-provider boundaries, health detail, and recovery runbook
-- Granular organisation roles with role-aware navigation and workspace messaging for fleet, workshop, inventory, drivers, technicians, finance, compliance, and operations
-- User membership management for owners and administrators
+- Six-role organisation model with role-aware navigation and workspace messaging for owner, fleet manager, inventory manager, driver, mechanic/technician, and accountant
+- User membership management for owners
 - Notification preferences and queued delivery records for in-app, email, SMS, WhatsApp, and push channels
 - Subscription catalogue and organisation plan state with Starter, Growth, Scale, and Enterprise tiers
 
@@ -79,9 +79,9 @@ The product models trialing, pending activation, renewal, plan limits, and audit
 
 ## Organisation access model
 
-The first person who submits `/signup` creates the organisation and becomes its owner. Owners and admins create durable invitations from the workspace; invitees activate their account and set their own password through the single-use invitation link.
+The first person who submits `/signup` creates the organisation and becomes its owner. Owners create durable invitations from the workspace; invitees activate their account and set their own password through the single-use invitation link.
 
-Each user has exactly one explicit role. Email addresses are globally unique, invitations cannot grant owner access, and only owners/admins can invite or revoke members. Operational roles are intentionally shareable across a team; “no duplicates” means no duplicate identity or simultaneous invitation, not one person per operational function.
+Each user has exactly one explicit role: `owner`, `fleet_manager`, `inventory_manager`, `driver`, `technician`, or `accountant`. Email addresses are globally unique, invitations cannot grant owner access, and only owners can invite or revoke members. Operational roles are intentionally shareable across a team; “no duplicates” means no duplicate identity or simultaneous invitation, not one person per operational function.
 
 The API remains the security boundary. Drivers only receive vehicles assigned to their user ID, technicians only receive assigned work orders, and every query remains organization-scoped. In-app notifications are durable; external email, SMS, WhatsApp, and push delivery still require configured providers.
 
