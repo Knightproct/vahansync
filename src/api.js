@@ -44,6 +44,32 @@ export async function login(email, password) {
   })
 }
 
+export function signupOrganization(payload) {
+  return request('/api/v1/auth/signup', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function acceptInvitation(payload) {
+  return request('/api/v1/auth/invitations/accept', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function createInvitation(token, payload) {
+  return request('/api/v1/invitations', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function getInvitations(token) {
+  return request('/api/v1/invitations', { headers: { Authorization: `Bearer ${token}` } })
+}
+
 export function getVehicles(token) {
   return request('/api/v1/vehicles', {
     headers: { Authorization: `Bearer ${token}` },

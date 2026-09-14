@@ -1,7 +1,8 @@
 import hashlib
 import hmac
 import json
-from datetime import date
+import secrets
+from datetime import date, datetime, timedelta, timezone
 from uuid import uuid4
 
 import httpx
@@ -13,7 +14,7 @@ from sqlalchemy.orm import Session, selectinload
 from .config import get_settings
 from .database import get_db
 from .dependencies import get_current_user, require_permission, require_roles
-from .models import AuditLog, ComplianceDocument, DocumentAsset, Expense, FuelTransaction, InventoryMovement, InventoryTransaction, MaintenancePlan, NotificationPreference, NotificationDelivery, OperationalNotification, Organization, Part, PurchaseOrder, PurchaseOrderLine, StockLocation, TelematicsDevice, TelemetryReading, TollTransaction, User, Vehicle, VehicleComponent, Vendor, WorkOrder, utc_now
+from .models import AuditLog, ComplianceDocument, DocumentAsset, Expense, FuelTransaction, InventoryMovement, InventoryTransaction, MaintenancePlan, NotificationPreference, NotificationDelivery, OperationalNotification, Organization, OrganizationInvitation, Part, PurchaseOrder, PurchaseOrderLine, StockLocation, TelematicsDevice, TelemetryReading, TollTransaction, User, Vehicle, VehicleComponent, Vendor, WorkOrder, utc_now
 from .schemas import (
     ComponentCreate,
     ComponentRead,
@@ -28,11 +29,17 @@ from .schemas import (
     FuelTransactionCreate,
     FuelTransactionRead,
     IdentityProviderMetadata,
+    InvitationAccept,
+    InvitationAcceptRead,
+    InvitationCreate,
+    InvitationRead,
     InventoryTransactionCreate,
     InventoryTransactionRead,
     InventoryMovementCreate,
     InventoryMovementRead,
     LoginRequest,
+    OrganizationSignup,
+    OrganizationSignupRead,
     MaintenancePlanCreate,
     MaintenancePlanRead,
     NotificationRead,
@@ -111,6 +118,64 @@ SUBSCRIPTION_PLANS = {
 }
 
 
+def organization_slug(name: str, database: Session) -> str:
+    base = "-".join("".join(character.lower() if character.isalnum() else "-" for character in name).split("-"))
+    base = base.strip("-") or "organization"
+    slug = base
+    suffix = 2
+    while database.scalar(select(Organization).where(Organization.slug == slug)) is not None:
+        slug = f"{base}-{suffix}"
+        suffix += 1
+    return slug
+
+
+def invitation_token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def invitation_is_active(invitation: OrganizationInvitation) -> bool:
+    expires_at = invitation.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    return invitation.accepted_at is None and invitation.revoked_at is None and expires_at > datetime.now(timezone.utc)
+
+
+@router.post("/auth/signup", response_model=OrganizationSignupRead, status_code=status.HTTP_201_CREATED)
+def signup(payload: OrganizationSignup, database: Session = Depends(get_db)) -> OrganizationSignupRead:
+    email = payload.email.lower()
+    if database.scalar(select(User).where(User.email == email)) is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A user with this email already exists")
+    organization = Organization(name=payload.organization_name.strip(), slug=organization_slug(payload.organization_name, database))
+    database.add(organization)
+    database.flush()
+    user = User(
+        organization_id=organization.id,
+        email=email,
+        full_name=payload.full_name.strip(),
+        password_hash=hash_password(payload.password),
+        role="owner",
+    )
+    database.add(user)
+    database.flush()
+    database.add(AuditLog(
+        organization_id=organization.id,
+        actor_user_id=user.id,
+        action="organization.created",
+        entity_type="organization",
+        entity_id=str(organization.id),
+        request_id=str(uuid4()),
+        changes=json.dumps({"name": organization.name, "slug": organization.slug}),
+    ))
+    database.commit()
+    return OrganizationSignupRead(
+        organization_id=organization.id,
+        organization_name=organization.name,
+        organization_slug=organization.slug,
+        user=user,
+        access_token=create_access_token(str(user.id), user.token_version),
+    )
+
+
 @router.post("/auth/login", response_model=Token)
 def login(payload: LoginRequest, database: Session = Depends(get_db)) -> Token:
     user = database.scalar(select(User).where(User.email == payload.email.lower()))
@@ -138,6 +203,134 @@ def logout(user: User = Depends(get_current_user), database: Session = Depends(g
 @router.get("/auth/me", response_model=UserRead)
 def current_user(user: User = Depends(get_current_user)) -> User:
     return user
+
+
+@router.get("/invitations", response_model=list[InvitationRead])
+def list_invitations(
+    user: User = Depends(require_roles("owner", "admin")),
+    database: Session = Depends(get_db),
+) -> list[OrganizationInvitation]:
+    return list(database.scalars(
+        select(OrganizationInvitation)
+        .where(OrganizationInvitation.organization_id == user.organization_id)
+        .order_by(OrganizationInvitation.created_at.desc())
+    ).all())
+
+
+@router.post("/invitations", response_model=dict, status_code=status.HTTP_201_CREATED)
+def create_invitation(
+    payload: InvitationCreate,
+    request: Request,
+    user: User = Depends(require_roles("owner", "admin")),
+    database: Session = Depends(get_db),
+) -> dict:
+    email = payload.email.lower()
+    if database.scalar(select(User).where(User.email == email)) is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A user with this email already exists")
+    active_invitation = database.scalar(select(OrganizationInvitation).where(
+        OrganizationInvitation.organization_id == user.organization_id,
+        OrganizationInvitation.email == email,
+        OrganizationInvitation.accepted_at.is_(None),
+        OrganizationInvitation.revoked_at.is_(None),
+    ))
+    if active_invitation and invitation_is_active(active_invitation):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="An active invitation already exists for this email")
+    raw_token = secrets.token_urlsafe(32)
+    invitation = OrganizationInvitation(
+        organization_id=user.organization_id,
+        invited_by=user.id,
+        email=email,
+        full_name=payload.full_name.strip(),
+        role=payload.role,
+        token_hash=invitation_token_hash(raw_token),
+        expires_at=datetime.now(timezone.utc) + timedelta(days=payload.expires_in_days),
+    )
+    database.add(invitation)
+    database.flush()
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="organization.invitation_created",
+        entity_type="organization_invitation",
+        entity_id=str(invitation.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps({"email": email, "role": payload.role}),
+    ))
+    database.commit()
+    return {
+        "id": invitation.id,
+        "email": invitation.email,
+        "role": invitation.role,
+        "expires_at": invitation.expires_at,
+        "invite_token": raw_token,
+        "invite_path": f"/invite/{raw_token}",
+    }
+
+
+@router.post("/invitations/{invitation_id}/revoke", response_model=InvitationRead)
+def revoke_invitation(
+    invitation_id: int,
+    request: Request,
+    user: User = Depends(require_roles("owner", "admin")),
+    database: Session = Depends(get_db),
+) -> OrganizationInvitation:
+    invitation = database.scalar(select(OrganizationInvitation).where(
+        OrganizationInvitation.id == invitation_id,
+        OrganizationInvitation.organization_id == user.organization_id,
+    ))
+    if invitation is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invitation not found")
+    if invitation.accepted_at is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Accepted invitations cannot be revoked")
+    invitation.revoked_at = utc_now()
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="organization.invitation_revoked",
+        entity_type="organization_invitation",
+        entity_id=str(invitation.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+    ))
+    database.commit()
+    database.refresh(invitation)
+    return invitation
+
+
+@router.post("/auth/invitations/accept", response_model=InvitationAcceptRead)
+def accept_invitation(payload: InvitationAccept, database: Session = Depends(get_db)) -> InvitationAcceptRead:
+    invitation = database.scalar(select(OrganizationInvitation).where(
+        OrganizationInvitation.token_hash == invitation_token_hash(payload.token)
+    ))
+    if invitation is None or not invitation_is_active(invitation):
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail="This invitation is invalid or expired")
+    if database.scalar(select(User).where(User.email == invitation.email)) is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A user with this email already exists")
+    organization = database.get(Organization, invitation.organization_id)
+    member = User(
+        organization_id=invitation.organization_id,
+        email=invitation.email,
+        full_name=invitation.full_name,
+        password_hash=hash_password(payload.password),
+        role=invitation.role,
+    )
+    database.add(member)
+    invitation.accepted_at = utc_now()
+    database.flush()
+    database.add(AuditLog(
+        organization_id=invitation.organization_id,
+        actor_user_id=member.id,
+        action="organization.invitation_accepted",
+        entity_type="user",
+        entity_id=str(member.id),
+        request_id=str(uuid4()),
+        changes=json.dumps({"role": member.role}),
+    ))
+    database.commit()
+    return InvitationAcceptRead(
+        organization_name=organization.name,
+        user=member,
+        access_token=create_access_token(str(member.id), member.token_version),
+    )
 
 
 @router.get("/users", response_model=list[UserRead])
@@ -408,7 +601,10 @@ def list_notification_deliveries(
 
 @router.get("/vehicles", response_model=list[VehicleRead])
 def list_vehicles(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[Vehicle]:
-    return list(database.scalars(select(Vehicle).where(Vehicle.organization_id == user.organization_id).order_by(Vehicle.id.desc())).all())
+    statement = select(Vehicle).where(Vehicle.organization_id == user.organization_id)
+    if user.role == "driver":
+        statement = statement.where(Vehicle.assigned_driver_id == user.id)
+    return list(database.scalars(statement.order_by(Vehicle.id.desc())).all())
 
 
 @router.post("/vehicles", response_model=VehicleRead, status_code=status.HTTP_201_CREATED)
@@ -422,6 +618,14 @@ def create_vehicle(
     existing = database.scalar(select(Vehicle).where(Vehicle.organization_id == user.organization_id, Vehicle.registration_number == registration_number))
     if existing:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A vehicle with this registration number already exists")
+    if payload.assigned_driver_id is not None:
+        driver = database.scalar(select(User).where(
+            User.id == payload.assigned_driver_id,
+            User.organization_id == user.organization_id,
+            User.role == "driver",
+        ))
+        if driver is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Assigned user must be a driver in this organization")
 
     vehicle = Vehicle(
         organization_id=user.organization_id,
@@ -433,6 +637,7 @@ def create_vehicle(
         health=payload.health,
         odometer_km=payload.odometer_km,
         driver_name=payload.driver_name.strip() if payload.driver_name else None,
+        assigned_driver_id=payload.assigned_driver_id,
     )
     database.add(vehicle)
     database.flush()
@@ -484,7 +689,10 @@ def create_component(
 
 @router.get("/work-orders", response_model=list[WorkOrderRead])
 def list_work_orders(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[WorkOrder]:
-    return list(database.scalars(select(WorkOrder).where(WorkOrder.organization_id == user.organization_id).order_by(WorkOrder.id.desc())).all())
+    statement = select(WorkOrder).where(WorkOrder.organization_id == user.organization_id)
+    if user.role == "technician":
+        statement = statement.where(WorkOrder.assigned_user_id == user.id)
+    return list(database.scalars(statement.order_by(WorkOrder.id.desc())).all())
 
 
 @router.post("/work-orders", response_model=WorkOrderRead, status_code=status.HTTP_201_CREATED)
@@ -497,6 +705,14 @@ def create_work_order(
     vehicle = database.scalar(select(Vehicle).where(Vehicle.id == payload.vehicle_id, Vehicle.organization_id == user.organization_id))
     if vehicle is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found in this organization")
+    if payload.assigned_user_id is not None:
+        assignee = database.scalar(select(User).where(
+            User.id == payload.assigned_user_id,
+            User.organization_id == user.organization_id,
+            User.role.in_(("technician", "workshop_manager")),
+        ))
+        if assignee is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Assigned user must be a workshop user in this organization")
     work_order = WorkOrder(organization_id=user.organization_id, **payload.model_dump())
     database.add(work_order)
     database.flush()
@@ -522,7 +738,10 @@ def update_work_order(
     user: User = Depends(require_permission("maintenance")),
     database: Session = Depends(get_db),
 ) -> WorkOrder:
-    work_order = database.scalar(select(WorkOrder).where(WorkOrder.id == work_order_id, WorkOrder.organization_id == user.organization_id))
+    statement = select(WorkOrder).where(WorkOrder.id == work_order_id, WorkOrder.organization_id == user.organization_id)
+    if user.role == "technician":
+        statement = statement.where(WorkOrder.assigned_user_id == user.id)
+    work_order = database.scalar(statement)
     if work_order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Work order not found")
     changes = payload.model_dump(exclude_unset=True)

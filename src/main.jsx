@@ -1,9 +1,9 @@
 import React, { StrictMode, useEffect, useMemo, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import './styles.css'
-import { createVehicle, createWorkOrder, getComponents, getCurrentUser, getDocuments, getExpenses, getMaintenancePlans, getNotifications, getParts, getPurchaseOrders, getSubscription, getVehicles, getVendors, getWorkOrders, login } from './api'
+import { acceptInvitation, createVehicle, createInvitation, createWorkOrder, getComponents, getCurrentUser, getDocuments, getExpenses, getMaintenancePlans, getNotifications, getParts, getPurchaseOrders, getSubscription, getVehicles, getVendors, getWorkOrders, login, signupOrganization } from './api'
 
-const isPublicPage = window.location.pathname === '/'
+const isPublicPage = ['/', '/signup'].includes(window.location.pathname) || window.location.pathname.startsWith('/invite/')
 
 const navItems = [
   { id: 'overview', label: 'Overview', icon: '⌂', permissions: ['fleet', 'maintenance', 'finance', 'compliance'] },
@@ -37,6 +37,7 @@ function App() {
   const [active, setActive] = useState('overview')
   const [search, setSearch] = useState('')
   const [showAdd, setShowAdd] = useState(false)
+  const [showInvite, setShowInvite] = useState(false)
   const [toast, setToast] = useState('')
   const [fleet, setFleet] = useState([])
   const [workOrders, setWorkOrders] = useState([])
@@ -135,7 +136,9 @@ function App() {
     window.setTimeout(() => setToast(''), 2800)
   }
 
-  if (isPublicPage) return <Landing />
+  if (window.location.pathname === '/signup') return <SignupScreen onAuthenticated={(accessToken) => { window.sessionStorage.setItem('vahana:access-token', accessToken); window.location.href = '/app' }} />
+  if (window.location.pathname.startsWith('/invite/')) return <InvitationScreen tokenFromPath={window.location.pathname.split('/').pop()} onAuthenticated={(accessToken) => { window.sessionStorage.setItem('vahana:access-token', accessToken); window.location.href = '/app' }} />
+  if (window.location.pathname === '/') return <Landing />
   if (apiState === 'loading') return <AppState title="Connecting to VahanSync" detail="Loading your organization data securely..." />
   if (apiState === 'error') return <AppState title="VahanSync API unavailable" detail={`${apiError}. Start the backend service and reload this workspace.`} />
   if (apiState === 'unauthenticated') return <LoginScreen onAuthenticated={(accessToken) => { window.sessionStorage.setItem('vahana:access-token', accessToken); setToken(accessToken) }} />
@@ -177,6 +180,9 @@ function App() {
           <button className="nav-item" onClick={() => notify('Settings are available to workspace admins.')}>
             <span className="nav-icon">⚙</span><span>Settings</span>
           </button>
+          {(currentUser?.role === 'owner' || currentUser?.role === 'admin') && <button className="nav-item" onClick={() => setShowInvite(true)}>
+            <span className="nav-icon">+</span><span>Invite teammate</span>
+          </button>}
         </nav>
 
         <div className="sidebar-footer">
@@ -215,6 +221,7 @@ function App() {
       </main>
 
       {showAdd && <AddVehicleModal onClose={() => setShowAdd(false)} onSave={async (vehicle) => { try { const createdVehicle = await createVehicle(token, vehicle); setFleet((currentFleet) => [createdVehicle, ...currentFleet]); setShowAdd(false); notify('Vehicle added to your fleet.'); } catch (error) { notify(error.message) } }} />}
+      {showInvite && <InviteModal token={token} onClose={() => setShowInvite(false)} onCreated={(invite) => { setShowInvite(false); notify(`Invite created for ${invite.email}. Share the secure invitation link.`) }} />}
       {toast && <div className="toast"><span>✓</span>{toast}</div>}
     </div>
   )
@@ -229,7 +236,7 @@ function Landing() {
     <header className="landing-nav">
       <a className="landing-brand" href="/"><span className="brand-mark">V</span><span><strong>VahanSync</strong><small>Fleet operations OS</small></span></a>
       <nav><a href="#platform">Platform</a><a href="#workflows">Workflows</a><a href="#india">Built for India</a></nav>
-      <a className="landing-login" href="/app">Sign in <span>→</span></a>
+      <div className="landing-actions"><a className="landing-text-link" href="/signup">Create organisation</a><a className="landing-login" href="/app">Sign in <span>→</span></a></div>
     </header>
     <main>
       <section className="hero">
@@ -237,7 +244,7 @@ function Landing() {
           <span className="landing-kicker">The operating system for modern fleets</span>
           <h1>Run every vehicle, workshop, and rupee from one calm command centre.</h1>
           <p>VahanSync brings fleet health, component lifecycle, maintenance, inventory, compliance, fuel, tolls, and finance together for Indian operators.</p>
-          <div className="hero-actions"><a className="hero-button" href="/app">Open VahanSync <span>↗</span></a><a className="hero-text-link" href="#platform">Explore the platform <span>↓</span></a></div>
+          <div className="hero-actions"><a className="hero-button" href="/signup">Start your organisation <span>↗</span></a><a className="hero-text-link" href="#platform">Explore the platform <span>↓</span></a></div>
           <div className="hero-proof"><span>●</span><span>One source of truth for operations</span><span>·</span><span>INR-native cost controls</span></div>
         </div>
         <div className="hero-visual">
@@ -273,7 +280,52 @@ function LoginScreen({ onAuthenticated }) {
     }
   }
 
-  return <div className="login-screen"><form className="login-card" onSubmit={submit}><div className="brand-mark">V</div><span className="eyebrow">VahanSync</span><h1>Sign in to your workspace</h1><p>Secure access to your fleet operations command centre.</p><label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required placeholder="you@company.com" /></label><label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required minLength="8" /></label>{error && <div className="form-error">{error}</div>}<button className="primary-button" type="submit">Sign in</button></form></div>
+  return <div className="login-screen"><form className="login-card" onSubmit={submit}><div className="brand-mark">V</div><span className="eyebrow">VahanSync</span><h1>Sign in to your workspace</h1><p>Secure access to your fleet operations command centre.</p><label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required placeholder="you@company.com" /></label><label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required minLength="8" /></label>{error && <div className="form-error">{error}</div>}<button className="primary-button" type="submit">Sign in</button><a className="login-link" href="/signup">Create a new organisation</a></form></div>
+}
+
+function SignupScreen({ onAuthenticated }) {
+  const [form, setForm] = useState({ organization_name: '', full_name: '', email: '', password: '' })
+  const [error, setError] = useState('')
+  const submit = async (event) => {
+    event.preventDefault()
+    try {
+      const result = await signupOrganization(form)
+      onAuthenticated(result.access_token)
+    } catch (requestError) {
+      setError(requestError.message)
+    }
+  }
+  return <div className="login-screen"><form className="login-card" onSubmit={submit}><div className="brand-mark">V</div><span className="eyebrow">VahanSync onboarding</span><h1>Create your organisation</h1><p>Your account becomes the organisation owner. Invite the rest of your team after setup.</p><label>Organisation name<input value={form.organization_name} onChange={(event) => setForm({ ...form, organization_name: event.target.value })} required /></label><label>Your full name<input value={form.full_name} onChange={(event) => setForm({ ...form, full_name: event.target.value })} required /></label><label>Work email<input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required /></label><label>Password<input type="password" minLength="8" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} required /></label>{error && <div className="form-error">{error}</div>}<button className="primary-button" type="submit">Create organisation</button><a className="login-link" href="/app">Already have an account? Sign in</a></form></div>
+}
+
+function InvitationScreen({ tokenFromPath, onAuthenticated }) {
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const submit = async (event) => {
+    event.preventDefault()
+    try {
+      const result = await acceptInvitation({ token: tokenFromPath, password })
+      onAuthenticated(result.access_token)
+    } catch (requestError) {
+      setError(requestError.message)
+    }
+  }
+  return <div className="login-screen"><form className="login-card" onSubmit={submit}><div className="brand-mark">V</div><span className="eyebrow">VahanSync invitation</span><h1>Join your organisation</h1><p>Set a password to activate your assigned role and workspace.</p><label>Password<input type="password" minLength="8" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>{error && <div className="form-error">{error}</div>}<button className="primary-button" type="submit">Accept invitation</button><a className="login-link" href="/app">Already active? Sign in</a></form></div>
+}
+
+function InviteModal({ token, onClose, onCreated }) {
+  const [form, setForm] = useState({ email: '', full_name: '', role: 'fleet_manager' })
+  const [error, setError] = useState('')
+  const submit = async (event) => {
+    event.preventDefault()
+    try {
+      const result = await createInvitation(token, form)
+      onCreated(result)
+    } catch (requestError) {
+      setError(requestError.message)
+    }
+  }
+  return <div className="modal-backdrop"><form className="modal-card" onSubmit={submit}><div className="modal-header"><div><span className="eyebrow">Organisation access</span><h2>Invite a teammate</h2></div><button type="button" className="icon-button" onClick={onClose}>×</button></div><p>Assign one workspace role. The invitee creates their own password from the secure link.</p><label>Full name<input value={form.full_name} onChange={(event) => setForm({ ...form, full_name: event.target.value })} required /></label><label>Email<input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required /></label><label>Role<select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })}><option value="fleet_manager">Fleet manager</option><option value="workshop_manager">Workshop manager</option><option value="inventory_manager">Inventory manager</option><option value="driver">Driver</option><option value="technician">Technician</option><option value="accountant">Accountant</option><option value="compliance_officer">Compliance officer</option><option value="operator">Operator</option><option value="admin">Admin</option></select></label>{error && <div className="form-error">{error}</div>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button className="primary-button" type="submit">Create invitation</button></div></form></div>
 }
 
 function PageHeader({ eyebrow, title, subtitle, action, onAction }) {

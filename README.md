@@ -77,6 +77,14 @@ VahanSync is priced by managed fleet size rather than by every operational actio
 
 The product models trialing, pending activation, renewal, plan limits, and audit history. Razorpay checkout is now available through the backend subscription endpoint and verified webhooks; recurring billing becomes active after Razorpay plan IDs and credentials are configured.
 
+## Organisation access model
+
+The first person who submits `/signup` creates the organisation and becomes its owner. Owners and admins create durable invitations from the workspace; invitees activate their account and set their own password through the single-use invitation link.
+
+Each user has exactly one explicit role. Email addresses are globally unique, invitations cannot grant owner access, and only owners/admins can invite or revoke members. Operational roles are intentionally shareable across a team; “no duplicates” means no duplicate identity or simultaneous invitation, not one person per operational function.
+
+The API remains the security boundary. Drivers only receive vehicles assigned to their user ID, technicians only receive assigned work orders, and every query remains organization-scoped. In-app notifications are durable; external email, SMS, WhatsApp, and push delivery still require configured providers.
+
 ### Supabase and Razorpay deployment
 
 Supabase is the target production platform:

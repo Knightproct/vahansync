@@ -43,6 +43,22 @@ class User(Base):
     organization: Mapped[Organization] = relationship(back_populates="users")
 
 
+class OrganizationInvitation(Base):
+    __tablename__ = "organization_invitations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    invited_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    full_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    role: Mapped[str] = mapped_column(String(48), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    accepted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
 class Vehicle(Base):
     __tablename__ = "vehicles"
 
@@ -56,6 +72,7 @@ class Vehicle(Base):
     health: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
     odometer_km: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     driver_name: Mapped[Optional[str]] = mapped_column(String(160))
+    assigned_driver_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
     organization: Mapped[Organization] = relationship(back_populates="vehicles")
 
@@ -87,6 +104,7 @@ class WorkOrder(Base):
     status: Mapped[str] = mapped_column(String(30), default="Open", nullable=False)
     due_date: Mapped[Optional[str]] = mapped_column(String(20))
     assigned_to: Mapped[Optional[str]] = mapped_column(String(160))
+    assigned_user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
 

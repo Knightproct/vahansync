@@ -20,6 +20,13 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=8)
 
 
+class OrganizationSignup(BaseModel):
+    organization_name: str = Field(min_length=2, max_length=160)
+    full_name: str = Field(min_length=2, max_length=160)
+    email: EmailStr
+    password: str = Field(min_length=8)
+
+
 class UserRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -28,6 +35,48 @@ class UserRead(BaseModel):
     full_name: str
     role: str
     organization_id: int
+    assigned_driver_id: int | None = None
+
+
+class OrganizationSignupRead(BaseModel):
+    organization_id: int
+    organization_name: str
+    organization_slug: str
+    user: UserRead
+    access_token: str
+    token_type: str = "bearer"
+
+
+class InvitationCreate(BaseModel):
+    email: EmailStr
+    full_name: str = Field(min_length=2, max_length=160)
+    role: str = Field(pattern=r"^(admin|fleet_manager|workshop_manager|inventory_manager|driver|technician|accountant|compliance_officer|operator)$")
+    expires_in_days: int = Field(default=7, ge=1, le=30)
+
+
+class InvitationRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    email: EmailStr
+    full_name: str
+    role: str
+    expires_at: datetime
+    accepted_at: datetime | None
+    revoked_at: datetime | None
+    created_at: datetime
+
+
+class InvitationAccept(BaseModel):
+    token: str = Field(min_length=32)
+    password: str = Field(min_length=8)
+
+
+class InvitationAcceptRead(BaseModel):
+    organization_name: str
+    user: UserRead
+    access_token: str
+    token_type: str = "bearer"
 
 
 class UserCreate(BaseModel):
@@ -122,6 +171,7 @@ class VehicleCreate(BaseModel):
     health: int = Field(default=100, ge=0, le=100)
     odometer_km: int = Field(default=0, ge=0)
     driver_name: str | None = None
+    assigned_driver_id: int | None = None
 
 
 class VehicleRead(VehicleCreate):
@@ -158,6 +208,7 @@ class WorkOrderCreate(BaseModel):
     status: str = "Open"
     due_date: str | None = None
     assigned_to: str | None = None
+    assigned_user_id: int | None = None
 
 
 class WorkOrderRead(WorkOrderCreate):
