@@ -152,7 +152,7 @@ function App() {
         </div>
 
           <div className="workspace-switcher">
-          <div className="workspace-avatar">RK</div>
+          <div className="workspace-avatar">{(currentUser?.full_name || 'VS').split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase()}</div>
           <div>
             <span className="eyebrow">Workspace</span>
             <strong>{currentUser?.full_name || 'Rajput Logistics'}</strong>
@@ -186,8 +186,8 @@ function App() {
             <button onClick={() => notify('Your fleet advisor will reach out shortly.')}>↗</button>
           </div>
           <div className="user-row">
-            <div className="user-avatar">AM</div>
-            <div><strong>Arjun Mehta</strong><span>Admin</span></div>
+            <div className="user-avatar">{(currentUser?.full_name || 'VS').split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase()}</div>
+            <div><strong>{currentUser?.full_name || 'Workspace user'}</strong><span>{currentUser?.role?.replaceAll('_', ' ') || 'Member'}</span></div>
             <span className="more">•••</span>
           </div>
         </div>
@@ -197,6 +197,7 @@ function App() {
         <header className="topbar">
           <div className="breadcrumb"><span>Rajput Logistics</span><b>/</b><strong>{title}</strong></div>
           <div className="top-actions">
+            <span className="sync-status"><i></i> Live sync</span>
             <div className="search-box"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search vehicles, parts, docs..." /><kbd>⌘ K</kbd></div>
             <button className="icon-button" onClick={() => notify(notifications.length ? `${notifications.filter((item) => item.status === 'unread').length} operational notifications need attention.` : 'You are all caught up.')}>♢{notifications.some((item) => item.status === 'unread') && <i></i>}</button>
             <button className="icon-button" onClick={() => notify('Help centre opened in a new tab.')}>?</button>
