@@ -18,6 +18,7 @@ from .config import get_settings
 from .database import get_db
 from .dependencies import get_current_user, require_permission, require_roles
 from .models import AuditLog, ComplianceDocument, DocumentAsset, Expense, FuelTransaction, InventoryMovement, InventoryTransaction, MaintenancePlan, NotificationPreference, NotificationDelivery, OperationalNotification, Organization, OrganizationInvitation, Part, PurchaseOrder, PurchaseOrderLine, StockLocation, TelematicsDevice, TelemetryReading, TollTransaction, User, Vehicle, VehicleComponent, Vendor, WorkOrder, utc_now
+from .security import create_access_token, hash_password, provision_supabase_user, verify_password
 from .schemas import (
     ComponentCreate,
     ComponentRead,
@@ -82,7 +83,6 @@ from .schemas import (
     WorkOrderRead,
     WorkOrderUpdate,
 )
-from .security import create_access_token, hash_password, verify_password
 from .storage import download_object, resolve_object, save_upload
 
 router = APIRouter(prefix="/api/v1")
@@ -153,11 +153,18 @@ def signup(payload: OrganizationSignup, database: Session = Depends(get_db)) -> 
     organization = Organization(name=payload.organization_name.strip(), slug=organization_slug(payload.organization_name, database))
     database.add(organization)
     database.flush()
+    try:
+        supabase_user_id = provision_supabase_user(email, payload.password, payload.full_name.strip())
+    except ValueError as error:
+        detail = str(error)
+        code = status.HTTP_409_CONFLICT if "already exists" in detail else status.HTTP_503_SERVICE_UNAVAILABLE
+        raise HTTPException(status_code=code, detail=detail) from error
     user = User(
         organization_id=organization.id,
         email=email,
         full_name=payload.full_name.strip(),
         password_hash=hash_password(payload.password),
+        supabase_user_id=supabase_user_id,
         role="owner",
     )
     database.add(user)
@@ -183,6 +190,12 @@ def signup(payload: OrganizationSignup, database: Session = Depends(get_db)) -> 
 
 @router.post("/auth/login", response_model=Token)
 def login(payload: LoginRequest, database: Session = Depends(get_db)) -> Token:
+    settings = get_settings()
+    if settings.auth_provider == "supabase" and settings.environment.lower() != "development":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Use Supabase Auth to sign in",
+        )
     user = database.scalar(select(User).where(User.email == payload.email.lower()))
     if user is None or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Email or password is incorrect")
@@ -196,6 +209,10 @@ def identity_provider_metadata() -> IdentityProviderMetadata:
         enabled=settings.identity_provider_enabled,
         issuer=settings.identity_provider_issuer,
         client_id=settings.identity_provider_client_id,
+        local_login_available=not (
+            settings.auth_provider == "supabase"
+            and settings.environment.lower() != "development"
+        ),
     )
 
 
@@ -311,11 +328,18 @@ def accept_invitation(payload: InvitationAccept, database: Session = Depends(get
     if database.scalar(select(User).where(User.email == invitation.email)) is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A user with this email already exists")
     organization = database.get(Organization, invitation.organization_id)
+    try:
+        supabase_user_id = provision_supabase_user(invitation.email, payload.password, invitation.full_name)
+    except ValueError as error:
+        detail = str(error)
+        code = status.HTTP_409_CONFLICT if "already exists" in detail else status.HTTP_503_SERVICE_UNAVAILABLE
+        raise HTTPException(status_code=code, detail=detail) from error
     member = User(
         organization_id=invitation.organization_id,
         email=invitation.email,
         full_name=invitation.full_name,
         password_hash=hash_password(payload.password),
+        supabase_user_id=supabase_user_id,
         role=invitation.role,
     )
     database.add(member)
@@ -356,11 +380,18 @@ def create_user(
     email = payload.email.lower()
     if database.scalar(select(User).where(User.email == email)) is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A user with this email already exists")
+    try:
+        supabase_user_id = provision_supabase_user(email, payload.password, payload.full_name.strip())
+    except ValueError as error:
+        detail = str(error)
+        code = status.HTTP_409_CONFLICT if "already exists" in detail else status.HTTP_503_SERVICE_UNAVAILABLE
+        raise HTTPException(status_code=code, detail=detail) from error
     member = User(
         organization_id=user.organization_id,
         email=email,
         full_name=payload.full_name.strip(),
         password_hash=hash_password(payload.password),
+        supabase_user_id=supabase_user_id,
         role=payload.role,
     )
     database.add(member)

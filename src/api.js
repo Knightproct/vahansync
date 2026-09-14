@@ -47,6 +47,11 @@ export function signupOrganization(payload) {
   return request('/api/v1/auth/signup', {
     method: 'POST',
     body: JSON.stringify(payload),
+  }).then(async (result) => {
+    if (useSupabaseAuth) {
+      return login(payload.email, payload.password)
+    }
+    return result
   })
 }
 
@@ -54,6 +59,11 @@ export function acceptInvitation(payload) {
   return request('/api/v1/auth/invitations/accept', {
     method: 'POST',
     body: JSON.stringify(payload),
+  }).then(async (result) => {
+    if (useSupabaseAuth) {
+      return login(result.user.email, payload.password)
+    }
+    return result
   })
 }
 

@@ -87,7 +87,7 @@ The API remains the security boundary. Drivers only receive vehicles assigned to
 
 ### Supabase and Razorpay deployment
 
-Supabase is the target production platform:
+Supabase is the target production platform and the production authentication authority:
 
 ```text
 VAHANA_DATABASE_URL=postgresql://...
@@ -102,7 +102,7 @@ VAHANA_SUPABASE_SERVICE_ROLE_KEY=<server-only-service-role-key>
 VAHANA_SUPABASE_STORAGE_BUCKET=documents
 ```
 
-Run `npm run migrate` against the Supabase database before starting the API. The service-role key is backend-only; the browser receives only the anon key. Supabase Auth users are matched to pre-provisioned application users by email and then linked by their Auth subject.
+Run `npm run migrate` against the Supabase database before starting the API. The service-role key is backend-only; the browser receives only the anon key. Organisation signup, invitation acceptance, and owner-created users provision their accounts in Supabase Auth; API users are then linked by their Auth subject. The local password endpoint remains available only for development.
 
 Configure Razorpay with `VAHANA_RAZORPAY_KEY_ID`, `VAHANA_RAZORPAY_KEY_SECRET`, `VAHANA_RAZORPAY_WEBHOOK_SECRET`, and one Razorpay plan ID per paid tier (`VAHANA_RAZORPAY_PLAN_STARTER`, `VAHANA_RAZORPAY_PLAN_GROWTH`, `VAHANA_RAZORPAY_PLAN_SCALE`). Point the Razorpay webhook to `/api/v1/webhooks/razorpay`. Until these values are configured, checkout intentionally returns a configuration error rather than pretending payments are live.
 
