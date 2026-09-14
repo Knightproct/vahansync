@@ -64,11 +64,16 @@ def run_migrations_online() -> None:
 
     """
     settings = get_settings()
+    database_url = settings.database_url
+    if database_url.startswith("postgres://"):
+        database_url = database_url.replace("postgres://", "postgresql+psycopg://", 1)
+    elif database_url.startswith("postgresql://"):
+        database_url = database_url.replace("postgresql://", "postgresql+psycopg://", 1)
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
-        url=settings.database_url,
+        url=database_url,
     )
 
     with connectable.connect() as connection:
