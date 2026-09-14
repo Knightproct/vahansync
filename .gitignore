@@ -3,3 +3,5 @@ dist/
 .DS_Store
 .venv/
 *.db
+__pycache__/
+*.py[cod]
