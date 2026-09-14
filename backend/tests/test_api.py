@@ -62,7 +62,7 @@ def test_health_and_vehicle_lifecycle(tmp_path: Path, monkeypatch):
             "name": "Test oil filter",
             "category": "Filters",
             "quantity_on_hand": 2,
-            "reorder_level": 1,
+            "reorder_level": 4,
             "unit_cost_paise": 125000,
         })
         assert part.status_code == 201
@@ -96,6 +96,16 @@ def test_health_and_vehicle_lifecycle(tmp_path: Path, monkeypatch):
             "expires_on": "2027-06-18",
         })
         assert document.status_code == 201
+        document_file = client.post(
+            f"/api/v1/documents/{document.json()['id']}/file",
+            headers=headers,
+            files={"file": ("fitness.txt", b"fitness-certificate", "text/plain")},
+        )
+        assert document_file.status_code == 201
+        assert document_file.json()["size_bytes"] == len(b"fitness-certificate")
+        downloaded_file = client.get(f"/api/v1/documents/{document.json()['id']}/file", headers=headers)
+        assert downloaded_file.status_code == 200
+        assert downloaded_file.content == b"fitness-certificate"
         expense = client.post("/api/v1/expenses", headers=headers, json={
             "vehicle_id": vehicle_id,
             "category": "Maintenance",
@@ -123,3 +133,14 @@ def test_health_and_vehicle_lifecycle(tmp_path: Path, monkeypatch):
         assert updated_po.status_code == 200
         assert updated_po.json()["status"] == "Submitted"
         assert client.get("/api/v1/alerts", headers=headers).status_code == 200
+        notifications = client.get("/api/v1/notifications", headers=headers)
+        assert notifications.status_code == 200
+        assert notifications.json()
+        notification_id = notifications.json()[0]["id"]
+        updated_notification = client.patch(
+            f"/api/v1/notifications/{notification_id}",
+            headers=headers,
+            json={"status": "read"},
+        )
+        assert updated_notification.status_code == 200
+        assert updated_notification.json()["status"] == "read"

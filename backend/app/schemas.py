@@ -184,6 +184,42 @@ class DocumentRead(DocumentCreate):
     created_at: datetime
 
 
+class DocumentAssetRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    organization_id: int
+    document_id: int
+    object_key: str
+    file_name: str
+    content_type: str
+    size_bytes: int
+    checksum_sha256: str
+    uploaded_by: int
+    created_at: datetime
+
+
+class NotificationRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    organization_id: int
+    notification_type: str
+    severity: str
+    title: str
+    detail: str
+    entity_type: str
+    entity_id: str
+    dedupe_key: str
+    status: str
+    created_at: datetime
+    resolved_at: datetime | None
+
+
+class NotificationStatusUpdate(BaseModel):
+    status: str = Field(pattern="^(unread|read|dismissed)$")
+
+
 class ExpenseCreate(BaseModel):
     vehicle_id: int | None = None
     category: str = Field(min_length=2, max_length=80)

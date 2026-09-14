@@ -166,6 +166,38 @@ class ComplianceDocument(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
 
+class DocumentAsset(Base):
+    __tablename__ = "document_assets"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    document_id: Mapped[int] = mapped_column(ForeignKey("compliance_documents.id"), nullable=False, index=True)
+    object_key: Mapped[str] = mapped_column(String(500), unique=True, nullable=False)
+    file_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(160), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    checksum_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    uploaded_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class OperationalNotification(Base):
+    __tablename__ = "operational_notifications"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    notification_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    severity: Mapped[str] = mapped_column(String(20), nullable=False)
+    title: Mapped[str] = mapped_column(String(240), nullable=False)
+    detail: Mapped[str] = mapped_column(String(500), nullable=False)
+    entity_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    entity_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    dedupe_key: Mapped[str] = mapped_column(String(240), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(20), default="unread", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
 class Expense(Base):
     __tablename__ = "expenses"
 

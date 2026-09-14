@@ -52,7 +52,9 @@ The current operations slice also includes:
 - Alembic baseline migrations for controlled schema rollout
 - Vendor register, purchase orders, line-level totals, procurement status transitions, and audit events
 - Document update endpoint and unified alerts for expiring compliance records and low stock
+- Authenticated compliance-document file upload/download with checksums and configurable local storage
+- Durable, idempotent operational notifications for expiry and reorder events
 
-For non-development environments, set a unique `VAHANA_JWT_SECRET` and a non-default `VAHANA_SEED_ADMIN_PASSWORD`. The current local bootstrap uses `Base.metadata.create_all` for development and tests; production rollout should run a reviewed schema migration before starting the API.
+For non-development environments, set a unique `VAHANA_JWT_SECRET` and a non-default `VAHANA_SEED_ADMIN_PASSWORD`. Set `VAHANA_STORAGE_PATH` to a persistent volume or replace the storage adapter with an object-storage implementation. The current local bootstrap uses `Base.metadata.create_all` for development and tests; production rollout should run a reviewed schema migration before starting the API.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for domain boundaries and the enterprise delivery sequence.

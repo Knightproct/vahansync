@@ -108,3 +108,15 @@ export function getPurchaseOrders(token) {
 export function getAlerts(token) {
   return request('/api/v1/alerts', { headers: { Authorization: `Bearer ${token}` } })
 }
+
+export function getNotifications(token) {
+  return request('/api/v1/notifications', { headers: { Authorization: `Bearer ${token}` } })
+}
+
+export function updateNotification(token, notificationId, status) {
+  return request(`/api/v1/notifications/${notificationId}`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ status }),
+  })
+}

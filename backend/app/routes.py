@@ -2,18 +2,20 @@ import json
 from datetime import date
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from .config import get_settings
 from .database import get_db
 from .dependencies import get_current_user, require_roles
-from .models import AuditLog, ComplianceDocument, Expense, InventoryMovement, InventoryTransaction, MaintenancePlan, Organization, Part, PurchaseOrder, PurchaseOrderLine, StockLocation, User, Vehicle, VehicleComponent, Vendor, WorkOrder
+from .models import AuditLog, ComplianceDocument, DocumentAsset, Expense, InventoryMovement, InventoryTransaction, MaintenancePlan, OperationalNotification, Organization, Part, PurchaseOrder, PurchaseOrderLine, StockLocation, User, Vehicle, VehicleComponent, Vendor, WorkOrder, utc_now
 from .schemas import (
     ComponentCreate,
     ComponentRead,
     DocumentCreate,
+    DocumentAssetRead,
     DocumentRead,
     DocumentUpdate,
     ExpenseCreate,
@@ -25,6 +27,8 @@ from .schemas import (
     LoginRequest,
     MaintenancePlanCreate,
     MaintenancePlanRead,
+    NotificationRead,
+    NotificationStatusUpdate,
     PartCreate,
     PartRead,
     PurchaseOrderCreate,
@@ -43,6 +47,7 @@ from .schemas import (
     WorkOrderUpdate,
 )
 from .security import create_access_token, hash_password, verify_password
+from .storage import resolve_object, save_upload
 
 router = APIRouter(prefix="/api/v1")
 
@@ -436,8 +441,73 @@ def update_document(
     return document
 
 
-@router.get("/alerts")
-def list_alerts(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[dict[str, str | int]]:
+@router.post("/documents/{document_id}/file", response_model=DocumentAssetRead, status_code=status.HTTP_201_CREATED)
+def upload_document_file(
+    document_id: int,
+    request: Request,
+    file: UploadFile = File(...),
+    user: User = Depends(require_roles("owner", "admin", "manager")),
+    database: Session = Depends(get_db),
+) -> DocumentAsset:
+    document = database.scalar(select(ComplianceDocument).where(ComplianceDocument.id == document_id, ComplianceDocument.organization_id == user.organization_id))
+    if document is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+    if not file.filename:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="A file name is required")
+    try:
+        object_key, size_bytes, checksum = save_upload(file)
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail=str(error)) from error
+    asset = DocumentAsset(
+        organization_id=user.organization_id,
+        document_id=document.id,
+        object_key=object_key,
+        file_name=file.filename[:255],
+        content_type=file.content_type or "application/octet-stream",
+        size_bytes=size_bytes,
+        checksum_sha256=checksum,
+        uploaded_by=user.id,
+    )
+    document.file_key = object_key
+    database.add(asset)
+    database.flush()
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="document.file_uploaded",
+        entity_type="compliance_document",
+        entity_id=str(document.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps({"asset_id": asset.id, "object_key": object_key, "size_bytes": size_bytes}),
+    ))
+    database.commit()
+    database.refresh(asset)
+    return asset
+
+
+@router.get("/documents/{document_id}/file")
+def download_document_file(
+    document_id: int,
+    user: User = Depends(get_current_user),
+    database: Session = Depends(get_db),
+) -> FileResponse:
+    asset = database.scalar(
+        select(DocumentAsset)
+        .where(DocumentAsset.document_id == document_id, DocumentAsset.organization_id == user.organization_id)
+        .order_by(DocumentAsset.id.desc())
+    )
+    if asset is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document file not found")
+    try:
+        path = resolve_object(asset.object_key)
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
+    if not path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document file not found")
+    return FileResponse(path, media_type=asset.content_type, filename=asset.file_name)
+
+
+def build_alerts(user: User, database: Session) -> list[dict[str, str | int]]:
     today = date.today()
     alerts: list[dict[str, str | int]] = []
     documents = database.scalars(select(ComplianceDocument).where(ComplianceDocument.organization_id == user.organization_id)).all()
@@ -463,6 +533,86 @@ def list_alerts(user: User = Depends(get_current_user), database: Session = Depe
                 "detail": f"{part.quantity_on_hand} on hand, minimum {part.reorder_level}",
             })
     return alerts
+
+
+@router.get("/alerts")
+def list_alerts(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[dict[str, str | int]]:
+    return build_alerts(user, database)
+
+
+def sync_notifications(user: User, database: Session) -> None:
+    for alert in build_alerts(user, database):
+        if alert["type"] == "document_expiry":
+            entity_type = "compliance_document"
+        else:
+            entity_type = "part"
+        entity_id = str(alert["entity_id"])
+        dedupe_key = f"{alert['type']}:{entity_id}:{alert['detail']}"
+        existing = database.scalar(
+            select(OperationalNotification).where(
+                OperationalNotification.organization_id == user.organization_id,
+                OperationalNotification.dedupe_key == dedupe_key,
+            )
+        )
+        if existing is not None:
+            if existing.status == "dismissed":
+                continue
+            existing.title = str(alert["title"])
+            existing.detail = str(alert["detail"])
+            existing.severity = str(alert["severity"])
+            continue
+        database.add(OperationalNotification(
+            organization_id=user.organization_id,
+            notification_type=str(alert["type"]),
+            severity=str(alert["severity"]),
+            title=str(alert["title"]),
+            detail=str(alert["detail"]),
+            entity_type=entity_type,
+            entity_id=entity_id,
+            dedupe_key=dedupe_key,
+            status="unread",
+        ))
+    database.commit()
+
+
+@router.get("/notifications", response_model=list[NotificationRead])
+def list_notifications(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[OperationalNotification]:
+    sync_notifications(user, database)
+    return list(database.scalars(
+        select(OperationalNotification)
+        .where(OperationalNotification.organization_id == user.organization_id)
+        .order_by(OperationalNotification.id.desc())
+    ).all())
+
+
+@router.patch("/notifications/{notification_id}", response_model=NotificationRead)
+def update_notification(
+    notification_id: int,
+    payload: NotificationStatusUpdate,
+    request: Request,
+    user: User = Depends(get_current_user),
+    database: Session = Depends(get_db),
+) -> OperationalNotification:
+    notification = database.scalar(select(OperationalNotification).where(
+        OperationalNotification.id == notification_id,
+        OperationalNotification.organization_id == user.organization_id,
+    ))
+    if notification is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found")
+    notification.status = payload.status
+    notification.resolved_at = utc_now() if payload.status == "dismissed" else None
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="notification.status_updated",
+        entity_type="operational_notification",
+        entity_id=str(notification.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps({"status": notification.status}),
+    ))
+    database.commit()
+    database.refresh(notification)
+    return notification
 
 
 @router.get("/expenses", response_model=list[ExpenseRead])

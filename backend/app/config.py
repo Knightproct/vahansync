@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     seed_admin_email: str = "admin@example.com"
     seed_admin_password: str = "ChangeMe!123"
+    storage_path: str = "./storage"
+    max_upload_bytes: int = 25 * 1024 * 1024
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="VAHANA_", extra="ignore")
 
