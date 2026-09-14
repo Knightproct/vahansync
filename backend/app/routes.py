@@ -671,6 +671,9 @@ def create_vehicle(
         ))
         if driver is None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Assigned user must be a driver in this organization")
+        driver_name = driver.full_name
+    else:
+        driver_name = payload.driver_name.strip() if payload.driver_name else None
 
     vehicle = Vehicle(
         organization_id=user.organization_id,
@@ -681,7 +684,7 @@ def create_vehicle(
         status=payload.status,
         health=payload.health,
         odometer_km=payload.odometer_km,
-        driver_name=payload.driver_name.strip() if payload.driver_name else None,
+        driver_name=driver_name,
         assigned_driver_id=payload.assigned_driver_id,
     )
     database.add(vehicle)
@@ -715,6 +718,11 @@ def update_vehicle(
     if vehicle is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
     changes = payload.model_dump(exclude_unset=True)
+    if "odometer_km" in changes and changes["odometer_km"] < vehicle.odometer_km:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Odometer reading cannot be lower than the current vehicle reading",
+        )
     if "assigned_driver_id" in changes and changes["assigned_driver_id"] is not None:
         driver = database.scalar(select(User).where(
             User.id == changes["assigned_driver_id"],
@@ -723,6 +731,9 @@ def update_vehicle(
         ))
         if driver is None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Assigned user must be a driver in this organization")
+        changes["driver_name"] = driver.full_name
+    elif changes.get("assigned_driver_id") is None and "assigned_driver_id" in changes:
+        changes["driver_name"] = None
     for key, value in changes.items():
         setattr(vehicle, key, value)
     database.add(AuditLog(
@@ -768,7 +779,15 @@ def create_component(
     vehicle = database.scalar(select(Vehicle).where(Vehicle.id == payload.vehicle_id, Vehicle.organization_id == user.organization_id))
     if vehicle is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found in this organization")
-    component = VehicleComponent(organization_id=user.organization_id, **payload.model_dump())
+    component_data = payload.model_dump()
+    if (
+        component_data["next_service_km"] is None
+        and component_data["service_interval_km"] is not None
+    ):
+        component_data["next_service_km"] = (
+            component_data["installed_at_km"] + component_data["service_interval_km"]
+        )
+    component = VehicleComponent(organization_id=user.organization_id, **component_data)
     database.add(component)
     database.flush()
     database.add(AuditLog(
@@ -831,15 +850,31 @@ def complete_component_service(
     component_id: int,
     odometer_km: int,
     request: Request,
-    user: User = Depends(require_roles("fleet_manager")),
+    user: User = Depends(require_permission("maintenance")),
     database: Session = Depends(get_db),
 ) -> VehicleComponent:
-    component = database.scalar(select(VehicleComponent).where(
+    statement = select(VehicleComponent).where(
         VehicleComponent.id == component_id,
         VehicleComponent.organization_id == user.organization_id,
-    ))
+    )
+    if user.role == "technician":
+        statement = statement.where(VehicleComponent.vehicle_id.in_(
+            select(WorkOrder.vehicle_id).where(
+                WorkOrder.organization_id == user.organization_id,
+                WorkOrder.assigned_user_id == user.id,
+            )
+        ))
+    component = database.scalar(statement)
     if component is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Component not found")
+    vehicle = database.get(Vehicle, component.vehicle_id)
+    if vehicle is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
+    if odometer_km < vehicle.odometer_km:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Service odometer cannot be lower than the vehicle's current reading",
+        )
     component.last_service_km = odometer_km
     component.next_service_km = odometer_km + component.service_interval_km if component.service_interval_km else None
     component.status = "Healthy"
@@ -1660,6 +1695,11 @@ def ingest_telemetry(
     ))
     if device is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Active telematics device not found")
+    vehicle = database.get(Vehicle, device.vehicle_id)
+    if vehicle is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
+    if payload.odometer_km > vehicle.odometer_km:
+        vehicle.odometer_km = payload.odometer_km
     reading = TelemetryReading(
         organization_id=user.organization_id,
         vehicle_id=device.vehicle_id,

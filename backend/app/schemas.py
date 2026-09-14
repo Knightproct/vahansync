@@ -35,6 +35,7 @@ class UserRead(BaseModel):
     full_name: str
     role: str
     organization_id: int
+    organization_name: str
     assigned_driver_id: int | None = None
 
 

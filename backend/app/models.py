@@ -42,6 +42,10 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
     organization: Mapped[Organization] = relationship(back_populates="users")
 
+    @property
+    def organization_name(self) -> str:
+        return self.organization.name
+
 
 class OrganizationInvitation(Base):
     __tablename__ = "organization_invitations"

@@ -45,8 +45,30 @@ def test_health_and_vehicle_lifecycle(tmp_path: Path, monkeypatch):
             "name": "Front axle brake pads",
             "component_type": "Brakes",
             "installed_at_km": 0,
+            "service_interval_km": 1000,
         })
         assert component.status_code == 201
+        assert component.json()["next_service_km"] == 1000
+        odometer_update = client.patch(
+            f"/api/v1/vehicles/{vehicle_id}",
+            headers=headers,
+            json={"odometer_km": 1000},
+        )
+        assert odometer_update.status_code == 200
+        assert odometer_update.json()["odometer_km"] == 1000
+        backwards_update = client.patch(
+            f"/api/v1/vehicles/{vehicle_id}",
+            headers=headers,
+            json={"odometer_km": 999},
+        )
+        assert backwards_update.status_code == 400
+        service_complete = client.post(
+            f"/api/v1/components/{component.json()['id']}/service-complete?odometer_km=1000",
+            headers=headers,
+        )
+        assert service_complete.status_code == 200
+        assert service_complete.json()["last_service_km"] == 1000
+        assert service_complete.json()["next_service_km"] == 2000
         work_order = client.post("/api/v1/work-orders", headers=headers, json={
             "vehicle_id": vehicle_id,
             "title": "Initial inspection",
@@ -177,6 +199,8 @@ def test_health_and_vehicle_lifecycle(tmp_path: Path, monkeypatch):
         latest = client.get(f"/api/v1/telematics/vehicles/{vehicle_id}/latest", headers=headers)
         assert latest.status_code == 200
         assert latest.json()["speed_kph"] == 54
+        vehicle_after_telemetry = client.get("/api/v1/vehicles", headers=headers)
+        assert next(item for item in vehicle_after_telemetry.json() if item["id"] == vehicle_id)["odometer_km"] == 12540
         vendor = client.post("/api/v1/vendors", headers=headers, json={
             "name": "TVS Autoparts",
             "vendor_type": "Parts supplier",

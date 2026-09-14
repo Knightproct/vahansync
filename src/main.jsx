@@ -7,10 +7,10 @@ const isPublicPage = ['/', '/signup'].includes(window.location.pathname) || wind
 
 const navItems = [
   { id: 'overview', label: 'Overview', icon: '⌂', permissions: ['fleet', 'maintenance', 'finance', 'compliance'] },
-  { id: 'fleet', label: 'Fleet', icon: '▱', count: '48', permissions: ['fleet'] },
-  { id: 'maintenance', label: 'Maintenance', icon: '⌁', count: '07', permissions: ['maintenance'] },
+  { id: 'fleet', label: 'Fleet', icon: '▱', permissions: ['fleet'] },
+  { id: 'maintenance', label: 'Maintenance', icon: '⌁', permissions: ['maintenance'] },
   { id: 'workshop', label: 'Workshop', icon: '⌘', permissions: ['workshop', 'inventory'] },
-  { id: 'documents', label: 'Documents', icon: '▤', count: '12', permissions: ['compliance'] },
+  { id: 'documents', label: 'Documents', icon: '▤', permissions: ['compliance'] },
   { id: 'costs', label: 'Costs & finance', icon: '₹', permissions: ['finance'] },
 ]
 
@@ -163,7 +163,7 @@ function App() {
           <div className="workspace-avatar">{(currentUser?.full_name || 'VS').split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase()}</div>
           <div>
             <span className="eyebrow">Workspace</span>
-            <strong>{currentUser?.full_name || 'Rajput Logistics'}</strong>
+          <strong>{currentUser?.organization_name || currentUser?.full_name || 'Workspace'}</strong>
           </div>
           <span className="chevron">⌄</span>
         </div>
@@ -175,7 +175,9 @@ function App() {
             <button className={`nav-item ${active === item.id ? 'active' : ''}`} key={item.id} onClick={() => setActive(item.id)}>
               <span className="nav-icon">{item.icon}</span>
               <span>{item.label}</span>
-              {item.count && <em>{item.count}</em>}
+              {item.id === 'fleet' && <em>{fleet.length}</em>}
+              {item.id === 'maintenance' && <em>{workOrders.length}</em>}
+              {item.id === 'documents' && <em>{documentsData.length}</em>}
             </button>
           ))}
           <span className="nav-section nav-section-spaced">Workspace</span>
@@ -352,23 +354,27 @@ function Overview({ role, vehicles: fleet, workOrders, documents, expenses, onAd
   const canSeeFleet = ['owner', 'fleet_manager'].includes(role)
   const canSeeMaintenance = ['owner', 'fleet_manager', 'technician'].includes(role)
   const canSeeFinance = ['owner', 'accountant'].includes(role)
+  const fleetHealth = fleet.length
+    ? Math.round(fleet.reduce((sum, vehicle) => sum + vehicle.health, 0) / fleet.length)
+    : 0
+  const statusCount = (status) => fleet.filter((vehicle) => vehicle.status === status).length
   return <div>
     <PageHeader eyebrow={workspace[0]} title={workspace[1]} subtitle="VahanSync shows the work relevant to your role, with organisation-wide controls behind it." />
     <div className="metric-grid">
-      <MetricCard label="Fleet health" value="86.4%" change="+2.8%" detail="vs last month" icon="◒" tone="navy" />
-      <MetricCard label="Active vehicles" value={`${fleet.filter((vehicle) => vehicle.status === 'On route').length} / ${fleet.length}`} change="+3" detail="this month" icon="▱" tone="blue" />
+      <MetricCard label="Fleet health" value={`${fleetHealth}%`} change="live" detail="average vehicle health" icon="◒" tone="navy" />
+      <MetricCard label="Active vehicles" value={`${statusCount('On route')} / ${fleet.length}`} change="live" detail="currently on route" icon="▱" tone="blue" />
       <MetricCard label="Open work orders" value={workOrders.length} change="live" detail="from maintenance planner" icon="⌁" tone="orange" />
       <MetricCard label="Recorded cost" value={`₹${(expenses.reduce((sum, expense) => sum + expense.amount_paise, 0) / 100000).toFixed(1)}L`} change="live" detail="from expense ledger" icon="₹" tone="purple" />
     </div>
     <div className="content-grid">
       {canSeeFleet && <section className="panel fleet-panel">
-        <PanelHeading title="Fleet overview" meta="48 vehicles" action="View all" onAction={() => onNotify('Fleet view selected from the overview.')} />
+        <PanelHeading title="Fleet overview" meta={`${fleet.length} vehicles`} action="View all" onAction={() => onNotify('Fleet view selected from the overview.')} />
         <div className="fleet-summary">
-          <div className="donut-wrap"><div className="donut"><strong>86%</strong><span>healthy</span></div></div>
+          <div className="donut-wrap"><div className="donut"><strong>{fleetHealth}%</strong><span>healthy</span></div></div>
           <div className="legend-list">
-            <Legend color="green" label="On route" value="34" sub="71%" />
-            <Legend color="orange" label="In workshop" value="05" sub="10%" />
-            <Legend color="blue" label="Idle / parked" value="09" sub="19%" />
+            <Legend color="green" label="On route" value={statusCount('On route')} sub={fleet.length ? `${Math.round(statusCount('On route') / fleet.length * 100)}%` : '0%'} />
+            <Legend color="orange" label="In workshop" value={statusCount('In workshop')} sub={fleet.length ? `${Math.round(statusCount('In workshop') / fleet.length * 100)}%` : '0%'} />
+            <Legend color="blue" label="Idle / parked" value={statusCount('Idle / parked')} sub={fleet.length ? `${Math.round(statusCount('Idle / parked') / fleet.length * 100)}%` : '0%'} />
           </div>
         </div>
         <div className="mini-table">
@@ -423,7 +429,7 @@ function Fleet({ role, vehicles: rows, components, token, onAdd, onNotify, onVeh
   return <div><PageHeader eyebrow="Operations" title="Fleet" subtitle="Every vehicle, every component, one source of truth." action={role === 'fleet_manager' ? 'Add vehicle' : undefined} onAction={onAdd} /><div className="toolbar"><div className="filter-tabs"><button className="selected">Live vehicles <span>{rows.length}</span></button></div><button className="secondary-button" onClick={downloadExport}>Export vehicles ↗</button></div><section className="panel table-panel"><div className="table-header"><div><h2>Vehicle register</h2><span>Live organization records</span></div></div><div className="data-table"><div className="data-row data-head"><span>Vehicle</span><span>Depot</span><span>Driver</span><span>Status</span><span>Health</span><span></span></div>{rows.map((v) => <div className="data-row" key={v.reg}><div className="vehicle-cell"><div className={`vehicle-dot ${v.accent}`}></div><div><strong>{v.reg}</strong><small>{v.model} · {v.km}</small></div></div><span>{v.depot}</span><span>{v.driver}</span><Status status={v.status} /><div className="health-cell"><span>{v.health}%</span><div className="health-bar"><i style={{ width: `${v.health}%` }}></i></div></div>{role === 'fleet_manager' ? <button className="row-more" onClick={() => setEditingVehicle(v)}>Edit</button> : <span />}</div>)}</div></section>
     {role === 'fleet_manager' && <section className="panel table-panel"><div className="table-header"><div><h2>Component lifecycle</h2><span>Attach components, monitor odometer service thresholds, and close the maintenance cycle.</span></div></div><form className="form-grid" onSubmit={addComponent}><select value={componentForm.vehicle_id} onChange={(event) => setComponentForm({ ...componentForm, vehicle_id: event.target.value })} required>{rows.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.reg}</option>)}</select><input placeholder="Component name" value={componentForm.name} onChange={(event) => setComponentForm({ ...componentForm, name: event.target.value })} required /><input placeholder="Type (brakes, tyre...)" value={componentForm.component_type} onChange={(event) => setComponentForm({ ...componentForm, component_type: event.target.value })} required /><input type="number" placeholder="Installed odometer km" value={componentForm.installed_at_km} onChange={(event) => setComponentForm({ ...componentForm, installed_at_km: event.target.value })} /><input type="number" placeholder="Service interval km" value={componentForm.service_interval_km} onChange={(event) => setComponentForm({ ...componentForm, service_interval_km: event.target.value })} /><button className="primary-button" type="submit">Attach component</button></form><div className="data-table">{components.map((component) => { const vehicle = rows.find((item) => item.id === component.vehicle_id); const currentKm = vehicle?.odometer_km || 0; const due = component.next_service_km && currentKm >= component.next_service_km; return <div className="data-row" key={component.id}><span>{component.name}<small>{component.component_type}</small></span><span>{vehicle?.reg || 'Vehicle'}</span><span>{currentKm.toLocaleString()} / next {component.next_service_km || '—'} km</span><Status status={due ? 'In workshop' : component.status} /><button className="row-more" onClick={() => setEditingComponent(component)}>Edit</button></div> })}</div></section>}
     {editingVehicle && <EditVehicleModal vehicle={editingVehicle} onClose={() => setEditingVehicle(null)} onSave={async (payload) => { const updated = await updateVehicle(token, editingVehicle.id, payload); onVehicleUpdated(updated); setEditingVehicle(null); onNotify('Vehicle updated.') }} />}
-    {editingComponent && <EditComponentModal component={editingComponent} token={token} onClose={() => setEditingComponent(null)} onSave={async (payload) => { const updated = await updateComponent(token, editingComponent.id, payload); onComponentUpdated(updated); setEditingComponent(null); onNotify('Component lifecycle updated.') }} onServiceComplete={async (odometerKm) => { const updated = await completeComponentService(token, editingComponent.id, odometerKm); onComponentUpdated(updated); setEditingComponent(null); onNotify('Component service completed and next threshold recalculated.') }} />}
+    {editingComponent && <EditComponentModal component={editingComponent} vehicle={rows.find((vehicle) => vehicle.id === editingComponent.vehicle_id)} token={token} onClose={() => setEditingComponent(null)} onSave={async (payload) => { const updated = await updateComponent(token, editingComponent.id, payload); onComponentUpdated(updated); setEditingComponent(null); onNotify('Component lifecycle updated.') }} onServiceComplete={async (odometerKm) => { const updated = await completeComponentService(token, editingComponent.id, odometerKm); onComponentUpdated(updated); setEditingComponent(null); onNotify('Component service completed and next threshold recalculated.') }} />}
   </div>
 }
 
@@ -464,9 +470,9 @@ function EditVehicleModal({ vehicle, onClose, onSave }) {
   return <Modal title={`Edit ${vehicle.reg}`} onClose={onClose}><form className="form-grid" onSubmit={(event) => { event.preventDefault(); onSave({ ...form, health: Number(form.health), odometer_km: Number(form.odometer_km) }) }}><input value={form.model} onChange={(event) => setForm({ ...form, model: event.target.value })} placeholder="Model" /><input value={form.vehicle_type} onChange={(event) => setForm({ ...form, vehicle_type: event.target.value })} placeholder="Type" /><input value={form.depot} onChange={(event) => setForm({ ...form, depot: event.target.value })} placeholder="Depot" /><input value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })} placeholder="Status" /><input type="number" value={form.health} onChange={(event) => setForm({ ...form, health: event.target.value })} placeholder="Health" /><input type="number" value={form.odometer_km} onChange={(event) => setForm({ ...form, odometer_km: event.target.value })} placeholder="Odometer km" /><button className="primary-button" type="submit">Save vehicle</button></form></Modal>
 }
 
-function EditComponentModal({ component, onClose, onSave, onServiceComplete }) {
+function EditComponentModal({ component, vehicle, onClose, onSave, onServiceComplete }) {
   const [form, setForm] = useState({ name: component.name, component_type: component.component_type, serial_number: component.serial_number || '', last_service_km: component.last_service_km || '', service_interval_km: component.service_interval_km || '', next_service_km: component.next_service_km || '', status: component.status })
-  return <Modal title={`Edit ${component.name}`} onClose={onClose}><form className="form-grid" onSubmit={(event) => { event.preventDefault(); onSave({ ...form, last_service_km: form.last_service_km ? Number(form.last_service_km) : null, service_interval_km: form.service_interval_km ? Number(form.service_interval_km) : null, next_service_km: form.next_service_km ? Number(form.next_service_km) : null }) }}><input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Name" /><input value={form.component_type} onChange={(event) => setForm({ ...form, component_type: event.target.value })} placeholder="Type" /><input value={form.serial_number} onChange={(event) => setForm({ ...form, serial_number: event.target.value })} placeholder="Serial number" /><input type="number" value={form.last_service_km} onChange={(event) => setForm({ ...form, last_service_km: event.target.value })} placeholder="Last service km" /><input type="number" value={form.service_interval_km} onChange={(event) => setForm({ ...form, service_interval_km: event.target.value })} placeholder="Service interval km" /><input type="number" value={form.next_service_km} onChange={(event) => setForm({ ...form, next_service_km: event.target.value })} placeholder="Next service km" /><select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}><option>Healthy</option><option>Due soon</option><option>In workshop</option><option>Retired</option></select><button className="primary-button" type="submit">Save component</button><button className="secondary-button" type="button" onClick={() => onServiceComplete(Number(form.last_service_km || 0))}>Complete service now</button></form></Modal>
+  return <Modal title={`Edit ${component.name}`} onClose={onClose}><form className="form-grid" onSubmit={(event) => { event.preventDefault(); onSave({ ...form, last_service_km: form.last_service_km ? Number(form.last_service_km) : null, service_interval_km: form.service_interval_km ? Number(form.service_interval_km) : null, next_service_km: form.next_service_km ? Number(form.next_service_km) : null }) }}><input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Name" /><input value={form.component_type} onChange={(event) => setForm({ ...form, component_type: event.target.value })} placeholder="Type" /><input value={form.serial_number} onChange={(event) => setForm({ ...form, serial_number: event.target.value })} placeholder="Serial number" /><input type="number" value={form.last_service_km} onChange={(event) => setForm({ ...form, last_service_km: event.target.value })} placeholder="Last service km" /><input type="number" value={form.service_interval_km} onChange={(event) => setForm({ ...form, service_interval_km: event.target.value })} placeholder="Service interval km" /><input type="number" value={form.next_service_km} onChange={(event) => setForm({ ...form, next_service_km: event.target.value })} placeholder="Next service km" /><select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}><option>Healthy</option><option>Due soon</option><option>In workshop</option><option>Retired</option></select><button className="primary-button" type="submit">Save component</button><button className="secondary-button" type="button" onClick={() => onServiceComplete(vehicle?.odometer_km || component.last_service_km || component.installed_at_km || 0)}>Complete service at current odometer</button></form></Modal>
 }
 
 function Modal({ title, onClose, children }) {
@@ -474,7 +480,7 @@ function Modal({ title, onClose, children }) {
 }
 
 function Documents({ documents, vehicles: fleet, onNotify }) {
-  return <div><PageHeader eyebrow="Compliance vault" title="Documents" subtitle="Keep every permit, certificate, and policy ready for inspection." action="Upload document" onAction={() => onNotify('Document upload flow is next in the vault module.')} /><div className="document-kpis"><div><span className="kpi-icon green">✓</span><strong>{documents.filter((doc) => doc.status === 'Valid').length}</strong><span>Valid documents</span></div><div><span className="kpi-icon amber">◷</span><strong>{documents.filter((doc) => doc.status !== 'Valid').length}</strong><span>Needs review</span></div><div><span className="kpi-icon red">!</span><strong>0</strong><span>Expired documents</span></div></div><section className="panel table-panel"><div className="table-header"><div><h2>Document register</h2><span>Vehicle and company compliance records</span></div><div className="table-actions"><button className="secondary-button">Document types</button><button className="filter-button">☷ Filters</button></div></div><div className="data-table"><div className="data-row data-head"><span>Document</span><span>Linked to</span><span>Issued by</span><span>Expiry</span><span>Status</span><span></span></div>{documents.map((doc) => <div className="data-row" key={doc.id}><div className="document-cell"><div className="doc-icon neutral">▤</div><div><strong>{doc.name}</strong><small>DOC-{doc.id} · metadata</small></div></div><span>{fleet.find((vehicle) => vehicle.id === doc.vehicle_id)?.reg || 'Organization'}</span><span>{doc.issued_by || 'Not specified'}</span><span>{doc.expires_on}</span><span className="document-status neutral">{doc.status}</span><button className="row-more">•••</button></div>)}</div></section></div>
+  return <div><PageHeader eyebrow="Compliance vault" title="Documents" subtitle="Keep every permit, certificate, and policy ready for inspection." action="Upload document" onAction={() => onNotify('Document upload flow is next in the vault module.')} /><div className="document-kpis"><div><span className="kpi-icon green">✓</span><strong>{documents.filter((doc) => doc.status === 'Valid').length}</strong><span>Valid documents</span></div><div><span className="kpi-icon amber">◷</span><strong>{documents.filter((doc) => doc.status !== 'Valid' && doc.status !== 'Expired').length}</strong><span>Needs review</span></div><div><span className="kpi-icon red">!</span><strong>{documents.filter((doc) => doc.status === 'Expired').length}</strong><span>Expired documents</span></div></div><section className="panel table-panel"><div className="table-header"><div><h2>Document register</h2><span>Vehicle and company compliance records</span></div><div className="table-actions"><button className="secondary-button">Document types</button><button className="filter-button">☷ Filters</button></div></div><div className="data-table"><div className="data-row data-head"><span>Document</span><span>Linked to</span><span>Issued by</span><span>Expiry</span><span>Status</span><span></span></div>{documents.map((doc) => <div className="data-row" key={doc.id}><div className="document-cell"><div className="doc-icon neutral">▤</div><div><strong>{doc.name}</strong><small>DOC-{doc.id} · metadata</small></div></div><span>{fleet.find((vehicle) => vehicle.id === doc.vehicle_id)?.reg || 'Organization'}</span><span>{doc.issued_by || 'Not specified'}</span><span>{doc.expires_on}</span><span className="document-status neutral">{doc.status}</span><button className="row-more">•••</button></div>)}</div></section></div>
 }
 
 function Costs({ expenses, vehicles: fleet, onNotify }) {
