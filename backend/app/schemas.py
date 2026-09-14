@@ -78,6 +78,32 @@ class WorkOrderRead(WorkOrderCreate):
     created_at: datetime
 
 
+class WorkOrderUpdate(BaseModel):
+    status: str | None = None
+    priority: str | None = None
+    due_date: str | None = None
+    assigned_to: str | None = None
+    description: str | None = None
+
+
+class MaintenancePlanCreate(BaseModel):
+    vehicle_id: int
+    name: str = Field(min_length=2, max_length=200)
+    interval_km: int | None = Field(default=None, gt=0)
+    interval_days: int | None = Field(default=None, gt=0)
+    next_due_km: int | None = Field(default=None, ge=0)
+    next_due_on: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    active: bool = True
+
+
+class MaintenancePlanRead(MaintenancePlanCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    organization_id: int
+    created_at: datetime
+
+
 class PartCreate(BaseModel):
     sku: str = Field(min_length=2, max_length=80)
     name: str = Field(min_length=2, max_length=200)
@@ -103,6 +129,43 @@ class InventoryTransactionCreate(BaseModel):
     reference: str | None = None
 
 
+class InventoryTransactionRead(InventoryTransactionCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    organization_id: int
+    created_by: int
+    created_at: datetime
+
+
+class StockLocationCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=160)
+    code: str = Field(min_length=2, max_length=40)
+    address: str | None = None
+    active: bool = True
+
+
+class StockLocationRead(StockLocationCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    organization_id: int
+    created_at: datetime
+
+
+class InventoryMovementCreate(InventoryTransactionCreate):
+    location_id: int
+
+
+class InventoryMovementRead(InventoryMovementCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    organization_id: int
+    created_by: int
+    created_at: datetime
+
+
 class DocumentCreate(BaseModel):
     vehicle_id: int | None = None
     name: str = Field(min_length=2, max_length=200)
@@ -114,6 +177,24 @@ class DocumentCreate(BaseModel):
 
 
 class DocumentRead(DocumentCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    organization_id: int
+    created_at: datetime
+
+
+class ExpenseCreate(BaseModel):
+    vehicle_id: int | None = None
+    category: str = Field(min_length=2, max_length=80)
+    description: str = Field(min_length=2, max_length=240)
+    amount_paise: int = Field(gt=0)
+    incurred_on: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    vendor: str | None = None
+    status: str = "Approved"
+
+
+class ExpenseRead(ExpenseCreate):
     model_config = ConfigDict(from_attributes=True)
 
     id: int

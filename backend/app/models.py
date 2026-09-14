@@ -82,6 +82,21 @@ class WorkOrder(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
 
+class MaintenancePlan(Base):
+    __tablename__ = "maintenance_plans"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    vehicle_id: Mapped[int] = mapped_column(ForeignKey("vehicles.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    interval_km: Mapped[Optional[int]] = mapped_column(Integer)
+    interval_days: Mapped[Optional[int]] = mapped_column(Integer)
+    next_due_km: Mapped[Optional[int]] = mapped_column(Integer)
+    next_due_on: Mapped[Optional[str]] = mapped_column(String(20))
+    active: Mapped[bool] = mapped_column(default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
 class Part(Base):
     __tablename__ = "parts"
 
@@ -110,6 +125,32 @@ class InventoryTransaction(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
 
+class StockLocation(Base):
+    __tablename__ = "stock_locations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    code: Mapped[str] = mapped_column(String(40), nullable=False)
+    address: Mapped[Optional[str]] = mapped_column(String(300))
+    active: Mapped[bool] = mapped_column(default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class InventoryMovement(Base):
+    __tablename__ = "inventory_movements"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    part_id: Mapped[int] = mapped_column(ForeignKey("parts.id"), nullable=False, index=True)
+    location_id: Mapped[int] = mapped_column(ForeignKey("stock_locations.id"), nullable=False, index=True)
+    transaction_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    reference: Mapped[Optional[str]] = mapped_column(String(160))
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
 class ComplianceDocument(Base):
     __tablename__ = "compliance_documents"
 
@@ -122,6 +163,21 @@ class ComplianceDocument(Base):
     expires_on: Mapped[str] = mapped_column(String(20), nullable=False)
     file_key: Mapped[Optional[str]] = mapped_column(String(500))
     status: Mapped[str] = mapped_column(String(30), default="Valid", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class Expense(Base):
+    __tablename__ = "expenses"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    vehicle_id: Mapped[Optional[int]] = mapped_column(ForeignKey("vehicles.id"), index=True)
+    category: Mapped[str] = mapped_column(String(80), nullable=False)
+    description: Mapped[str] = mapped_column(String(240), nullable=False)
+    amount_paise: Mapped[int] = mapped_column(Integer, nullable=False)
+    incurred_on: Mapped[str] = mapped_column(String(20), nullable=False)
+    vendor: Mapped[Optional[str]] = mapped_column(String(160))
+    status: Mapped[str] = mapped_column(String(30), default="Approved", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
 

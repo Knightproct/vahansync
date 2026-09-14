@@ -9,6 +9,7 @@ from .config import get_settings
 from .routes import router, seed_database
 
 settings = get_settings()
+settings.validate_runtime()
 
 
 @asynccontextmanager

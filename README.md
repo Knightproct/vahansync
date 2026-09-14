@@ -41,4 +41,14 @@ The first production slice includes:
 - API-backed fleet dashboard and add-vehicle workflow
 - Health endpoint, request IDs, CORS configuration, and automated API coverage
 
+The current operations slice also includes:
+
+- Vehicle component register, preventive maintenance plans, and work-order status updates
+- Workshop parts catalogue, stock locations, receipt/issue movements, reorder thresholds, and transaction history
+- Compliance document register with vehicle linkage and expired-document status calculation
+- Organization-scoped expense ledger with live costs and finance dashboard views
+- Role checks for operational mutations and runtime rejection of development secrets in staging/production
+
+For non-development environments, set a unique `VAHANA_JWT_SECRET` and a non-default `VAHANA_SEED_ADMIN_PASSWORD`. The current local bootstrap uses `Base.metadata.create_all` for development and tests; production rollout should run a reviewed schema migration before starting the API.
+
 See [ARCHITECTURE.md](ARCHITECTURE.md) for domain boundaries and the enterprise delivery sequence.

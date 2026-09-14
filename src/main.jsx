@@ -1,7 +1,7 @@
 import { StrictMode, useEffect, useMemo, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import './styles.css'
-import { createVehicle, createWorkOrder, getDocuments, getParts, getVehicles, getWorkOrders, login } from './api'
+import { createVehicle, createWorkOrder, getComponents, getDocuments, getExpenses, getMaintenancePlans, getParts, getVehicles, getWorkOrders, login } from './api'
 
 const navItems = [
   { id: 'overview', label: 'Overview', icon: '⌂' },
@@ -40,6 +40,9 @@ function App() {
   const [workOrders, setWorkOrders] = useState([])
   const [parts, setParts] = useState([])
   const [documentsData, setDocumentsData] = useState([])
+  const [expenses, setExpenses] = useState([])
+  const [components, setComponents] = useState([])
+  const [maintenancePlans, setMaintenancePlans] = useState([])
   const [token, setToken] = useState(() => window.sessionStorage.getItem('vahana:access-token'))
   const [apiState, setApiState] = useState('loading')
   const [apiError, setApiError] = useState('')
@@ -58,16 +61,22 @@ function App() {
           setApiState('unauthenticated')
           return
         }
-        const [loadedFleet, loadedWorkOrders, loadedParts, loadedDocuments] = await Promise.all([
+        const [loadedFleet, loadedWorkOrders, loadedParts, loadedDocuments, loadedExpenses, loadedComponents, loadedPlans] = await Promise.all([
           getVehicles(accessToken),
           getWorkOrders(accessToken),
           getParts(accessToken),
           getDocuments(accessToken),
+          getExpenses(accessToken),
+          getComponents(accessToken),
+          getMaintenancePlans(accessToken),
         ])
         setFleet(loadedFleet)
         setWorkOrders(loadedWorkOrders)
         setParts(loadedParts)
         setDocumentsData(loadedDocuments)
+        setExpenses(loadedExpenses)
+        setComponents(loadedComponents)
+        setMaintenancePlans(loadedPlans)
         setApiState('ready')
       } catch (error) {
         setApiError(error.message)
@@ -156,12 +165,12 @@ function App() {
         </header>
 
         <div className="page">
-          {active === 'overview' && <Overview vehicles={fleet} workOrders={workOrders} documents={documentsData} onAdd={() => setShowAdd(true)} onNotify={notify} />}
+          {active === 'overview' && <Overview vehicles={fleet} workOrders={workOrders} documents={documentsData} expenses={expenses} onAdd={() => setShowAdd(true)} onNotify={notify} />}
           {active === 'fleet' && <Fleet vehicles={filteredVehicles} onAdd={() => setShowAdd(true)} />}
-          {active === 'maintenance' && <Maintenance workOrders={workOrders} vehicles={fleet} token={token} onCreated={(workOrder) => setWorkOrders((current) => [workOrder, ...current])} onNotify={notify} />}
+          {active === 'maintenance' && <Maintenance workOrders={workOrders} components={components} plans={maintenancePlans} vehicles={fleet} token={token} onCreated={(workOrder) => setWorkOrders((current) => [workOrder, ...current])} onNotify={notify} />}
           {active === 'workshop' && <Workshop parts={parts} onNotify={notify} />}
           {active === 'documents' && <Documents documents={documentsData} vehicles={fleet} onNotify={notify} />}
-          {active === 'costs' && <Costs onNotify={notify} />}
+          {active === 'costs' && <Costs expenses={expenses} vehicles={fleet} onNotify={notify} />}
         </div>
       </main>
 
@@ -200,14 +209,14 @@ function PageHeader({ eyebrow, title, subtitle, action, onAction }) {
   </div>
 }
 
-function Overview({ vehicles: fleet, workOrders, documents, onAdd, onNotify }) {
+function Overview({ vehicles: fleet, workOrders, documents, expenses, onAdd, onNotify }) {
   return <div>
     <PageHeader eyebrow="Monday, 15 June 2024" title="Good morning, Arjun" subtitle="Here’s what’s happening across your fleet today." action="Add vehicle" onAction={onAdd} />
     <div className="metric-grid">
       <MetricCard label="Fleet health" value="86.4%" change="+2.8%" detail="vs last month" icon="◒" tone="navy" />
       <MetricCard label="Active vehicles" value={`${fleet.filter((vehicle) => vehicle.status === 'On route').length} / ${fleet.length}`} change="+3" detail="this month" icon="▱" tone="blue" />
-      <MetricCard label="Open work orders" value="07" change="-4" detail="vs last week" icon="⌁" tone="orange" />
-      <MetricCard label="This month’s cost" value="₹12.8L" change="+8.4%" detail="vs last month" icon="₹" tone="purple" />
+      <MetricCard label="Open work orders" value={workOrders.length} change="live" detail="from maintenance planner" icon="⌁" tone="orange" />
+      <MetricCard label="Recorded cost" value={`₹${(expenses.reduce((sum, expense) => sum + expense.amount_paise, 0) / 100000).toFixed(1)}L`} change="live" detail="from expense ledger" icon="₹" tone="purple" />
     </div>
     <div className="content-grid">
       <section className="panel fleet-panel">
@@ -232,7 +241,7 @@ function Overview({ vehicles: fleet, workOrders, documents, onAdd, onNotify }) {
       </section>
     </div>
     <div className="content-grid bottom-grid">
-      <section className="panel cost-panel"><PanelHeading title="Operating cost" meta="Last 6 months" action="Detailed report" onAction={() => onNotify('Cost report is ready to review.')} /><div className="chart-wrap"><div className="y-labels"><span>₹18L</span><span>₹12L</span><span>₹6L</span><span>₹0</span></div><div className="chart"><div className="grid-lines"><i></i><i></i><i></i><i></i></div><svg viewBox="0 0 650 180" preserveAspectRatio="none" aria-label="Operating cost chart"><defs><linearGradient id="chartFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#2a8a82" stopOpacity=".2" /><stop offset="100%" stopColor="#2a8a82" stopOpacity="0" /></linearGradient></defs><path d="M0 128 C40 116 58 124 90 101 S145 115 172 88 S230 74 260 92 S302 84 335 96 S380 57 420 72 S464 83 500 48 S551 68 575 36 S617 47 650 18 L650 180 L0 180Z" fill="url(#chartFill)" /><path d="M0 128 C40 116 58 124 90 101 S145 115 172 88 S230 74 260 92 S302 84 335 96 S380 57 420 72 S464 83 500 48 S551 68 575 36 S617 47 650 18" fill="none" stroke="#2a8a82" strokeWidth="3" strokeLinecap="round" /></svg><div className="x-labels"><span>Jan</span><span>Feb</span><span>Mar</span><span>Apr</span><span>May</span><span>Jun</span></div></div></div></section>
+      <section className="panel cost-panel"><PanelHeading title="Operating cost" meta={`${expenses.length} recorded expenses`} action="Detailed report" onAction={() => onNotify('Cost report is ready to review.')} /><div className="chart-wrap"><div className="y-labels"><span>₹18L</span><span>₹12L</span><span>₹6L</span><span>₹0</span></div><div className="chart"><div className="grid-lines"><i></i><i></i><i></i><i></i></div><svg viewBox="0 0 650 180" preserveAspectRatio="none" aria-label="Operating cost chart"><defs><linearGradient id="chartFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#2a8a82" stopOpacity=".2" /><stop offset="100%" stopColor="#2a8a82" stopOpacity="0" /></linearGradient></defs><path d="M0 128 C40 116 58 124 90 101 S145 115 172 88 S230 74 260 92 S302 84 335 96 S380 57 420 72 S464 83 500 48 S551 68 575 36 S617 47 650 18 L650 180 L0 180Z" fill="url(#chartFill)" /><path d="M0 128 C40 116 58 124 90 101 S145 115 172 88 S230 74 260 92 S302 84 335 96 S380 57 420 72 S464 83 500 48 S551 68 575 36 S617 47 650 18" fill="none" stroke="#2a8a82" strokeWidth="3" strokeLinecap="round" /></svg><div className="x-labels"><span>Jan</span><span>Feb</span><span>Mar</span><span>Apr</span><span>May</span><span>Jun</span></div></div></div></section>
       <section className="panel"><PanelHeading title="Documents expiring soon" meta={`${documents.length} documents in vault`} action="View vault" onAction={() => onNotify('Document vault opened.')} /><div className="document-list">{documents.slice(0, 3).map((doc) => <div className="document-item" key={doc.id}><div className="doc-icon warning">▤</div><div className="document-copy"><strong>{doc.name}</strong><span>{fleet.find((vehicle) => vehicle.id === doc.vehicle_id)?.reg || 'Organization document'} · {doc.expires_on}</span></div><span className="days-pill warning">{doc.status}</span></div>)}</div></section>
     </div>
   </div>
@@ -249,7 +258,7 @@ function Fleet({ vehicles: rows, onAdd }) {
   return <div><PageHeader eyebrow="Operations" title="Fleet" subtitle="Every vehicle, every component, one source of truth." action="Add vehicle" onAction={onAdd} /><div className="toolbar"><div className="filter-tabs"><button className="selected">All vehicles <span>48</span></button><button>On route <span>34</span></button><button>Attention <span>7</span></button></div><button className="secondary-button">Export list ↗</button></div><section className="panel table-panel"><div className="table-header"><div><h2>Vehicle register</h2><span>Updated a few seconds ago</span></div><button className="filter-button">☷ Filters</button></div><div className="data-table"><div className="data-row data-head"><span>Vehicle</span><span>Depot</span><span>Driver</span><span>Status</span><span>Health</span><span></span></div>{rows.map((v) => <div className="data-row" key={v.reg}><div className="vehicle-cell"><div className={`vehicle-dot ${v.accent}`}></div><div><strong>{v.reg}</strong><small>{v.model} · {v.km}</small></div></div><span>{v.depot}</span><span>{v.driver}</span><Status status={v.status} /><div className="health-cell"><span>{v.health}%</span><div className="health-bar"><i style={{ width: `${v.health}%` }}></i></div></div><button className="row-more">•••</button></div>)}</div></section></div>
 }
 
-function Maintenance({ workOrders, vehicles: fleet, token, onCreated, onNotify }) {
+function Maintenance({ workOrders, components, plans, vehicles: fleet, token, onCreated, onNotify }) {
   const createOrder = async () => {
     const vehicle = fleet[0]
     if (!vehicle) return
@@ -262,7 +271,7 @@ function Maintenance({ workOrders, vehicles: fleet, token, onCreated, onNotify }
     }
   }
 
-  return <div><PageHeader eyebrow="Workshop control" title="Maintenance" subtitle="Plan preventive care and close every work order on time." action="New work order" onAction={createOrder} /><div className="metric-grid compact"><MetricCard label="Open work orders" value={workOrders.length} change="-3" detail="vs last week" icon="◷" tone="orange" /><MetricCard label="In progress" value={workOrders.filter((item) => item.status === 'In progress').length} change="+2" detail="since yesterday" icon="⌁" tone="blue" /><MetricCard label="Avg. downtime" value="1.8d" change="-0.4d" detail="this quarter" icon="◒" tone="green" /><MetricCard label="Preventive compliance" value="94%" change="+6.2%" detail="vs last quarter" icon="✓" tone="purple" /></div><section className="panel table-panel"><div className="table-header"><div><h2>Work order planner</h2><span>All active and scheduled jobs</span></div><div className="table-actions"><button className="secondary-button">Calendar view</button><button className="filter-button">☷ Filters</button></div></div><div className="data-table"><div className="data-row data-head"><span>Work order</span><span>Vehicle</span><span>Assigned to</span><span>Due</span><span>Priority</span><span>Status</span></div>{workOrders.map((item) => <div className="data-row" key={item.id}><div className="workorder-cell"><div className="maintenance-icon small amber">⌁</div><div><strong>{item.title}</strong><small>WO-{item.id}</small></div></div><span>{fleet.find((vehicle) => vehicle.id === item.vehicle_id)?.reg || 'Vehicle linked'}</span><span>{item.assigned_to || 'Unassigned'}</span><span>{item.due_date || 'Unscheduled'}</span><span className={`priority ${item.priority === 'High' ? 'red' : item.priority === 'Low' ? 'green' : 'amber'}`}>{item.priority}</span><Status status={item.status === 'In progress' ? 'In workshop' : 'On route'} /></div>)}</div></section></div>
+  return <div><PageHeader eyebrow="Workshop control" title="Maintenance" subtitle="Plan preventive care and close every work order on time." action="New work order" onAction={createOrder} /><div className="metric-grid compact"><MetricCard label="Open work orders" value={workOrders.length} change="-3" detail="vs last week" icon="◷" tone="orange" /><MetricCard label="In progress" value={workOrders.filter((item) => item.status === 'In progress').length} change="+2" detail="since yesterday" icon="⌁" tone="blue" /><MetricCard label="Tracked components" value={components.length} change="live" detail={`${plans.length} service plans`} icon="◒" tone="green" /><MetricCard label="Preventive compliance" value="94%" change="+6.2%" detail="vs last quarter" icon="✓" tone="purple" /></div><section className="panel table-panel"><div className="table-header"><div><h2>Work order planner</h2><span>All active and scheduled jobs</span></div><div className="table-actions"><button className="secondary-button">Calendar view</button><button className="filter-button">☷ Filters</button></div></div><div className="data-table"><div className="data-row data-head"><span>Work order</span><span>Vehicle</span><span>Assigned to</span><span>Due</span><span>Priority</span><span>Status</span></div>{workOrders.map((item) => <div className="data-row" key={item.id}><div className="workorder-cell"><div className="maintenance-icon small amber">⌁</div><div><strong>{item.title}</strong><small>WO-{item.id}</small></div></div><span>{fleet.find((vehicle) => vehicle.id === item.vehicle_id)?.reg || 'Vehicle linked'}</span><span>{item.assigned_to || 'Unassigned'}</span><span>{item.due_date || 'Unscheduled'}</span><span className={`priority ${item.priority === 'High' ? 'red' : item.priority === 'Low' ? 'green' : 'amber'}`}>{item.priority}</span><Status status={item.status === 'In progress' ? 'In workshop' : 'On route'} /></div>)}</div></section></div>
 }
 
 function Workshop({ parts, onNotify }) {
@@ -273,8 +282,10 @@ function Documents({ documents, vehicles: fleet, onNotify }) {
   return <div><PageHeader eyebrow="Compliance vault" title="Documents" subtitle="Keep every permit, certificate, and policy ready for inspection." action="Upload document" onAction={() => onNotify('Document upload flow is next in the vault module.')} /><div className="document-kpis"><div><span className="kpi-icon green">✓</span><strong>{documents.filter((doc) => doc.status === 'Valid').length}</strong><span>Valid documents</span></div><div><span className="kpi-icon amber">◷</span><strong>{documents.filter((doc) => doc.status !== 'Valid').length}</strong><span>Needs review</span></div><div><span className="kpi-icon red">!</span><strong>0</strong><span>Expired documents</span></div></div><section className="panel table-panel"><div className="table-header"><div><h2>Document register</h2><span>Vehicle and company compliance records</span></div><div className="table-actions"><button className="secondary-button">Document types</button><button className="filter-button">☷ Filters</button></div></div><div className="data-table"><div className="data-row data-head"><span>Document</span><span>Linked to</span><span>Issued by</span><span>Expiry</span><span>Status</span><span></span></div>{documents.map((doc) => <div className="data-row" key={doc.id}><div className="document-cell"><div className="doc-icon neutral">▤</div><div><strong>{doc.name}</strong><small>DOC-{doc.id} · metadata</small></div></div><span>{fleet.find((vehicle) => vehicle.id === doc.vehicle_id)?.reg || 'Organization'}</span><span>{doc.issued_by || 'Not specified'}</span><span>{doc.expires_on}</span><span className="document-status neutral">{doc.status}</span><button className="row-more">•••</button></div>)}</div></section></div>
 }
 
-function Costs({ onNotify }) {
-  return <div><PageHeader eyebrow="Finance & analytics" title="Costs & finance" subtitle="Understand the true cost of every kilometre, vehicle, and route." action="Record expense" onAction={() => onNotify('Expense form opened.')} /><div className="metric-grid compact"><MetricCard label="Cost per km" value="₹18.42" change="-1.4%" detail="vs last month" icon="₹" tone="navy" /><MetricCard label="Fuel spend" value="₹8.4L" change="+4.8%" detail="this month" icon="◉" tone="orange" /><MetricCard label="Maintenance spend" value="₹2.7L" change="-8.2%" detail="this month" icon="⌁" tone="green" /><MetricCard label="Unapproved bills" value="₹84K" change="06" detail="pending review" icon="!" tone="purple" /></div><div className="content-grid"><section className="panel cost-panel"><PanelHeading title="Spend by category" meta="June 2024" action="View ledger" onAction={() => onNotify('Expense ledger opened.')} /><div className="bar-chart"><div className="bar-row"><span>Fuel</span><div><i style={{ width: '84%' }}></i></div><strong>₹8.4L</strong></div><div className="bar-row"><span>Maintenance</span><div><i style={{ width: '36%' }}></i></div><strong>₹2.7L</strong></div><div className="bar-row"><span>Tolls & permits</span><div><i style={{ width: '24%' }}></i></div><strong>₹1.8L</strong></div><div className="bar-row"><span>People & admin</span><div><i style={{ width: '18%' }}></i></div><strong>₹1.3L</strong></div></div></section><section className="panel"><PanelHeading title="Recent expenses" meta="Last 7 days" action="See all" onAction={() => onNotify('All expenses opened.')} /><div className="expense-list">{[['Fuel top-up', 'MH 12 QX 4821 · HPCL Pune', '₹12,480'], ['Brake parts', 'KA 03 MN 7712 · TVS Autoparts', '₹9,700'], ['Toll settlement', 'GJ 01 RT 6388 · FASTag', '₹6,820']].map((item) => <div className="expense-item" key={item[0]}><div className="expense-icon">₹</div><div><strong>{item[0]}</strong><span>{item[1]}</span></div><strong>{item[2]}</strong></div>)}</div></section></div></div>
+function Costs({ expenses, vehicles: fleet, onNotify }) {
+  const total = expenses.reduce((sum, expense) => sum + expense.amount_paise, 0)
+  const categoryTotal = (category) => expenses.filter((expense) => expense.category === category).reduce((sum, expense) => sum + expense.amount_paise, 0)
+  return <div><PageHeader eyebrow="Finance & analytics" title="Costs & finance" subtitle="Understand the true cost of every kilometre, vehicle, and route." action="Record expense" onAction={() => onNotify('Expense form opened.')} /><div className="metric-grid compact"><MetricCard label="Recorded spend" value={`₹${(total / 100000).toFixed(1)}L`} change="live" detail="from expense ledger" icon="₹" tone="navy" /><MetricCard label="Fuel spend" value={`₹${(categoryTotal('Fuel') / 100000).toFixed(1)}L`} change="live" detail="recorded fuel" icon="◉" tone="orange" /><MetricCard label="Maintenance spend" value={`₹${(categoryTotal('Maintenance') / 100000).toFixed(1)}L`} change="live" detail="recorded maintenance" icon="⌁" tone="green" /><MetricCard label="Pending review" value={expenses.filter((expense) => expense.status !== 'Approved').length} change="live" detail="expense records" icon="!" tone="purple" /></div><div className="content-grid"><section className="panel cost-panel"><PanelHeading title="Spend by category" meta="Live expense ledger" action="View ledger" onAction={() => onNotify('Expense ledger opened.')} /><div className="bar-chart">{['Fuel', 'Maintenance', 'Tolls', 'People & admin'].map((category) => { const amount = categoryTotal(category); return <div className="bar-row" key={category}><span>{category}</span><div><i style={{ width: `${total ? Math.max(4, amount / total * 100) : 4}%` }}></i></div><strong>₹{(amount / 100000).toFixed(1)}L</strong></div> })}</div></section><section className="panel"><PanelHeading title="Recent expenses" meta={`${expenses.length} records`} action="See all" onAction={() => onNotify('All expenses opened.')} /><div className="expense-list">{expenses.slice(0, 5).map((expense) => <div className="expense-item" key={expense.id}><div className="expense-icon">₹</div><div><strong>{expense.description}</strong><span>{fleet.find((vehicle) => vehicle.id === expense.vehicle_id)?.reg || expense.vendor || 'Organization'}</span></div><strong>₹{(expense.amount_paise / 100).toLocaleString('en-IN')}</strong></div>)}</div></section></div></div>
 }
 
 function AddVehicleModal({ onClose, onSave }) {

@@ -1,4 +1,5 @@
 import json
+from datetime import date
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -7,23 +8,33 @@ from sqlalchemy.orm import Session
 
 from .config import get_settings
 from .database import get_db
-from .dependencies import get_current_user
-from .models import AuditLog, ComplianceDocument, InventoryTransaction, Organization, Part, User, Vehicle, VehicleComponent, WorkOrder
+from .dependencies import get_current_user, require_roles
+from .models import AuditLog, ComplianceDocument, Expense, InventoryMovement, InventoryTransaction, MaintenancePlan, Organization, Part, StockLocation, User, Vehicle, VehicleComponent, WorkOrder
 from .schemas import (
     ComponentCreate,
     ComponentRead,
     DocumentCreate,
     DocumentRead,
+    ExpenseCreate,
+    ExpenseRead,
     InventoryTransactionCreate,
+    InventoryTransactionRead,
+    InventoryMovementCreate,
+    InventoryMovementRead,
     LoginRequest,
+    MaintenancePlanCreate,
+    MaintenancePlanRead,
     PartCreate,
     PartRead,
+    StockLocationCreate,
+    StockLocationRead,
     Token,
     UserRead,
     VehicleCreate,
     VehicleRead,
     WorkOrderCreate,
     WorkOrderRead,
+    WorkOrderUpdate,
 )
 from .security import create_access_token, hash_password, verify_password
 
@@ -151,6 +162,68 @@ def create_work_order(
     return work_order
 
 
+@router.patch("/work-orders/{work_order_id}", response_model=WorkOrderRead)
+def update_work_order(
+    work_order_id: int,
+    payload: WorkOrderUpdate,
+    request: Request,
+    user: User = Depends(require_roles("owner", "admin", "manager")),
+    database: Session = Depends(get_db),
+) -> WorkOrder:
+    work_order = database.scalar(select(WorkOrder).where(WorkOrder.id == work_order_id, WorkOrder.organization_id == user.organization_id))
+    if work_order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Work order not found")
+    changes = payload.model_dump(exclude_unset=True)
+    for key, value in changes.items():
+        setattr(work_order, key, value)
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="work_order.updated",
+        entity_type="work_order",
+        entity_id=str(work_order.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps(changes),
+    ))
+    database.commit()
+    database.refresh(work_order)
+    return work_order
+
+
+@router.get("/maintenance-plans", response_model=list[MaintenancePlanRead])
+def list_maintenance_plans(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[MaintenancePlan]:
+    return list(database.scalars(select(MaintenancePlan).where(MaintenancePlan.organization_id == user.organization_id).order_by(MaintenancePlan.id.desc())).all())
+
+
+@router.post("/maintenance-plans", response_model=MaintenancePlanRead, status_code=status.HTTP_201_CREATED)
+def create_maintenance_plan(
+    payload: MaintenancePlanCreate,
+    request: Request,
+    user: User = Depends(require_roles("owner", "admin", "manager")),
+    database: Session = Depends(get_db),
+) -> MaintenancePlan:
+    vehicle = database.scalar(select(Vehicle).where(Vehicle.id == payload.vehicle_id, Vehicle.organization_id == user.organization_id))
+    if vehicle is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found in this organization")
+    if payload.interval_km is None and payload.interval_days is None:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="An interval in kilometres or days is required")
+    plan = MaintenancePlan(organization_id=user.organization_id, **payload.model_dump())
+    database.add(plan)
+    database.flush()
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="maintenance_plan.created",
+        entity_type="maintenance_plan",
+        entity_id=str(plan.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps({"vehicle_id": vehicle.id, "name": plan.name}),
+    ))
+    database.commit()
+    database.refresh(plan)
+    return plan
+
+
 @router.get("/parts", response_model=list[PartRead])
 def list_parts(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[Part]:
     return list(database.scalars(select(Part).where(Part.organization_id == user.organization_id).order_by(Part.id.desc())).all())
@@ -214,9 +287,91 @@ def create_inventory_transaction(
     return part
 
 
+@router.get("/inventory/transactions", response_model=list[InventoryTransactionRead])
+def list_inventory_transactions(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[InventoryTransaction]:
+    return list(database.scalars(select(InventoryTransaction).where(InventoryTransaction.organization_id == user.organization_id).order_by(InventoryTransaction.id.desc())).all())
+
+
+@router.get("/stock-locations", response_model=list[StockLocationRead])
+def list_stock_locations(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[StockLocation]:
+    return list(database.scalars(select(StockLocation).where(StockLocation.organization_id == user.organization_id).order_by(StockLocation.name.asc())).all())
+
+
+@router.post("/stock-locations", response_model=StockLocationRead, status_code=status.HTTP_201_CREATED)
+def create_stock_location(
+    payload: StockLocationCreate,
+    request: Request,
+    user: User = Depends(require_roles("owner", "admin", "manager")),
+    database: Session = Depends(get_db),
+) -> StockLocation:
+    code = payload.code.strip().upper()
+    existing = database.scalar(select(StockLocation).where(StockLocation.organization_id == user.organization_id, StockLocation.code == code))
+    if existing:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A stock location with this code already exists")
+    location = StockLocation(organization_id=user.organization_id, code=code, **{key: value for key, value in payload.model_dump().items() if key != "code"})
+    database.add(location)
+    database.flush()
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="stock_location.created",
+        entity_type="stock_location",
+        entity_id=str(location.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps({"code": location.code}),
+    ))
+    database.commit()
+    database.refresh(location)
+    return location
+
+
+@router.get("/inventory/movements", response_model=list[InventoryMovementRead])
+def list_inventory_movements(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[InventoryMovement]:
+    return list(database.scalars(select(InventoryMovement).where(InventoryMovement.organization_id == user.organization_id).order_by(InventoryMovement.id.desc())).all())
+
+
+@router.post("/inventory/movements", response_model=InventoryMovementRead, status_code=status.HTTP_201_CREATED)
+def create_inventory_movement(
+    payload: InventoryMovementCreate,
+    request: Request,
+    user: User = Depends(require_roles("owner", "admin", "manager")),
+    database: Session = Depends(get_db),
+) -> InventoryMovement:
+    part = database.scalar(select(Part).where(Part.id == payload.part_id, Part.organization_id == user.organization_id))
+    location = database.scalar(select(StockLocation).where(StockLocation.id == payload.location_id, StockLocation.organization_id == user.organization_id))
+    if part is None or location is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Part or stock location not found in this organization")
+    delta = payload.quantity if payload.transaction_type == "receipt" else -payload.quantity
+    if payload.transaction_type == "adjustment":
+        delta = payload.quantity
+    if part.quantity_on_hand + delta < 0:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Insufficient stock for this issue")
+    part.quantity_on_hand += delta
+    movement = InventoryMovement(organization_id=user.organization_id, created_by=user.id, **payload.model_dump())
+    database.add(movement)
+    database.flush()
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action=f"inventory_movement.{payload.transaction_type}",
+        entity_type="inventory_movement",
+        entity_id=str(movement.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps({"part_id": part.id, "location_id": location.id, "delta": delta}),
+    ))
+    database.commit()
+    database.refresh(movement)
+    return movement
+
+
 @router.get("/documents", response_model=list[DocumentRead])
 def list_documents(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[ComplianceDocument]:
-    return list(database.scalars(select(ComplianceDocument).where(ComplianceDocument.organization_id == user.organization_id).order_by(ComplianceDocument.expires_on.asc())).all())
+    documents = list(database.scalars(select(ComplianceDocument).where(ComplianceDocument.organization_id == user.organization_id).order_by(ComplianceDocument.expires_on.asc())).all())
+    today = date.today().isoformat()
+    for document in documents:
+        if document.expires_on < today:
+            document.status = "Expired"
+    return documents
 
 
 @router.post("/documents", response_model=DocumentRead, status_code=status.HTTP_201_CREATED)
@@ -245,6 +400,39 @@ def create_document(
     database.commit()
     database.refresh(document)
     return document
+
+
+@router.get("/expenses", response_model=list[ExpenseRead])
+def list_expenses(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[Expense]:
+    return list(database.scalars(select(Expense).where(Expense.organization_id == user.organization_id).order_by(Expense.incurred_on.desc(), Expense.id.desc())).all())
+
+
+@router.post("/expenses", response_model=ExpenseRead, status_code=status.HTTP_201_CREATED)
+def create_expense(
+    payload: ExpenseCreate,
+    request: Request,
+    user: User = Depends(require_roles("owner", "admin", "manager")),
+    database: Session = Depends(get_db),
+) -> Expense:
+    if payload.vehicle_id is not None:
+        vehicle = database.scalar(select(Vehicle).where(Vehicle.id == payload.vehicle_id, Vehicle.organization_id == user.organization_id))
+        if vehicle is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found in this organization")
+    expense = Expense(organization_id=user.organization_id, **payload.model_dump())
+    database.add(expense)
+    database.flush()
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="expense.created",
+        entity_type="expense",
+        entity_id=str(expense.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps({"category": expense.category, "amount_paise": expense.amount_paise}),
+    ))
+    database.commit()
+    database.refresh(expense)
+    return expense
 
 
 def seed_database() -> None:

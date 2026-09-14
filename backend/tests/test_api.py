@@ -47,6 +47,16 @@ def test_health_and_vehicle_lifecycle(tmp_path: Path, monkeypatch):
             "priority": "High",
         })
         assert work_order.status_code == 201
+        updated_order = client.patch(f"/api/v1/work-orders/{work_order.json()['id']}", headers=headers, json={"status": "In progress"})
+        assert updated_order.status_code == 200
+        assert updated_order.json()["status"] == "In progress"
+        plan = client.post("/api/v1/maintenance-plans", headers=headers, json={
+            "vehicle_id": vehicle_id,
+            "name": "Quarterly inspection",
+            "interval_km": 15000,
+            "next_due_km": 15000,
+        })
+        assert plan.status_code == 201
         part = client.post("/api/v1/parts", headers=headers, json={
             "sku": f"TEST-{uuid4().hex[:6].upper()}",
             "name": "Test oil filter",
@@ -64,6 +74,20 @@ def test_health_and_vehicle_lifecycle(tmp_path: Path, monkeypatch):
         })
         assert transaction.status_code == 200
         assert transaction.json()["quantity_on_hand"] == 5
+        location = client.post("/api/v1/stock-locations", headers=headers, json={
+            "name": "Delhi workshop",
+            "code": f"DEL-{uuid4().hex[:4].upper()}",
+        })
+        assert location.status_code == 201
+        movement = client.post("/api/v1/inventory/movements", headers=headers, json={
+            "part_id": part.json()["id"],
+            "location_id": location.json()["id"],
+            "transaction_type": "issue",
+            "quantity": 1,
+            "reference": "WO-1",
+        })
+        assert movement.status_code == 201
+        assert client.get("/api/v1/inventory/transactions", headers=headers).status_code == 200
         document = client.post("/api/v1/documents", headers=headers, json={
             "vehicle_id": vehicle_id,
             "name": "Fitness certificate",
@@ -72,3 +96,13 @@ def test_health_and_vehicle_lifecycle(tmp_path: Path, monkeypatch):
             "expires_on": "2027-06-18",
         })
         assert document.status_code == 201
+        expense = client.post("/api/v1/expenses", headers=headers, json={
+            "vehicle_id": vehicle_id,
+            "category": "Maintenance",
+            "description": "Brake service",
+            "amount_paise": 970000,
+            "incurred_on": "2027-01-15",
+            "vendor": "Workshop partner",
+        })
+        assert expense.status_code == 201
+        assert client.get("/api/v1/expenses", headers=headers).json()[0]["description"] == "Brake service"

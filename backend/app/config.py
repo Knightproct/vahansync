@@ -19,6 +19,13 @@ class Settings(BaseSettings):
     def allowed_origins(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
+    def validate_runtime(self) -> None:
+        if self.environment.lower() in {"production", "staging"}:
+            if self.jwt_secret == "local-development-secret-change-me":
+                raise RuntimeError("VAHANA_JWT_SECRET must be changed outside development")
+            if self.seed_admin_password == "ChangeMe!123":
+                raise RuntimeError("VAHANA_SEED_ADMIN_PASSWORD must be changed outside development")
+
 
 @lru_cache
 def get_settings() -> Settings:

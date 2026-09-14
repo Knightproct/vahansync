@@ -69,8 +69,28 @@ export function createWorkOrder(token, workOrder) {
   })
 }
 
+export function getComponents(token) {
+  return request('/api/v1/components', { headers: { Authorization: `Bearer ${token}` } })
+}
+
+export function getMaintenancePlans(token) {
+  return request('/api/v1/maintenance-plans', { headers: { Authorization: `Bearer ${token}` } })
+}
+
 export function getParts(token) {
   return request('/api/v1/parts', { headers: { Authorization: `Bearer ${token}` } })
+}
+
+export function getExpenses(token) {
+  return request('/api/v1/expenses', { headers: { Authorization: `Bearer ${token}` } })
+}
+
+export function createExpense(token, expense) {
+  return request('/api/v1/expenses', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(expense),
+  })
 }
 
 export function getDocuments(token) {
