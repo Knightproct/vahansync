@@ -1,0 +1,212 @@
+import { StrictMode, useMemo, useState } from 'react'
+import { createRoot } from 'react-dom/client'
+import './styles.css'
+
+const navItems = [
+  { id: 'overview', label: 'Overview', icon: '⌂' },
+  { id: 'fleet', label: 'Fleet', icon: '▱', count: '48' },
+  { id: 'maintenance', label: 'Maintenance', icon: '⌁', count: '07' },
+  { id: 'workshop', label: 'Workshop', icon: '⌘' },
+  { id: 'documents', label: 'Documents', icon: '▤', count: '12' },
+  { id: 'costs', label: 'Costs & finance', icon: '₹' },
+]
+
+const vehicles = [
+  { reg: 'MH 12 QX 4821', model: 'Ashok Leyland 3520', type: 'Heavy truck', depot: 'Pune Central', status: 'On route', health: 92, km: '84,920 km', driver: 'Amit Kulkarni', accent: 'blue' },
+  { reg: 'KA 03 MN 7712', model: 'Tata Prima 5530', type: 'Heavy truck', depot: 'Bengaluru Yard', status: 'In workshop', health: 68, km: '142,860 km', driver: 'Unassigned', accent: 'orange' },
+  { reg: 'GJ 01 RT 6388', model: 'BharatBenz 2823C', type: 'Tipper', depot: 'Ahmedabad Hub', status: 'On route', health: 87, km: '67,430 km', driver: 'Rakesh Yadav', accent: 'green' },
+  { reg: 'TN 38 AB 1904', model: 'Eicher Pro 6042', type: 'Multi-axle', depot: 'Chennai North', status: 'Due for service', health: 74, km: '112,200 km', driver: 'S. Prakash', accent: 'purple' },
+]
+
+const maintenance = [
+  { title: 'Brake pad replacement', vehicle: 'KA 03 MN 7712', due: 'Today', priority: 'High', icon: '◉', color: 'red' },
+  { title: 'Engine oil & filter', vehicle: 'TN 38 AB 1904', due: 'Tomorrow', priority: 'Medium', icon: '◌', color: 'amber' },
+  { title: 'Quarterly inspection', vehicle: 'MH 12 QX 4821', due: '18 Jun', priority: 'Low', icon: '✓', color: 'green' },
+]
+
+const documents = [
+  { name: 'Fitness certificate', vehicle: 'MH 12 QX 4821', date: '18 Jun 2024', days: '3 days', tone: 'danger' },
+  { name: 'Insurance policy', vehicle: 'GJ 01 RT 6388', date: '24 Jun 2024', days: '9 days', tone: 'warning' },
+  { name: 'PUC certificate', vehicle: 'TN 38 AB 1904', date: '02 Jul 2024', days: '17 days', tone: 'neutral' },
+]
+
+const inventory = [
+  { part: 'Brake pad set · Front axle', sku: 'BP-AL-3520-F', category: 'Brakes', stock: 8, min: 5, cost: '₹4,850', supplier: 'TVS Autoparts' },
+  { part: '15W40 Diesel engine oil', sku: 'OIL-15W40-20L', category: 'Lubricants', stock: 12, min: 10, cost: '₹3,260', supplier: 'Castrol India' },
+  { part: 'Air filter · Prima series', sku: 'AF-TATA-5530', category: 'Filters', stock: 3, min: 6, cost: '₹1,420', supplier: 'Fleetguard' },
+  { part: 'Clutch plate assembly', sku: 'CL-EC-6042', category: 'Drivetrain', stock: 2, min: 2, cost: '₹18,900', supplier: 'Eicher Motors' },
+]
+
+function App() {
+  const [active, setActive] = useState('overview')
+  const [search, setSearch] = useState('')
+  const [showAdd, setShowAdd] = useState(false)
+  const [toast, setToast] = useState('')
+
+  const filteredVehicles = useMemo(
+    () => vehicles.filter((vehicle) => `${vehicle.reg} ${vehicle.model} ${vehicle.depot}`.toLowerCase().includes(search.toLowerCase())),
+    [search],
+  )
+
+  const title = navItems.find((item) => item.id === active)?.label ?? 'Overview'
+
+  const notify = (message) => {
+    setToast(message)
+    window.setTimeout(() => setToast(''), 2800)
+  }
+
+  return (
+    <div className="app-shell">
+      <aside className="sidebar">
+        <div className="brand">
+          <div className="brand-mark">V</div>
+          <div>
+            <strong>vahana</strong>
+            <span>Fleet OS</span>
+          </div>
+        </div>
+
+        <div className="workspace-switcher">
+          <div className="workspace-avatar">RK</div>
+          <div>
+            <span className="eyebrow">Workspace</span>
+            <strong>Rajput Logistics</strong>
+          </div>
+          <span className="chevron">⌄</span>
+        </div>
+
+        <nav className="nav-list">
+          <span className="nav-section">Command centre</span>
+          {navItems.map((item) => (
+            <button className={`nav-item ${active === item.id ? 'active' : ''}`} key={item.id} onClick={() => setActive(item.id)}>
+              <span className="nav-icon">{item.icon}</span>
+              <span>{item.label}</span>
+              {item.count && <em>{item.count}</em>}
+            </button>
+          ))}
+          <span className="nav-section nav-section-spaced">Workspace</span>
+          <button className="nav-item" onClick={() => notify('Reports are being prepared for your workspace.')}>
+            <span className="nav-icon">▥</span><span>Reports</span>
+          </button>
+          <button className="nav-item" onClick={() => notify('Settings are available to workspace admins.')}>
+            <span className="nav-icon">⚙</span><span>Settings</span>
+          </button>
+        </nav>
+
+        <div className="sidebar-footer">
+          <div className="help-card">
+            <div className="help-icon">?</div>
+            <div><strong>Need a hand?</strong><span>Talk to your fleet advisor</span></div>
+            <button onClick={() => notify('Your fleet advisor will reach out shortly.')}>↗</button>
+          </div>
+          <div className="user-row">
+            <div className="user-avatar">AM</div>
+            <div><strong>Arjun Mehta</strong><span>Admin</span></div>
+            <span className="more">•••</span>
+          </div>
+        </div>
+      </aside>
+
+      <main className="main-content">
+        <header className="topbar">
+          <div className="breadcrumb"><span>Rajput Logistics</span><b>/</b><strong>{title}</strong></div>
+          <div className="top-actions">
+            <div className="search-box"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search vehicles, parts, docs..." /><kbd>⌘ K</kbd></div>
+            <button className="icon-button" onClick={() => notify('You are all caught up.')}>♢<i></i></button>
+            <button className="icon-button" onClick={() => notify('Help centre opened in a new tab.')}>?</button>
+          </div>
+        </header>
+
+        <div className="page">
+          {active === 'overview' && <Overview onAdd={() => setShowAdd(true)} onNotify={notify} />}
+          {active === 'fleet' && <Fleet vehicles={filteredVehicles} onAdd={() => setShowAdd(true)} />}
+          {active === 'maintenance' && <Maintenance onNotify={notify} />}
+          {active === 'workshop' && <Workshop onNotify={notify} />}
+          {active === 'documents' && <Documents onNotify={notify} />}
+          {active === 'costs' && <Costs onNotify={notify} />}
+        </div>
+      </main>
+
+      {showAdd && <AddVehicleModal onClose={() => setShowAdd(false)} onSave={() => { setShowAdd(false); notify('Vehicle added to your fleet.'); }} />}
+      {toast && <div className="toast"><span>✓</span>{toast}</div>}
+    </div>
+  )
+}
+
+function PageHeader({ eyebrow, title, subtitle, action, onAction }) {
+  return <div className="page-header">
+    <div><span className="eyebrow">{eyebrow}</span><h1>{title}</h1><p>{subtitle}</p></div>
+    {action && <button className="primary-button" onClick={onAction}><span>+</span>{action}</button>}
+  </div>
+}
+
+function Overview({ onAdd, onNotify }) {
+  return <div>
+    <PageHeader eyebrow="Monday, 15 June 2024" title="Good morning, Arjun" subtitle="Here’s what’s happening across your fleet today." action="Add vehicle" onAction={onAdd} />
+    <div className="metric-grid">
+      <MetricCard label="Fleet health" value="86.4%" change="+2.8%" detail="vs last month" icon="◒" tone="navy" />
+      <MetricCard label="Active vehicles" value="42 / 48" change="+3" detail="this month" icon="▱" tone="blue" />
+      <MetricCard label="Open work orders" value="07" change="-4" detail="vs last week" icon="⌁" tone="orange" />
+      <MetricCard label="This month’s cost" value="₹12.8L" change="+8.4%" detail="vs last month" icon="₹" tone="purple" />
+    </div>
+    <div className="content-grid">
+      <section className="panel fleet-panel">
+        <PanelHeading title="Fleet overview" meta="48 vehicles" action="View all" onAction={() => onNotify('Fleet view selected from the overview.')} />
+        <div className="fleet-summary">
+          <div className="donut-wrap"><div className="donut"><strong>86%</strong><span>healthy</span></div></div>
+          <div className="legend-list">
+            <Legend color="green" label="On route" value="34" sub="71%" />
+            <Legend color="orange" label="In workshop" value="05" sub="10%" />
+            <Legend color="blue" label="Idle / parked" value="09" sub="19%" />
+          </div>
+        </div>
+        <div className="mini-table">
+          <div className="mini-row mini-head"><span>Vehicle</span><span>Status</span><span>Health</span></div>
+          {vehicles.slice(0, 3).map((vehicle) => <div className="mini-row" key={vehicle.reg}><div className="vehicle-cell"><div className={`vehicle-dot ${vehicle.accent}`}></div><div><strong>{vehicle.reg}</strong><small>{vehicle.model}</small></div></div><Status status={vehicle.status} /><div className="health-cell"><span>{vehicle.health}%</span><div className="health-bar"><i style={{ width: `${vehicle.health}%` }}></i></div></div></div>)}
+        </div>
+      </section>
+      <section className="panel">
+        <PanelHeading title="Maintenance queue" meta="3 items need attention" action="Open planner" onAction={() => onNotify('Maintenance planner opened.')} />
+        <div className="maintenance-list">{maintenance.map((item) => <div className="maintenance-item" key={item.title}><div className={`maintenance-icon ${item.color}`}>{item.icon}</div><div className="maintenance-copy"><strong>{item.title}</strong><span>{item.vehicle}</span></div><div className="maintenance-due"><span>{item.due}</span><small className={`priority ${item.color}`}>{item.priority}</small></div></div>)}</div>
+        <button className="full-width-button" onClick={() => onNotify('New service request started.')}>+ Create service request</button>
+      </section>
+    </div>
+    <div className="content-grid bottom-grid">
+      <section className="panel cost-panel"><PanelHeading title="Operating cost" meta="Last 6 months" action="Detailed report" onAction={() => onNotify('Cost report is ready to review.')} /><div className="chart-wrap"><div className="y-labels"><span>₹18L</span><span>₹12L</span><span>₹6L</span><span>₹0</span></div><div className="chart"><div className="grid-lines"><i></i><i></i><i></i><i></i></div><svg viewBox="0 0 650 180" preserveAspectRatio="none" aria-label="Operating cost chart"><defs><linearGradient id="chartFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#2a8a82" stopOpacity=".2" /><stop offset="100%" stopColor="#2a8a82" stopOpacity="0" /></linearGradient></defs><path d="M0 128 C40 116 58 124 90 101 S145 115 172 88 S230 74 260 92 S302 84 335 96 S380 57 420 72 S464 83 500 48 S551 68 575 36 S617 47 650 18 L650 180 L0 180Z" fill="url(#chartFill)" /><path d="M0 128 C40 116 58 124 90 101 S145 115 172 88 S230 74 260 92 S302 84 335 96 S380 57 420 72 S464 83 500 48 S551 68 575 36 S617 47 650 18" fill="none" stroke="#2a8a82" strokeWidth="3" strokeLinecap="round" /></svg><div className="x-labels"><span>Jan</span><span>Feb</span><span>Mar</span><span>Apr</span><span>May</span><span>Jun</span></div></div></div></section>
+      <section className="panel"><PanelHeading title="Documents expiring soon" meta="12 documents this month" action="View vault" onAction={() => onNotify('Document vault opened.')} /><div className="document-list">{documents.map((doc) => <div className="document-item" key={doc.name}><div className={`doc-icon ${doc.tone}`}>▤</div><div className="document-copy"><strong>{doc.name}</strong><span>{doc.vehicle} · {doc.date}</span></div><span className={`days-pill ${doc.tone}`}>{doc.days}</span></div>)}</div></section>
+    </div>
+  </div>
+}
+
+function MetricCard({ label, value, change, detail, icon, tone }) {
+  return <div className="metric-card"><div className={`metric-icon ${tone}`}>{icon}</div><div className="metric-label">{label}</div><div className="metric-value">{value}</div><div className="metric-change"><span className={change.startsWith('-') ? 'down' : ''}>{change}</span> {detail}</div></div>
+}
+function PanelHeading({ title, meta, action, onAction }) { return <div className="panel-heading"><div><h2>{title}</h2><span>{meta}</span></div><button onClick={onAction}>{action} <span>→</span></button></div> }
+function Legend({ color, label, value, sub }) { return <div className="legend-item"><i className={color}></i><span>{label}</span><strong>{value}</strong><small>{sub}</small></div> }
+function Status({ status }) { return <span className={`status ${status === 'On route' ? 'on-route' : status === 'In workshop' ? 'in-workshop' : 'due'}`}><i></i>{status}</span> }
+
+function Fleet({ vehicles: rows, onAdd }) {
+  return <div><PageHeader eyebrow="Operations" title="Fleet" subtitle="Every vehicle, every component, one source of truth." action="Add vehicle" onAction={onAdd} /><div className="toolbar"><div className="filter-tabs"><button className="selected">All vehicles <span>48</span></button><button>On route <span>34</span></button><button>Attention <span>7</span></button></div><button className="secondary-button">Export list ↗</button></div><section className="panel table-panel"><div className="table-header"><div><h2>Vehicle register</h2><span>Updated a few seconds ago</span></div><button className="filter-button">☷ Filters</button></div><div className="data-table"><div className="data-row data-head"><span>Vehicle</span><span>Depot</span><span>Driver</span><span>Status</span><span>Health</span><span></span></div>{rows.map((v) => <div className="data-row" key={v.reg}><div className="vehicle-cell"><div className={`vehicle-dot ${v.accent}`}></div><div><strong>{v.reg}</strong><small>{v.model} · {v.km}</small></div></div><span>{v.depot}</span><span>{v.driver}</span><Status status={v.status} /><div className="health-cell"><span>{v.health}%</span><div className="health-bar"><i style={{ width: `${v.health}%` }}></i></div></div><button className="row-more">•••</button></div>)}</div></section></div>
+}
+
+function Maintenance({ onNotify }) {
+  return <div><PageHeader eyebrow="Workshop control" title="Maintenance" subtitle="Plan preventive care and close every work order on time." action="New work order" onAction={() => onNotify('New work order form opened.')} /><div className="metric-grid compact"><MetricCard label="Due this week" value="12" change="-3" detail="vs last week" icon="◷" tone="orange" /><MetricCard label="In progress" value="07" change="+2" detail="since yesterday" icon="⌁" tone="blue" /><MetricCard label="Avg. downtime" value="1.8d" change="-0.4d" detail="this quarter" icon="◒" tone="green" /><MetricCard label="Preventive compliance" value="94%" change="+6.2%" detail="vs last quarter" icon="✓" tone="purple" /></div><section className="panel table-panel"><div className="table-header"><div><h2>Work order planner</h2><span>All active and scheduled jobs</span></div><div className="table-actions"><button className="secondary-button">Calendar view</button><button className="filter-button">☷ Filters</button></div></div><div className="data-table"><div className="data-row data-head"><span>Work order</span><span>Vehicle</span><span>Assigned to</span><span>Due</span><span>Priority</span><span>Status</span></div>{maintenance.concat([{ title: 'Tyre rotation & alignment', vehicle: 'GJ 01 RT 6388', due: '20 Jun', priority: 'Medium', icon: '◌', color: 'amber' }]).map((item) => <div className="data-row" key={item.title}><div className="workorder-cell"><div className={`maintenance-icon small ${item.color}`}>{item.icon}</div><div><strong>{item.title}</strong><small>WO-2024-{Math.floor(Math.random() * 90 + 10)}</small></div></div><span>{item.vehicle}</span><span>Rajput Workshop</span><span>{item.due}</span><span className={`priority ${item.color}`}>{item.priority}</span><Status status={item.due === 'Today' ? 'In workshop' : 'On route'} /></div>)}</div></section></div>
+}
+
+function Workshop({ onNotify }) {
+  return <div><PageHeader eyebrow="Workshop & inventory" title="Workshop inventory" subtitle="Know what is on the shelf, what is moving, and what needs ordering." action="Receive stock" onAction={() => onNotify('Stock receipt flow started.')} /><div className="inventory-banner"><div className="inventory-stat"><span className="inventory-number">₹18.4L</span><span>Total inventory value</span></div><div className="inventory-stat"><span className="inventory-number">126</span><span>Parts in stock</span></div><div className="inventory-stat alert"><span className="inventory-number">08</span><span>Below reorder point</span></div><button onClick={() => onNotify('Purchase order builder opened.')}>Create purchase order →</button></div><section className="panel table-panel"><div className="table-header"><div><h2>Parts catalogue</h2><span>Stock across 3 workshop locations</span></div><button className="filter-button">☷ Categories</button></div><div className="data-table inventory-table"><div className="data-row data-head"><span>Part</span><span>Category</span><span>In stock</span><span>Unit cost</span><span>Supplier</span><span></span></div>{inventory.map((part) => <div className="data-row" key={part.sku}><div className="part-cell"><div className="part-icon">▦</div><div><strong>{part.part}</strong><small>{part.sku}</small></div></div><span>{part.category}</span><span><strong className={part.stock <= part.min ? 'low-stock' : ''}>{part.stock}</strong> <small>/ min {part.min}</small></span><span>{part.cost}</span><span>{part.supplier}</span><button className="row-more">•••</button></div>)}</div></section></div>
+}
+
+function Documents({ onNotify }) {
+  return <div><PageHeader eyebrow="Compliance vault" title="Documents" subtitle="Keep every permit, certificate, and policy ready for inspection." action="Upload document" onAction={() => onNotify('Document upload opened.')} /><div className="document-kpis"><div><span className="kpi-icon green">✓</span><strong>142</strong><span>Valid documents</span></div><div><span className="kpi-icon amber">◷</span><strong>12</strong><span>Expiring in 30 days</span></div><div><span className="kpi-icon red">!</span><strong>03</strong><span>Expired documents</span></div></div><section className="panel table-panel"><div className="table-header"><div><h2>Document register</h2><span>Vehicle and company compliance records</span></div><div className="table-actions"><button className="secondary-button">Document types</button><button className="filter-button">☷ Filters</button></div></div><div className="data-table"><div className="data-row data-head"><span>Document</span><span>Linked to</span><span>Issued by</span><span>Expiry</span><span>Status</span><span></span></div>{documents.concat([{ name: 'National permit', vehicle: 'KA 03 MN 7712', date: '18 Aug 2024', days: '65 days', tone: 'neutral' }, { name: 'Insurance policy', vehicle: 'TN 38 AB 1904', date: '04 Sep 2024', days: '82 days', tone: 'neutral' }]).map((doc, index) => <div className="data-row" key={`${doc.name}-${index}`}><div className="document-cell"><div className={`doc-icon ${doc.tone}`}>▤</div><div><strong>{doc.name}</strong><small>DOC-2024-{index + 1042} · PDF</small></div></div><span>{doc.vehicle}</span><span>Transport Dept.</span><span>{doc.date}</span><span className={`document-status ${doc.tone}`}>{doc.tone === 'danger' ? 'Expiring soon' : doc.tone === 'warning' ? 'Review soon' : 'Valid'}</span><button className="row-more">•••</button></div>)}</div></section></div>
+}
+
+function Costs({ onNotify }) {
+  return <div><PageHeader eyebrow="Finance & analytics" title="Costs & finance" subtitle="Understand the true cost of every kilometre, vehicle, and route." action="Record expense" onAction={() => onNotify('Expense form opened.')} /><div className="metric-grid compact"><MetricCard label="Cost per km" value="₹18.42" change="-1.4%" detail="vs last month" icon="₹" tone="navy" /><MetricCard label="Fuel spend" value="₹8.4L" change="+4.8%" detail="this month" icon="◉" tone="orange" /><MetricCard label="Maintenance spend" value="₹2.7L" change="-8.2%" detail="this month" icon="⌁" tone="green" /><MetricCard label="Unapproved bills" value="₹84K" change="06" detail="pending review" icon="!" tone="purple" /></div><div className="content-grid"><section className="panel cost-panel"><PanelHeading title="Spend by category" meta="June 2024" action="View ledger" onAction={() => onNotify('Expense ledger opened.')} /><div className="bar-chart"><div className="bar-row"><span>Fuel</span><div><i style={{ width: '84%' }}></i></div><strong>₹8.4L</strong></div><div className="bar-row"><span>Maintenance</span><div><i style={{ width: '36%' }}></i></div><strong>₹2.7L</strong></div><div className="bar-row"><span>Tolls & permits</span><div><i style={{ width: '24%' }}></i></div><strong>₹1.8L</strong></div><div className="bar-row"><span>People & admin</span><div><i style={{ width: '18%' }}></i></div><strong>₹1.3L</strong></div></div></section><section className="panel"><PanelHeading title="Recent expenses" meta="Last 7 days" action="See all" onAction={() => onNotify('All expenses opened.')} /><div className="expense-list">{[['Fuel top-up', 'MH 12 QX 4821 · HPCL Pune', '₹12,480'], ['Brake parts', 'KA 03 MN 7712 · TVS Autoparts', '₹9,700'], ['Toll settlement', 'GJ 01 RT 6388 · FASTag', '₹6,820']].map((item) => <div className="expense-item" key={item[0]}><div className="expense-icon">₹</div><div><strong>{item[0]}</strong><span>{item[1]}</span></div><strong>{item[2]}</strong></div>)}</div></section></div></div>
+}
+
+function AddVehicleModal({ onClose, onSave }) {
+  return <div className="modal-backdrop" onMouseDown={onClose}><div className="modal" onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><span className="eyebrow">Fleet register</span><h2>Add a vehicle</h2></div><button onClick={onClose}>×</button></div><p>Start tracking its documents, components, costs, and maintenance history.</p><div className="form-grid"><label>Registration number<input placeholder="e.g. MH 12 AB 1234" /></label><label>Vehicle type<select defaultValue=""><option value="" disabled>Select type</option><option>Heavy truck</option><option>Tipper</option><option>Multi-axle</option></select></label><label>Make & model<input placeholder="e.g. Tata Prima 5530" /></label><label>Home depot<input placeholder="Select depot" /></label></div><div className="modal-actions"><button className="secondary-button" onClick={onClose}>Cancel</button><button className="primary-button" onClick={onSave}>Add vehicle</button></div></div></div>
+}
+
+createRoot(document.getElementById('root')).render(<StrictMode><App /></StrictMode>)
