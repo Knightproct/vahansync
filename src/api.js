@@ -56,3 +56,23 @@ export function createVehicle(token, vehicle) {
     }),
   }).then(mapVehicle)
 }
+
+export function getWorkOrders(token) {
+  return request('/api/v1/work-orders', { headers: { Authorization: `Bearer ${token}` } })
+}
+
+export function createWorkOrder(token, workOrder) {
+  return request('/api/v1/work-orders', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(workOrder),
+  })
+}
+
+export function getParts(token) {
+  return request('/api/v1/parts', { headers: { Authorization: `Bearer ${token}` } })
+}
+
+export function getDocuments(token) {
+  return request('/api/v1/documents', { headers: { Authorization: `Bearer ${token}` } })
+}

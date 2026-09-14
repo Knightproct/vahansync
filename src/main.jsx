@@ -1,7 +1,7 @@
 import { StrictMode, useEffect, useMemo, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import './styles.css'
-import { createVehicle, getVehicles, login } from './api'
+import { createVehicle, createWorkOrder, getDocuments, getParts, getVehicles, getWorkOrders, login } from './api'
 
 const navItems = [
   { id: 'overview', label: 'Overview', icon: '⌂' },
@@ -37,6 +37,9 @@ function App() {
   const [showAdd, setShowAdd] = useState(false)
   const [toast, setToast] = useState('')
   const [fleet, setFleet] = useState([])
+  const [workOrders, setWorkOrders] = useState([])
+  const [parts, setParts] = useState([])
+  const [documentsData, setDocumentsData] = useState([])
   const [token, setToken] = useState(() => window.sessionStorage.getItem('vahana:access-token'))
   const [apiState, setApiState] = useState('loading')
   const [apiError, setApiError] = useState('')
@@ -55,7 +58,16 @@ function App() {
           setApiState('unauthenticated')
           return
         }
-        setFleet(await getVehicles(accessToken))
+        const [loadedFleet, loadedWorkOrders, loadedParts, loadedDocuments] = await Promise.all([
+          getVehicles(accessToken),
+          getWorkOrders(accessToken),
+          getParts(accessToken),
+          getDocuments(accessToken),
+        ])
+        setFleet(loadedFleet)
+        setWorkOrders(loadedWorkOrders)
+        setParts(loadedParts)
+        setDocumentsData(loadedDocuments)
         setApiState('ready')
       } catch (error) {
         setApiError(error.message)
@@ -144,11 +156,11 @@ function App() {
         </header>
 
         <div className="page">
-          {active === 'overview' && <Overview vehicles={fleet} onAdd={() => setShowAdd(true)} onNotify={notify} />}
+          {active === 'overview' && <Overview vehicles={fleet} workOrders={workOrders} documents={documentsData} onAdd={() => setShowAdd(true)} onNotify={notify} />}
           {active === 'fleet' && <Fleet vehicles={filteredVehicles} onAdd={() => setShowAdd(true)} />}
-          {active === 'maintenance' && <Maintenance onNotify={notify} />}
-          {active === 'workshop' && <Workshop onNotify={notify} />}
-          {active === 'documents' && <Documents onNotify={notify} />}
+          {active === 'maintenance' && <Maintenance workOrders={workOrders} vehicles={fleet} token={token} onCreated={(workOrder) => setWorkOrders((current) => [workOrder, ...current])} onNotify={notify} />}
+          {active === 'workshop' && <Workshop parts={parts} onNotify={notify} />}
+          {active === 'documents' && <Documents documents={documentsData} vehicles={fleet} onNotify={notify} />}
           {active === 'costs' && <Costs onNotify={notify} />}
         </div>
       </main>
@@ -188,7 +200,7 @@ function PageHeader({ eyebrow, title, subtitle, action, onAction }) {
   </div>
 }
 
-function Overview({ vehicles: fleet, onAdd, onNotify }) {
+function Overview({ vehicles: fleet, workOrders, documents, onAdd, onNotify }) {
   return <div>
     <PageHeader eyebrow="Monday, 15 June 2024" title="Good morning, Arjun" subtitle="Here’s what’s happening across your fleet today." action="Add vehicle" onAction={onAdd} />
     <div className="metric-grid">
@@ -214,14 +226,14 @@ function Overview({ vehicles: fleet, onAdd, onNotify }) {
         </div>
       </section>
       <section className="panel">
-        <PanelHeading title="Maintenance queue" meta="3 items need attention" action="Open planner" onAction={() => onNotify('Maintenance planner opened.')} />
-        <div className="maintenance-list">{maintenance.map((item) => <div className="maintenance-item" key={item.title}><div className={`maintenance-icon ${item.color}`}>{item.icon}</div><div className="maintenance-copy"><strong>{item.title}</strong><span>{item.vehicle}</span></div><div className="maintenance-due"><span>{item.due}</span><small className={`priority ${item.color}`}>{item.priority}</small></div></div>)}</div>
+        <PanelHeading title="Maintenance queue" meta={`${workOrders.length} open work orders`} action="Open planner" onAction={() => onNotify('Maintenance planner opened.')} />
+        <div className="maintenance-list">{workOrders.slice(0, 3).map((item) => <div className="maintenance-item" key={item.id}><div className={`maintenance-icon ${item.priority === 'High' ? 'red' : item.priority === 'Low' ? 'green' : 'amber'}`}>⌁</div><div className="maintenance-copy"><strong>{item.title}</strong><span>{fleet.find((vehicle) => vehicle.id === item.vehicle_id)?.reg || 'Vehicle linked'}</span></div><div className="maintenance-due"><span>{item.due_date || 'Unscheduled'}</span><small className={`priority ${item.priority === 'High' ? 'red' : item.priority === 'Low' ? 'green' : 'amber'}`}>{item.priority}</small></div></div>)}</div>
         <button className="full-width-button" onClick={() => onNotify('New service request started.')}>+ Create service request</button>
       </section>
     </div>
     <div className="content-grid bottom-grid">
       <section className="panel cost-panel"><PanelHeading title="Operating cost" meta="Last 6 months" action="Detailed report" onAction={() => onNotify('Cost report is ready to review.')} /><div className="chart-wrap"><div className="y-labels"><span>₹18L</span><span>₹12L</span><span>₹6L</span><span>₹0</span></div><div className="chart"><div className="grid-lines"><i></i><i></i><i></i><i></i></div><svg viewBox="0 0 650 180" preserveAspectRatio="none" aria-label="Operating cost chart"><defs><linearGradient id="chartFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#2a8a82" stopOpacity=".2" /><stop offset="100%" stopColor="#2a8a82" stopOpacity="0" /></linearGradient></defs><path d="M0 128 C40 116 58 124 90 101 S145 115 172 88 S230 74 260 92 S302 84 335 96 S380 57 420 72 S464 83 500 48 S551 68 575 36 S617 47 650 18 L650 180 L0 180Z" fill="url(#chartFill)" /><path d="M0 128 C40 116 58 124 90 101 S145 115 172 88 S230 74 260 92 S302 84 335 96 S380 57 420 72 S464 83 500 48 S551 68 575 36 S617 47 650 18" fill="none" stroke="#2a8a82" strokeWidth="3" strokeLinecap="round" /></svg><div className="x-labels"><span>Jan</span><span>Feb</span><span>Mar</span><span>Apr</span><span>May</span><span>Jun</span></div></div></div></section>
-      <section className="panel"><PanelHeading title="Documents expiring soon" meta="12 documents this month" action="View vault" onAction={() => onNotify('Document vault opened.')} /><div className="document-list">{documents.map((doc) => <div className="document-item" key={doc.name}><div className={`doc-icon ${doc.tone}`}>▤</div><div className="document-copy"><strong>{doc.name}</strong><span>{doc.vehicle} · {doc.date}</span></div><span className={`days-pill ${doc.tone}`}>{doc.days}</span></div>)}</div></section>
+      <section className="panel"><PanelHeading title="Documents expiring soon" meta={`${documents.length} documents in vault`} action="View vault" onAction={() => onNotify('Document vault opened.')} /><div className="document-list">{documents.slice(0, 3).map((doc) => <div className="document-item" key={doc.id}><div className="doc-icon warning">▤</div><div className="document-copy"><strong>{doc.name}</strong><span>{fleet.find((vehicle) => vehicle.id === doc.vehicle_id)?.reg || 'Organization document'} · {doc.expires_on}</span></div><span className="days-pill warning">{doc.status}</span></div>)}</div></section>
     </div>
   </div>
 }
@@ -237,16 +249,28 @@ function Fleet({ vehicles: rows, onAdd }) {
   return <div><PageHeader eyebrow="Operations" title="Fleet" subtitle="Every vehicle, every component, one source of truth." action="Add vehicle" onAction={onAdd} /><div className="toolbar"><div className="filter-tabs"><button className="selected">All vehicles <span>48</span></button><button>On route <span>34</span></button><button>Attention <span>7</span></button></div><button className="secondary-button">Export list ↗</button></div><section className="panel table-panel"><div className="table-header"><div><h2>Vehicle register</h2><span>Updated a few seconds ago</span></div><button className="filter-button">☷ Filters</button></div><div className="data-table"><div className="data-row data-head"><span>Vehicle</span><span>Depot</span><span>Driver</span><span>Status</span><span>Health</span><span></span></div>{rows.map((v) => <div className="data-row" key={v.reg}><div className="vehicle-cell"><div className={`vehicle-dot ${v.accent}`}></div><div><strong>{v.reg}</strong><small>{v.model} · {v.km}</small></div></div><span>{v.depot}</span><span>{v.driver}</span><Status status={v.status} /><div className="health-cell"><span>{v.health}%</span><div className="health-bar"><i style={{ width: `${v.health}%` }}></i></div></div><button className="row-more">•••</button></div>)}</div></section></div>
 }
 
-function Maintenance({ onNotify }) {
-  return <div><PageHeader eyebrow="Workshop control" title="Maintenance" subtitle="Plan preventive care and close every work order on time." action="New work order" onAction={() => onNotify('New work order form opened.')} /><div className="metric-grid compact"><MetricCard label="Due this week" value="12" change="-3" detail="vs last week" icon="◷" tone="orange" /><MetricCard label="In progress" value="07" change="+2" detail="since yesterday" icon="⌁" tone="blue" /><MetricCard label="Avg. downtime" value="1.8d" change="-0.4d" detail="this quarter" icon="◒" tone="green" /><MetricCard label="Preventive compliance" value="94%" change="+6.2%" detail="vs last quarter" icon="✓" tone="purple" /></div><section className="panel table-panel"><div className="table-header"><div><h2>Work order planner</h2><span>All active and scheduled jobs</span></div><div className="table-actions"><button className="secondary-button">Calendar view</button><button className="filter-button">☷ Filters</button></div></div><div className="data-table"><div className="data-row data-head"><span>Work order</span><span>Vehicle</span><span>Assigned to</span><span>Due</span><span>Priority</span><span>Status</span></div>{maintenance.concat([{ title: 'Tyre rotation & alignment', vehicle: 'GJ 01 RT 6388', due: '20 Jun', priority: 'Medium', icon: '◌', color: 'amber' }]).map((item) => <div className="data-row" key={item.title}><div className="workorder-cell"><div className={`maintenance-icon small ${item.color}`}>{item.icon}</div><div><strong>{item.title}</strong><small>WO-2024-{Math.floor(Math.random() * 90 + 10)}</small></div></div><span>{item.vehicle}</span><span>Rajput Workshop</span><span>{item.due}</span><span className={`priority ${item.color}`}>{item.priority}</span><Status status={item.due === 'Today' ? 'In workshop' : 'On route'} /></div>)}</div></section></div>
+function Maintenance({ workOrders, vehicles: fleet, token, onCreated, onNotify }) {
+  const createOrder = async () => {
+    const vehicle = fleet[0]
+    if (!vehicle) return
+    try {
+      const workOrder = await createWorkOrder(token, { vehicle_id: vehicle.id, title: 'New inspection request', priority: 'Medium', status: 'Open' })
+      onCreated(workOrder)
+      onNotify('Work order created.')
+    } catch (error) {
+      onNotify(error.message)
+    }
+  }
+
+  return <div><PageHeader eyebrow="Workshop control" title="Maintenance" subtitle="Plan preventive care and close every work order on time." action="New work order" onAction={createOrder} /><div className="metric-grid compact"><MetricCard label="Open work orders" value={workOrders.length} change="-3" detail="vs last week" icon="◷" tone="orange" /><MetricCard label="In progress" value={workOrders.filter((item) => item.status === 'In progress').length} change="+2" detail="since yesterday" icon="⌁" tone="blue" /><MetricCard label="Avg. downtime" value="1.8d" change="-0.4d" detail="this quarter" icon="◒" tone="green" /><MetricCard label="Preventive compliance" value="94%" change="+6.2%" detail="vs last quarter" icon="✓" tone="purple" /></div><section className="panel table-panel"><div className="table-header"><div><h2>Work order planner</h2><span>All active and scheduled jobs</span></div><div className="table-actions"><button className="secondary-button">Calendar view</button><button className="filter-button">☷ Filters</button></div></div><div className="data-table"><div className="data-row data-head"><span>Work order</span><span>Vehicle</span><span>Assigned to</span><span>Due</span><span>Priority</span><span>Status</span></div>{workOrders.map((item) => <div className="data-row" key={item.id}><div className="workorder-cell"><div className="maintenance-icon small amber">⌁</div><div><strong>{item.title}</strong><small>WO-{item.id}</small></div></div><span>{fleet.find((vehicle) => vehicle.id === item.vehicle_id)?.reg || 'Vehicle linked'}</span><span>{item.assigned_to || 'Unassigned'}</span><span>{item.due_date || 'Unscheduled'}</span><span className={`priority ${item.priority === 'High' ? 'red' : item.priority === 'Low' ? 'green' : 'amber'}`}>{item.priority}</span><Status status={item.status === 'In progress' ? 'In workshop' : 'On route'} /></div>)}</div></section></div>
 }
 
-function Workshop({ onNotify }) {
-  return <div><PageHeader eyebrow="Workshop & inventory" title="Workshop inventory" subtitle="Know what is on the shelf, what is moving, and what needs ordering." action="Receive stock" onAction={() => onNotify('Stock receipt flow started.')} /><div className="inventory-banner"><div className="inventory-stat"><span className="inventory-number">₹18.4L</span><span>Total inventory value</span></div><div className="inventory-stat"><span className="inventory-number">126</span><span>Parts in stock</span></div><div className="inventory-stat alert"><span className="inventory-number">08</span><span>Below reorder point</span></div><button onClick={() => onNotify('Purchase order builder opened.')}>Create purchase order →</button></div><section className="panel table-panel"><div className="table-header"><div><h2>Parts catalogue</h2><span>Stock across 3 workshop locations</span></div><button className="filter-button">☷ Categories</button></div><div className="data-table inventory-table"><div className="data-row data-head"><span>Part</span><span>Category</span><span>In stock</span><span>Unit cost</span><span>Supplier</span><span></span></div>{inventory.map((part) => <div className="data-row" key={part.sku}><div className="part-cell"><div className="part-icon">▦</div><div><strong>{part.part}</strong><small>{part.sku}</small></div></div><span>{part.category}</span><span><strong className={part.stock <= part.min ? 'low-stock' : ''}>{part.stock}</strong> <small>/ min {part.min}</small></span><span>{part.cost}</span><span>{part.supplier}</span><button className="row-more">•••</button></div>)}</div></section></div>
+function Workshop({ parts, onNotify }) {
+  return <div><PageHeader eyebrow="Workshop & inventory" title="Workshop inventory" subtitle="Know what is on the shelf, what is moving, and what needs ordering." action="Receive stock" onAction={() => onNotify('Stock receipt flow started.')} /><div className="inventory-banner"><div className="inventory-stat"><span className="inventory-number">₹{(parts.reduce((total, part) => total + part.quantity_on_hand * part.unit_cost_paise, 0) / 100000).toFixed(1)}L</span><span>Total inventory value</span></div><div className="inventory-stat"><span className="inventory-number">{parts.reduce((total, part) => total + part.quantity_on_hand, 0)}</span><span>Parts in stock</span></div><div className="inventory-stat alert"><span className="inventory-number">{parts.filter((part) => part.quantity_on_hand <= part.reorder_level).length.toString().padStart(2, '0')}</span><span>Below reorder point</span></div><button onClick={() => onNotify('Purchase order builder opened.')}>Create purchase order →</button></div><section className="panel table-panel"><div className="table-header"><div><h2>Parts catalogue</h2><span>Stock across your workshop locations</span></div><button className="filter-button">☷ Categories</button></div><div className="data-table inventory-table"><div className="data-row data-head"><span>Part</span><span>Category</span><span>In stock</span><span>Unit cost</span><span>Supplier</span><span></span></div>{parts.map((part) => <div className="data-row" key={part.sku}><div className="part-cell"><div className="part-icon">▦</div><div><strong>{part.name}</strong><small>{part.sku}</small></div></div><span>{part.category}</span><span><strong className={part.quantity_on_hand <= part.reorder_level ? 'low-stock' : ''}>{part.quantity_on_hand}</strong> <small>/ min {part.reorder_level}</small></span><span>₹{(part.unit_cost_paise / 100).toLocaleString('en-IN')}</span><span>{part.supplier || 'Unassigned'}</span><button className="row-more">•••</button></div>)}</div></section></div>
 }
 
-function Documents({ onNotify }) {
-  return <div><PageHeader eyebrow="Compliance vault" title="Documents" subtitle="Keep every permit, certificate, and policy ready for inspection." action="Upload document" onAction={() => onNotify('Document upload opened.')} /><div className="document-kpis"><div><span className="kpi-icon green">✓</span><strong>142</strong><span>Valid documents</span></div><div><span className="kpi-icon amber">◷</span><strong>12</strong><span>Expiring in 30 days</span></div><div><span className="kpi-icon red">!</span><strong>03</strong><span>Expired documents</span></div></div><section className="panel table-panel"><div className="table-header"><div><h2>Document register</h2><span>Vehicle and company compliance records</span></div><div className="table-actions"><button className="secondary-button">Document types</button><button className="filter-button">☷ Filters</button></div></div><div className="data-table"><div className="data-row data-head"><span>Document</span><span>Linked to</span><span>Issued by</span><span>Expiry</span><span>Status</span><span></span></div>{documents.concat([{ name: 'National permit', vehicle: 'KA 03 MN 7712', date: '18 Aug 2024', days: '65 days', tone: 'neutral' }, { name: 'Insurance policy', vehicle: 'TN 38 AB 1904', date: '04 Sep 2024', days: '82 days', tone: 'neutral' }]).map((doc, index) => <div className="data-row" key={`${doc.name}-${index}`}><div className="document-cell"><div className={`doc-icon ${doc.tone}`}>▤</div><div><strong>{doc.name}</strong><small>DOC-2024-{index + 1042} · PDF</small></div></div><span>{doc.vehicle}</span><span>Transport Dept.</span><span>{doc.date}</span><span className={`document-status ${doc.tone}`}>{doc.tone === 'danger' ? 'Expiring soon' : doc.tone === 'warning' ? 'Review soon' : 'Valid'}</span><button className="row-more">•••</button></div>)}</div></section></div>
+function Documents({ documents, vehicles: fleet, onNotify }) {
+  return <div><PageHeader eyebrow="Compliance vault" title="Documents" subtitle="Keep every permit, certificate, and policy ready for inspection." action="Upload document" onAction={() => onNotify('Document upload flow is next in the vault module.')} /><div className="document-kpis"><div><span className="kpi-icon green">✓</span><strong>{documents.filter((doc) => doc.status === 'Valid').length}</strong><span>Valid documents</span></div><div><span className="kpi-icon amber">◷</span><strong>{documents.filter((doc) => doc.status !== 'Valid').length}</strong><span>Needs review</span></div><div><span className="kpi-icon red">!</span><strong>0</strong><span>Expired documents</span></div></div><section className="panel table-panel"><div className="table-header"><div><h2>Document register</h2><span>Vehicle and company compliance records</span></div><div className="table-actions"><button className="secondary-button">Document types</button><button className="filter-button">☷ Filters</button></div></div><div className="data-table"><div className="data-row data-head"><span>Document</span><span>Linked to</span><span>Issued by</span><span>Expiry</span><span>Status</span><span></span></div>{documents.map((doc) => <div className="data-row" key={doc.id}><div className="document-cell"><div className="doc-icon neutral">▤</div><div><strong>{doc.name}</strong><small>DOC-{doc.id} · metadata</small></div></div><span>{fleet.find((vehicle) => vehicle.id === doc.vehicle_id)?.reg || 'Organization'}</span><span>{doc.issued_by || 'Not specified'}</span><span>{doc.expires_on}</span><span className="document-status neutral">{doc.status}</span><button className="row-more">•••</button></div>)}</div></section></div>
 }
 
 function Costs({ onNotify }) {
