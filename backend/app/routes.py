@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session, selectinload
 from .config import get_settings
 from .database import get_db
 from .dependencies import get_current_user, require_roles
-from .models import AuditLog, ComplianceDocument, DocumentAsset, Expense, InventoryMovement, InventoryTransaction, MaintenancePlan, OperationalNotification, Organization, Part, PurchaseOrder, PurchaseOrderLine, StockLocation, User, Vehicle, VehicleComponent, Vendor, WorkOrder, utc_now
+from .models import AuditLog, ComplianceDocument, DocumentAsset, Expense, FuelTransaction, InventoryMovement, InventoryTransaction, MaintenancePlan, OperationalNotification, Organization, Part, PurchaseOrder, PurchaseOrderLine, StockLocation, TelematicsDevice, TelemetryReading, TollTransaction, User, Vehicle, VehicleComponent, Vendor, WorkOrder, utc_now
 from .schemas import (
     ComponentCreate,
     ComponentRead,
@@ -20,6 +20,11 @@ from .schemas import (
     DocumentUpdate,
     ExpenseCreate,
     ExpenseRead,
+    ExpenseStatusUpdate,
+    FinanceSummaryRead,
+    FuelTransactionCreate,
+    FuelTransactionRead,
+    IdentityProviderMetadata,
     InventoryTransactionCreate,
     InventoryTransactionRead,
     InventoryMovementCreate,
@@ -36,6 +41,12 @@ from .schemas import (
     PurchaseOrderStatusUpdate,
     StockLocationCreate,
     StockLocationRead,
+    TollTransactionCreate,
+    TollTransactionRead,
+    TelematicsDeviceCreate,
+    TelematicsDeviceRead,
+    TelemetryReadingCreate,
+    TelemetryReadingRead,
     Token,
     UserRead,
     VehicleCreate,
@@ -57,7 +68,23 @@ def login(payload: LoginRequest, database: Session = Depends(get_db)) -> Token:
     user = database.scalar(select(User).where(User.email == payload.email.lower()))
     if user is None or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Email or password is incorrect")
-    return Token(access_token=create_access_token(str(user.id)))
+    return Token(access_token=create_access_token(str(user.id), user.token_version))
+
+
+@router.get("/auth/identity-provider", response_model=IdentityProviderMetadata)
+def identity_provider_metadata() -> IdentityProviderMetadata:
+    settings = get_settings()
+    return IdentityProviderMetadata(
+        enabled=settings.identity_provider_enabled,
+        issuer=settings.identity_provider_issuer,
+        client_id=settings.identity_provider_client_id,
+    )
+
+
+@router.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
+def logout(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> None:
+    user.token_version += 1
+    database.commit()
 
 
 @router.get("/auth/me", response_model=UserRead)
@@ -632,6 +659,9 @@ def create_expense(
         if vehicle is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found in this organization")
     expense = Expense(organization_id=user.organization_id, **payload.model_dump())
+    if expense.status == "Approved":
+        expense.approved_by = user.id
+        expense.approved_at = utc_now()
     database.add(expense)
     database.flush()
     database.add(AuditLog(
@@ -646,6 +676,239 @@ def create_expense(
     database.commit()
     database.refresh(expense)
     return expense
+
+
+@router.patch("/expenses/{expense_id}", response_model=ExpenseRead)
+def update_expense_status(
+    expense_id: int,
+    payload: ExpenseStatusUpdate,
+    request: Request,
+    user: User = Depends(require_roles("owner", "admin", "manager")),
+    database: Session = Depends(get_db),
+) -> Expense:
+    expense = database.scalar(select(Expense).where(
+        Expense.id == expense_id,
+        Expense.organization_id == user.organization_id,
+    ))
+    if expense is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found")
+    expense.status = payload.status
+    expense.approved_by = user.id if payload.status == "Approved" else None
+    expense.approved_at = utc_now() if payload.status == "Approved" else None
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="expense.status_updated",
+        entity_type="expense",
+        entity_id=str(expense.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps({"status": expense.status}),
+    ))
+    database.commit()
+    database.refresh(expense)
+    return expense
+
+
+@router.get("/finance/summary", response_model=list[FinanceSummaryRead])
+def finance_summary(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[FinanceSummaryRead]:
+    totals: dict[str, dict[str, int]] = {}
+    expenses = database.scalars(select(Expense).where(Expense.organization_id == user.organization_id)).all()
+    for expense in expenses:
+        period = expense.incurred_on[:7]
+        bucket = totals.setdefault(period, {"expense": 0, "fuel": 0, "toll": 0, "gst": 0})
+        bucket["expense"] += expense.amount_paise
+        bucket["gst"] += expense.gst_amount_paise
+    fuels = database.scalars(select(FuelTransaction).where(FuelTransaction.organization_id == user.organization_id)).all()
+    for fuel in fuels:
+        totals.setdefault(fuel.incurred_on[:7], {"expense": 0, "fuel": 0, "toll": 0, "gst": 0})["fuel"] += fuel.total_amount_paise
+    tolls = database.scalars(select(TollTransaction).where(TollTransaction.organization_id == user.organization_id)).all()
+    for toll in tolls:
+        totals.setdefault(toll.incurred_on[:7], {"expense": 0, "fuel": 0, "toll": 0, "gst": 0})["toll"] += toll.amount_paise
+    return [
+        FinanceSummaryRead(
+            period=period,
+            expense_amount_paise=values["expense"],
+            fuel_amount_paise=values["fuel"],
+            toll_amount_paise=values["toll"],
+            total_amount_paise=values["expense"] + values["fuel"] + values["toll"],
+            gst_amount_paise=values["gst"],
+        )
+        for period, values in sorted(totals.items(), reverse=True)
+    ]
+
+
+@router.get("/fuel-transactions", response_model=list[FuelTransactionRead])
+def list_fuel_transactions(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[FuelTransaction]:
+    return list(database.scalars(
+        select(FuelTransaction)
+        .where(FuelTransaction.organization_id == user.organization_id)
+        .order_by(FuelTransaction.incurred_on.desc(), FuelTransaction.id.desc())
+    ).all())
+
+
+@router.post("/fuel-transactions", response_model=FuelTransactionRead, status_code=status.HTTP_201_CREATED)
+def create_fuel_transaction(
+    payload: FuelTransactionCreate,
+    request: Request,
+    user: User = Depends(require_roles("owner", "admin", "manager")),
+    database: Session = Depends(get_db),
+) -> FuelTransaction:
+    vehicle = database.scalar(select(Vehicle).where(Vehicle.id == payload.vehicle_id, Vehicle.organization_id == user.organization_id))
+    if vehicle is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found in this organization")
+    total_amount_paise = (payload.litres_milli * payload.price_per_litre_paise) // 1000
+    fuel = FuelTransaction(
+        organization_id=user.organization_id,
+        total_amount_paise=total_amount_paise,
+        created_by=user.id,
+        **payload.model_dump(),
+    )
+    database.add(fuel)
+    database.flush()
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="fuel_transaction.created",
+        entity_type="fuel_transaction",
+        entity_id=str(fuel.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps({"vehicle_id": vehicle.id, "total_amount_paise": total_amount_paise}),
+    ))
+    database.commit()
+    database.refresh(fuel)
+    return fuel
+
+
+@router.get("/toll-transactions", response_model=list[TollTransactionRead])
+def list_toll_transactions(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[TollTransaction]:
+    return list(database.scalars(
+        select(TollTransaction)
+        .where(TollTransaction.organization_id == user.organization_id)
+        .order_by(TollTransaction.incurred_on.desc(), TollTransaction.id.desc())
+    ).all())
+
+
+@router.post("/toll-transactions", response_model=TollTransactionRead, status_code=status.HTTP_201_CREATED)
+def create_toll_transaction(
+    payload: TollTransactionCreate,
+    request: Request,
+    user: User = Depends(require_roles("owner", "admin", "manager")),
+    database: Session = Depends(get_db),
+) -> TollTransaction:
+    vehicle = database.scalar(select(Vehicle).where(Vehicle.id == payload.vehicle_id, Vehicle.organization_id == user.organization_id))
+    if vehicle is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found in this organization")
+    toll = TollTransaction(organization_id=user.organization_id, created_by=user.id, **payload.model_dump())
+    database.add(toll)
+    database.flush()
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="toll_transaction.created",
+        entity_type="toll_transaction",
+        entity_id=str(toll.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps({"vehicle_id": vehicle.id, "amount_paise": toll.amount_paise}),
+    ))
+    database.commit()
+    database.refresh(toll)
+    return toll
+
+
+@router.get("/telematics/devices", response_model=list[TelematicsDeviceRead])
+def list_telematics_devices(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[TelematicsDevice]:
+    return list(database.scalars(
+        select(TelematicsDevice)
+        .where(TelematicsDevice.organization_id == user.organization_id)
+        .order_by(TelematicsDevice.id.desc())
+    ).all())
+
+
+@router.post("/telematics/devices", response_model=TelematicsDeviceRead, status_code=status.HTTP_201_CREATED)
+def create_telematics_device(
+    payload: TelematicsDeviceCreate,
+    request: Request,
+    user: User = Depends(require_roles("owner", "admin", "manager")),
+    database: Session = Depends(get_db),
+) -> TelematicsDevice:
+    vehicle = database.scalar(select(Vehicle).where(Vehicle.id == payload.vehicle_id, Vehicle.organization_id == user.organization_id))
+    if vehicle is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found in this organization")
+    existing = database.scalar(select(TelematicsDevice).where(
+        TelematicsDevice.organization_id == user.organization_id,
+        TelematicsDevice.device_identifier == payload.device_identifier,
+    ))
+    if existing is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A telematics device with this identifier already exists")
+    device = TelematicsDevice(organization_id=user.organization_id, **payload.model_dump())
+    database.add(device)
+    database.flush()
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="telematics_device.created",
+        entity_type="telematics_device",
+        entity_id=str(device.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps({"vehicle_id": vehicle.id, "provider": device.provider}),
+    ))
+    database.commit()
+    database.refresh(device)
+    return device
+
+
+@router.post("/telematics/devices/{device_id}/readings", response_model=TelemetryReadingRead, status_code=status.HTTP_201_CREATED)
+def ingest_telemetry(
+    device_id: int,
+    payload: TelemetryReadingCreate,
+    request: Request,
+    user: User = Depends(get_current_user),
+    database: Session = Depends(get_db),
+) -> TelemetryReading:
+    device = database.scalar(select(TelematicsDevice).where(
+        TelematicsDevice.id == device_id,
+        TelematicsDevice.organization_id == user.organization_id,
+        TelematicsDevice.active.is_(True),
+    ))
+    if device is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Active telematics device not found")
+    reading = TelemetryReading(
+        organization_id=user.organization_id,
+        vehicle_id=device.vehicle_id,
+        device_id=device.id,
+        **payload.model_dump(),
+    )
+    device.last_seen_at = payload.recorded_at
+    database.add(reading)
+    database.flush()
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="telemetry_reading.ingested",
+        entity_type="telemetry_reading",
+        entity_id=str(reading.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps({"device_id": device.id, "vehicle_id": device.vehicle_id}),
+    ))
+    database.commit()
+    database.refresh(reading)
+    return reading
+
+
+@router.get("/telematics/vehicles/{vehicle_id}/latest", response_model=TelemetryReadingRead)
+def latest_vehicle_telemetry(
+    vehicle_id: int,
+    user: User = Depends(get_current_user),
+    database: Session = Depends(get_db),
+) -> TelemetryReading:
+    reading = database.scalar(
+        select(TelemetryReading)
+        .where(TelemetryReading.vehicle_id == vehicle_id, TelemetryReading.organization_id == user.organization_id)
+        .order_by(TelemetryReading.recorded_at.desc(), TelemetryReading.id.desc())
+    )
+    if reading is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No telemetry available for this vehicle")
+    return reading
 
 
 @router.get("/vendors", response_model=list[VendorRead])

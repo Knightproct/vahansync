@@ -10,17 +10,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from fastapi.testclient import TestClient
 
+from backend.app.database import Base, engine
 from backend.app.main import app
 
 
 def test_health_and_vehicle_lifecycle(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
     with TestClient(app) as client:
         assert client.get("/health").json()["status"] == "ok"
         response = client.post("/api/v1/auth/login", json={"email": "test-admin@example.com", "password": "TestPassword!123"})
         assert response.status_code == 200
         token = response.json()["access_token"]
         headers = {"Authorization": f"Bearer {token}"}
+        identity = client.get("/api/v1/auth/identity-provider")
+        assert identity.status_code == 200
+        assert identity.json()["local_login_available"] is True
         registration_number = f"DL 01 {uuid4().hex[:4].upper()}"
         created = client.post("/api/v1/vehicles", headers=headers, json={
             "registration_number": registration_number,
@@ -116,6 +122,61 @@ def test_health_and_vehicle_lifecycle(tmp_path: Path, monkeypatch):
         })
         assert expense.status_code == 201
         assert client.get("/api/v1/expenses", headers=headers).json()[0]["description"] == "Brake service"
+        approved_expense = client.patch(
+            f"/api/v1/expenses/{expense.json()['id']}",
+            headers=headers,
+            json={"status": "Approved"},
+        )
+        assert approved_expense.status_code == 200
+        assert approved_expense.json()["approved_by"] is not None
+        fuel = client.post("/api/v1/fuel-transactions", headers=headers, json={
+            "vehicle_id": vehicle_id,
+            "station": "HPCL Delhi",
+            "fuel_type": "Diesel",
+            "litres_milli": 125000,
+            "price_per_litre_paise": 9250,
+            "odometer_km": 12500,
+            "incurred_on": "2027-01-15",
+            "reference": "FUEL-001",
+        })
+        assert fuel.status_code == 201
+        assert fuel.json()["total_amount_paise"] == 1156250
+        toll = client.post("/api/v1/toll-transactions", headers=headers, json={
+            "vehicle_id": vehicle_id,
+            "plaza": "Yamuna Expressway",
+            "amount_paise": 185000,
+            "incurred_on": "2027-01-15",
+            "tag_reference": "FASTAG-001",
+        })
+        assert toll.status_code == 201
+        assert client.get("/api/v1/fuel-transactions", headers=headers).json()[0]["id"] == fuel.json()["id"]
+        assert client.get("/api/v1/toll-transactions", headers=headers).json()[0]["id"] == toll.json()["id"]
+        finance = client.get("/api/v1/finance/summary", headers=headers)
+        assert finance.status_code == 200
+        assert finance.json()[0]["fuel_amount_paise"] == fuel.json()["total_amount_paise"]
+        device = client.post("/api/v1/telematics/devices", headers=headers, json={
+            "vehicle_id": vehicle_id,
+            "provider": "FleetTrack",
+            "device_identifier": f"FT-{uuid4().hex[:8]}",
+        })
+        assert device.status_code == 201
+        reading = client.post(
+            f"/api/v1/telematics/devices/{device.json()['id']}/readings",
+            headers=headers,
+            json={
+                "recorded_at": "2027-01-15T10:00:00Z",
+                "odometer_km": 12540,
+                "latitude_e6": 28361300,
+                "longitude_e6": 77192600,
+                "speed_kph": 54,
+                "fuel_level_percent": 62,
+                "engine_on": True,
+            },
+        )
+        assert reading.status_code == 201
+        latest = client.get(f"/api/v1/telematics/vehicles/{vehicle_id}/latest", headers=headers)
+        assert latest.status_code == 200
+        assert latest.json()["speed_kph"] == 54
         vendor = client.post("/api/v1/vendors", headers=headers, json={
             "name": "TVS Autoparts",
             "vendor_type": "Parts supplier",
@@ -144,3 +205,5 @@ def test_health_and_vehicle_lifecycle(tmp_path: Path, monkeypatch):
         )
         assert updated_notification.status_code == 200
         assert updated_notification.json()["status"] == "read"
+        assert client.post("/api/v1/auth/logout", headers=headers).status_code == 204
+        assert client.get("/api/v1/auth/me", headers=headers).status_code == 401

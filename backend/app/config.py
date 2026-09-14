@@ -14,6 +14,13 @@ class Settings(BaseSettings):
     seed_admin_password: str = "ChangeMe!123"
     storage_path: str = "./storage"
     max_upload_bytes: int = 25 * 1024 * 1024
+    storage_backend: str = "local"
+    object_storage_bucket: str | None = None
+    object_storage_region: str | None = None
+    object_storage_endpoint: str | None = None
+    identity_provider_issuer: str | None = None
+    identity_provider_client_id: str | None = None
+    identity_provider_enabled: bool = False
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="VAHANA_", extra="ignore")
 

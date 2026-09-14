@@ -16,13 +16,19 @@ def verify_password(password: str, hashed_password: str) -> bool:
     return password_hash.verify(password, hashed_password)
 
 
-def create_access_token(subject: str) -> str:
+def create_access_token(subject: str, token_version: int = 0) -> str:
     settings = get_settings()
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_minutes)
-    return jwt.encode({"sub": subject, "exp": expires_at}, settings.jwt_secret, algorithm="HS256")
+    return jwt.encode({"sub": subject, "ver": token_version, "exp": expires_at}, settings.jwt_secret, algorithm="HS256")
 
 
 def decode_access_token(token: str) -> int:
     settings = get_settings()
     payload = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
     return int(payload["sub"])
+
+
+def decode_token_version(token: str) -> int:
+    settings = get_settings()
+    payload = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
+    return int(payload.get("ver", 0))

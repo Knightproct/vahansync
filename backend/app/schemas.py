@@ -8,6 +8,13 @@ class Token(BaseModel):
     token_type: str = "bearer"
 
 
+class IdentityProviderMetadata(BaseModel):
+    enabled: bool
+    issuer: str | None
+    client_id: str | None
+    local_login_available: bool = True
+
+
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8)
@@ -225,9 +232,13 @@ class ExpenseCreate(BaseModel):
     category: str = Field(min_length=2, max_length=80)
     description: str = Field(min_length=2, max_length=240)
     amount_paise: int = Field(gt=0)
+    gst_amount_paise: int = Field(default=0, ge=0)
     incurred_on: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
     vendor: str | None = None
-    status: str = "Approved"
+    gstin: str | None = Field(default=None, max_length=20)
+    cost_center: str | None = Field(default=None, max_length=120)
+    payment_mode: str | None = Field(default=None, max_length=40)
+    status: str = Field(default="Pending", pattern="^(Pending|Approved|Rejected)$")
 
 
 class ExpenseRead(ExpenseCreate):
@@ -235,6 +246,97 @@ class ExpenseRead(ExpenseCreate):
 
     id: int
     organization_id: int
+    approved_by: int | None
+    approved_at: datetime | None
+    created_at: datetime
+
+
+class ExpenseStatusUpdate(BaseModel):
+    status: str = Field(pattern="^(Pending|Approved|Rejected)$")
+
+
+class FinanceSummaryRead(BaseModel):
+    period: str
+    expense_amount_paise: int
+    fuel_amount_paise: int
+    toll_amount_paise: int
+    total_amount_paise: int
+    gst_amount_paise: int
+
+
+class FuelTransactionCreate(BaseModel):
+    vehicle_id: int
+    station: str | None = None
+    fuel_type: str = Field(min_length=2, max_length=40)
+    litres_milli: int = Field(gt=0)
+    price_per_litre_paise: int = Field(gt=0)
+    odometer_km: int = Field(ge=0)
+    incurred_on: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    reference: str | None = None
+
+
+class FuelTransactionRead(FuelTransactionCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    organization_id: int
+    total_amount_paise: int
+    created_by: int
+    created_at: datetime
+
+
+class TollTransactionCreate(BaseModel):
+    vehicle_id: int
+    toll_operator: str | None = None
+    plaza: str = Field(min_length=2, max_length=160)
+    amount_paise: int = Field(gt=0)
+    incurred_on: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    tag_reference: str | None = None
+    status: str = Field(default="Approved", pattern="^(Pending|Approved|Rejected)$")
+
+
+class TollTransactionRead(TollTransactionCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    organization_id: int
+    created_by: int
+    created_at: datetime
+
+
+class TelematicsDeviceCreate(BaseModel):
+    vehicle_id: int
+    provider: str = Field(min_length=2, max_length=80)
+    device_identifier: str = Field(min_length=2, max_length=160)
+    active: bool = True
+
+
+class TelematicsDeviceRead(TelematicsDeviceCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    organization_id: int
+    last_seen_at: datetime | None
+    created_at: datetime
+
+
+class TelemetryReadingCreate(BaseModel):
+    recorded_at: datetime
+    odometer_km: int | None = Field(default=None, ge=0)
+    latitude_e6: int | None = Field(default=None, ge=-90_000_000, le=90_000_000)
+    longitude_e6: int | None = Field(default=None, ge=-180_000_000, le=180_000_000)
+    speed_kph: int | None = Field(default=None, ge=0, le=300)
+    fuel_level_percent: int | None = Field(default=None, ge=0, le=100)
+    engine_on: bool | None = None
+
+
+class TelemetryReadingRead(TelemetryReadingCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    organization_id: int
+    vehicle_id: int
+    device_id: int
     created_at: datetime
 
 

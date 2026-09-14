@@ -1,4 +1,6 @@
 from contextlib import asynccontextmanager
+import logging
+from time import perf_counter
 from uuid import uuid4
 
 from fastapi import FastAPI, Request
@@ -10,6 +12,7 @@ from .routes import router, seed_database
 
 settings = get_settings()
 settings.validate_runtime()
+logger = logging.getLogger("vahana.api")
 
 
 @asynccontextmanager
@@ -31,8 +34,17 @@ app.add_middleware(
 @app.middleware("http")
 async def request_context(request: Request, call_next):
     request_id = request.headers.get("x-request-id", str(uuid4()))
+    started = perf_counter()
     response = await call_next(request)
     response.headers["x-request-id"] = request_id
+    logger.info(
+        "request_completed request_id=%s method=%s path=%s status=%s duration_ms=%.2f",
+        request_id,
+        request.method,
+        request.url.path,
+        response.status_code,
+        (perf_counter() - started) * 1000,
+    )
     return response
 
 
@@ -42,8 +54,15 @@ async def unhandled_exception(_: Request, __: Exception):
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok", "service": "vahana-api", "environment": settings.environment}
+def health() -> dict[str, str | bool]:
+    return {
+        "status": "ok",
+        "service": "vahana-api",
+        "environment": settings.environment,
+        "database_configured": bool(settings.database_url),
+        "storage_backend": settings.storage_backend,
+        "object_storage_configured": bool(settings.object_storage_bucket),
+    }
 
 
 app.include_router(router)

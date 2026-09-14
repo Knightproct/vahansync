@@ -6,7 +6,7 @@ Vahana is a multi-tenant operating system for Indian fleet operators. The system
 
 The first operational domains are now API-backed: fleet, vehicle components, preventive maintenance plans, work orders, workshop parts and movements, compliance documents, expenses, vendors, and purchase orders. The UI consumes these resources through the versioned API rather than treating seeded presentation data as authoritative.
 
-Compliance files are stored through an authenticated storage adapter with checksum metadata, while durable notifications are generated idempotently from expiry and reorder conditions. The current adapter uses a configurable local volume; production object storage and a scheduler remain deployment-specific integrations.
+Compliance files are stored through an authenticated storage adapter with checksum metadata, while durable notifications are generated idempotently from expiry and reorder conditions. Storage configuration makes the local adapter explicit and leaves object-storage provider selection to a reviewed deployment adapter. Fuel, toll, finance, and telematics records remain organization-scoped, while token versions provide local session revocation and identity-provider metadata leaves SSO provider credentials deployment-specific.
 
 ## Selected stack
 

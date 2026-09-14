@@ -9,6 +9,8 @@ from .config import get_settings
 
 def save_upload(upload: UploadFile) -> tuple[str, int, str]:
     settings = get_settings()
+    if settings.storage_backend != "local":
+        raise ValueError("Configured object-storage backend is not installed in this deployment")
     storage_root = Path(settings.storage_path).resolve()
     storage_root.mkdir(parents=True, exist_ok=True)
     object_key = f"documents/{uuid4().hex}"

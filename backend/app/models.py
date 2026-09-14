@@ -31,6 +31,7 @@ class User(Base):
     full_name: Mapped[str] = mapped_column(String(160), nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(32), default="admin", nullable=False)
+    token_version: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
     organization: Mapped[Organization] = relationship(back_populates="users")
 
@@ -207,9 +208,79 @@ class Expense(Base):
     category: Mapped[str] = mapped_column(String(80), nullable=False)
     description: Mapped[str] = mapped_column(String(240), nullable=False)
     amount_paise: Mapped[int] = mapped_column(Integer, nullable=False)
+    gst_amount_paise: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     incurred_on: Mapped[str] = mapped_column(String(20), nullable=False)
     vendor: Mapped[Optional[str]] = mapped_column(String(160))
+    gstin: Mapped[Optional[str]] = mapped_column(String(20))
+    cost_center: Mapped[Optional[str]] = mapped_column(String(120))
+    payment_mode: Mapped[Optional[str]] = mapped_column(String(40))
     status: Mapped[str] = mapped_column(String(30), default="Approved", nullable=False)
+    approved_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
+    approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class FuelTransaction(Base):
+    __tablename__ = "fuel_transactions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    vehicle_id: Mapped[int] = mapped_column(ForeignKey("vehicles.id"), nullable=False, index=True)
+    station: Mapped[Optional[str]] = mapped_column(String(160))
+    fuel_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    litres_milli: Mapped[int] = mapped_column(Integer, nullable=False)
+    price_per_litre_paise: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_amount_paise: Mapped[int] = mapped_column(Integer, nullable=False)
+    odometer_km: Mapped[int] = mapped_column(Integer, nullable=False)
+    incurred_on: Mapped[str] = mapped_column(String(20), nullable=False)
+    reference: Mapped[Optional[str]] = mapped_column(String(120))
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class TollTransaction(Base):
+    __tablename__ = "toll_transactions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    vehicle_id: Mapped[int] = mapped_column(ForeignKey("vehicles.id"), nullable=False, index=True)
+    toll_operator: Mapped[Optional[str]] = mapped_column(String(160))
+    plaza: Mapped[str] = mapped_column(String(160), nullable=False)
+    amount_paise: Mapped[int] = mapped_column(Integer, nullable=False)
+    incurred_on: Mapped[str] = mapped_column(String(20), nullable=False)
+    tag_reference: Mapped[Optional[str]] = mapped_column(String(120))
+    status: Mapped[str] = mapped_column(String(30), default="Approved", nullable=False)
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class TelematicsDevice(Base):
+    __tablename__ = "telematics_devices"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    vehicle_id: Mapped[int] = mapped_column(ForeignKey("vehicles.id"), nullable=False, index=True)
+    provider: Mapped[str] = mapped_column(String(80), nullable=False)
+    device_identifier: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
+    active: Mapped[bool] = mapped_column(default=True, nullable=False)
+    last_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class TelemetryReading(Base):
+    __tablename__ = "telemetry_readings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    vehicle_id: Mapped[int] = mapped_column(ForeignKey("vehicles.id"), nullable=False, index=True)
+    device_id: Mapped[int] = mapped_column(ForeignKey("telematics_devices.id"), nullable=False, index=True)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    odometer_km: Mapped[Optional[int]] = mapped_column(Integer)
+    latitude_e6: Mapped[Optional[int]] = mapped_column(Integer)
+    longitude_e6: Mapped[Optional[int]] = mapped_column(Integer)
+    speed_kph: Mapped[Optional[int]] = mapped_column(Integer)
+    fuel_level_percent: Mapped[Optional[int]] = mapped_column(Integer)
+    engine_on: Mapped[Optional[bool]] = mapped_column()
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
 

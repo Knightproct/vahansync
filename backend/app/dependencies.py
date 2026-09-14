@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from .database import get_db
 from .models import User
-from .security import decode_access_token
+from .security import decode_access_token, decode_token_version
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
@@ -13,11 +13,12 @@ def get_current_user(token: str = Depends(oauth2_scheme), database: Session = De
     credentials_error = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication credentials")
     try:
         user_id = decode_access_token(token)
+        token_version = decode_token_version(token)
     except Exception as error:
         raise credentials_error from error
 
     user = database.get(User, user_id)
-    if user is None:
+    if user is None or user.token_version != token_version:
         raise credentials_error
     return user
 
