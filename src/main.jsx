@@ -70,8 +70,8 @@ function App() {
           setApiState('unauthenticated')
           return
         }
-        const [loadedUser, loadedSubscription, loadedFleet, loadedWorkOrders, loadedParts, loadedDocuments, loadedExpenses, loadedComponents, loadedPlans, loadedVendors, loadedPurchaseOrders, loadedNotifications] = await Promise.all([
-          getCurrentUser(accessToken),
+        const loadedUser = await getCurrentUser(accessToken)
+        const [loadedSubscription, loadedFleet, loadedWorkOrders, loadedParts, loadedDocuments, loadedExpenses, loadedComponents, loadedPlans, loadedVendors, loadedPurchaseOrders, loadedNotifications] = await Promise.all([
           getSubscription(accessToken),
           getVehicles(accessToken),
           getWorkOrders(accessToken),
@@ -98,6 +98,16 @@ function App() {
         setNotifications(loadedNotifications)
         setApiState('ready')
       } catch (error) {
+        if (
+          error.message === 'Not authenticated'
+          || error.message.includes('401')
+          || error.message.includes('authentication credentials')
+        ) {
+          window.sessionStorage.removeItem('vahana:access-token')
+          setToken(null)
+          setApiState('unauthenticated')
+          return
+        }
         setApiError(error.message)
         setApiState('error')
       }
