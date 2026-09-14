@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "api": ".venv/bin/uvicorn backend.app.main:app --reload --port 8000",
+    "migrate": ".venv/bin/alembic -c backend/alembic.ini upgrade head",
     "test:api": ".venv/bin/pytest backend/tests -q",
     "dev": "vite",
     "build": "vite build",

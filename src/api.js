@@ -96,3 +96,15 @@ export function createExpense(token, expense) {
 export function getDocuments(token) {
   return request('/api/v1/documents', { headers: { Authorization: `Bearer ${token}` } })
 }
+
+export function getVendors(token) {
+  return request('/api/v1/vendors', { headers: { Authorization: `Bearer ${token}` } })
+}
+
+export function getPurchaseOrders(token) {
+  return request('/api/v1/purchase-orders', { headers: { Authorization: `Bearer ${token}` } })
+}
+
+export function getAlerts(token) {
+  return request('/api/v1/alerts', { headers: { Authorization: `Bearer ${token}` } })
+}

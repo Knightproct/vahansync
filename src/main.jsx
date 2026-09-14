@@ -1,7 +1,7 @@
 import { StrictMode, useEffect, useMemo, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import './styles.css'
-import { createVehicle, createWorkOrder, getComponents, getDocuments, getExpenses, getMaintenancePlans, getParts, getVehicles, getWorkOrders, login } from './api'
+import { createVehicle, createWorkOrder, getAlerts, getComponents, getDocuments, getExpenses, getMaintenancePlans, getParts, getPurchaseOrders, getVehicles, getVendors, getWorkOrders, login } from './api'
 
 const navItems = [
   { id: 'overview', label: 'Overview', icon: '⌂' },
@@ -43,6 +43,8 @@ function App() {
   const [expenses, setExpenses] = useState([])
   const [components, setComponents] = useState([])
   const [maintenancePlans, setMaintenancePlans] = useState([])
+  const [purchaseOrders, setPurchaseOrders] = useState([])
+  const [alerts, setAlerts] = useState([])
   const [token, setToken] = useState(() => window.sessionStorage.getItem('vahana:access-token'))
   const [apiState, setApiState] = useState('loading')
   const [apiError, setApiError] = useState('')
@@ -61,7 +63,7 @@ function App() {
           setApiState('unauthenticated')
           return
         }
-        const [loadedFleet, loadedWorkOrders, loadedParts, loadedDocuments, loadedExpenses, loadedComponents, loadedPlans] = await Promise.all([
+        const [loadedFleet, loadedWorkOrders, loadedParts, loadedDocuments, loadedExpenses, loadedComponents, loadedPlans, loadedVendors, loadedPurchaseOrders, loadedAlerts] = await Promise.all([
           getVehicles(accessToken),
           getWorkOrders(accessToken),
           getParts(accessToken),
@@ -69,6 +71,9 @@ function App() {
           getExpenses(accessToken),
           getComponents(accessToken),
           getMaintenancePlans(accessToken),
+          getVendors(accessToken),
+          getPurchaseOrders(accessToken),
+          getAlerts(accessToken),
         ])
         setFleet(loadedFleet)
         setWorkOrders(loadedWorkOrders)
@@ -77,6 +82,8 @@ function App() {
         setExpenses(loadedExpenses)
         setComponents(loadedComponents)
         setMaintenancePlans(loadedPlans)
+        setPurchaseOrders(loadedPurchaseOrders)
+        setAlerts(loadedAlerts)
         setApiState('ready')
       } catch (error) {
         setApiError(error.message)
@@ -159,7 +166,7 @@ function App() {
           <div className="breadcrumb"><span>Rajput Logistics</span><b>/</b><strong>{title}</strong></div>
           <div className="top-actions">
             <div className="search-box"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search vehicles, parts, docs..." /><kbd>⌘ K</kbd></div>
-            <button className="icon-button" onClick={() => notify('You are all caught up.')}>♢<i></i></button>
+            <button className="icon-button" onClick={() => notify(alerts.length ? `${alerts.length} operational alerts need attention.` : 'You are all caught up.')}>♢{alerts.length > 0 && <i></i>}</button>
             <button className="icon-button" onClick={() => notify('Help centre opened in a new tab.')}>?</button>
           </div>
         </header>
@@ -168,7 +175,7 @@ function App() {
           {active === 'overview' && <Overview vehicles={fleet} workOrders={workOrders} documents={documentsData} expenses={expenses} onAdd={() => setShowAdd(true)} onNotify={notify} />}
           {active === 'fleet' && <Fleet vehicles={filteredVehicles} onAdd={() => setShowAdd(true)} />}
           {active === 'maintenance' && <Maintenance workOrders={workOrders} components={components} plans={maintenancePlans} vehicles={fleet} token={token} onCreated={(workOrder) => setWorkOrders((current) => [workOrder, ...current])} onNotify={notify} />}
-          {active === 'workshop' && <Workshop parts={parts} onNotify={notify} />}
+          {active === 'workshop' && <Workshop parts={parts} purchaseOrders={purchaseOrders} onNotify={notify} />}
           {active === 'documents' && <Documents documents={documentsData} vehicles={fleet} onNotify={notify} />}
           {active === 'costs' && <Costs expenses={expenses} vehicles={fleet} onNotify={notify} />}
         </div>
@@ -274,8 +281,8 @@ function Maintenance({ workOrders, components, plans, vehicles: fleet, token, on
   return <div><PageHeader eyebrow="Workshop control" title="Maintenance" subtitle="Plan preventive care and close every work order on time." action="New work order" onAction={createOrder} /><div className="metric-grid compact"><MetricCard label="Open work orders" value={workOrders.length} change="-3" detail="vs last week" icon="◷" tone="orange" /><MetricCard label="In progress" value={workOrders.filter((item) => item.status === 'In progress').length} change="+2" detail="since yesterday" icon="⌁" tone="blue" /><MetricCard label="Tracked components" value={components.length} change="live" detail={`${plans.length} service plans`} icon="◒" tone="green" /><MetricCard label="Preventive compliance" value="94%" change="+6.2%" detail="vs last quarter" icon="✓" tone="purple" /></div><section className="panel table-panel"><div className="table-header"><div><h2>Work order planner</h2><span>All active and scheduled jobs</span></div><div className="table-actions"><button className="secondary-button">Calendar view</button><button className="filter-button">☷ Filters</button></div></div><div className="data-table"><div className="data-row data-head"><span>Work order</span><span>Vehicle</span><span>Assigned to</span><span>Due</span><span>Priority</span><span>Status</span></div>{workOrders.map((item) => <div className="data-row" key={item.id}><div className="workorder-cell"><div className="maintenance-icon small amber">⌁</div><div><strong>{item.title}</strong><small>WO-{item.id}</small></div></div><span>{fleet.find((vehicle) => vehicle.id === item.vehicle_id)?.reg || 'Vehicle linked'}</span><span>{item.assigned_to || 'Unassigned'}</span><span>{item.due_date || 'Unscheduled'}</span><span className={`priority ${item.priority === 'High' ? 'red' : item.priority === 'Low' ? 'green' : 'amber'}`}>{item.priority}</span><Status status={item.status === 'In progress' ? 'In workshop' : 'On route'} /></div>)}</div></section></div>
 }
 
-function Workshop({ parts, onNotify }) {
-  return <div><PageHeader eyebrow="Workshop & inventory" title="Workshop inventory" subtitle="Know what is on the shelf, what is moving, and what needs ordering." action="Receive stock" onAction={() => onNotify('Stock receipt flow started.')} /><div className="inventory-banner"><div className="inventory-stat"><span className="inventory-number">₹{(parts.reduce((total, part) => total + part.quantity_on_hand * part.unit_cost_paise, 0) / 100000).toFixed(1)}L</span><span>Total inventory value</span></div><div className="inventory-stat"><span className="inventory-number">{parts.reduce((total, part) => total + part.quantity_on_hand, 0)}</span><span>Parts in stock</span></div><div className="inventory-stat alert"><span className="inventory-number">{parts.filter((part) => part.quantity_on_hand <= part.reorder_level).length.toString().padStart(2, '0')}</span><span>Below reorder point</span></div><button onClick={() => onNotify('Purchase order builder opened.')}>Create purchase order →</button></div><section className="panel table-panel"><div className="table-header"><div><h2>Parts catalogue</h2><span>Stock across your workshop locations</span></div><button className="filter-button">☷ Categories</button></div><div className="data-table inventory-table"><div className="data-row data-head"><span>Part</span><span>Category</span><span>In stock</span><span>Unit cost</span><span>Supplier</span><span></span></div>{parts.map((part) => <div className="data-row" key={part.sku}><div className="part-cell"><div className="part-icon">▦</div><div><strong>{part.name}</strong><small>{part.sku}</small></div></div><span>{part.category}</span><span><strong className={part.quantity_on_hand <= part.reorder_level ? 'low-stock' : ''}>{part.quantity_on_hand}</strong> <small>/ min {part.reorder_level}</small></span><span>₹{(part.unit_cost_paise / 100).toLocaleString('en-IN')}</span><span>{part.supplier || 'Unassigned'}</span><button className="row-more">•••</button></div>)}</div></section></div>
+function Workshop({ parts, purchaseOrders, onNotify }) {
+  return <div><PageHeader eyebrow="Workshop & inventory" title="Workshop inventory" subtitle="Know what is on the shelf, what is moving, and what needs ordering." action="Receive stock" onAction={() => onNotify('Stock receipt flow started.')} /><div className="inventory-banner"><div className="inventory-stat"><span className="inventory-number">₹{(parts.reduce((total, part) => total + part.quantity_on_hand * part.unit_cost_paise, 0) / 100000).toFixed(1)}L</span><span>Total inventory value</span></div><div className="inventory-stat"><span className="inventory-number">{parts.reduce((total, part) => total + part.quantity_on_hand, 0)}</span><span>Parts in stock</span></div><div className="inventory-stat alert"><span className="inventory-number">{parts.filter((part) => part.quantity_on_hand <= part.reorder_level).length.toString().padStart(2, '0')}</span><span>Below reorder point</span></div><button onClick={() => onNotify(`${purchaseOrders.length} purchase orders in procurement.`)}>View procurement →</button></div><section className="panel table-panel"><div className="table-header"><div><h2>Parts catalogue</h2><span>{purchaseOrders.length} purchase orders · stock across your workshop locations</span></div><button className="filter-button">☷ Categories</button></div><div className="data-table inventory-table"><div className="data-row data-head"><span>Part</span><span>Category</span><span>In stock</span><span>Unit cost</span><span>Supplier</span><span></span></div>{parts.map((part) => <div className="data-row" key={part.sku}><div className="part-cell"><div className="part-icon">▦</div><div><strong>{part.name}</strong><small>{part.sku}</small></div></div><span>{part.category}</span><span><strong className={part.quantity_on_hand <= part.reorder_level ? 'low-stock' : ''}>{part.quantity_on_hand}</strong> <small>/ min {part.reorder_level}</small></span><span>₹{(part.unit_cost_paise / 100).toLocaleString('en-IN')}</span><span>{part.supplier || 'Unassigned'}</span><button className="row-more">•••</button></div>)}</div></section></div>
 }
 
 function Documents({ documents, vehicles: fleet, onNotify }) {

@@ -200,3 +200,71 @@ class ExpenseRead(ExpenseCreate):
     id: int
     organization_id: int
     created_at: datetime
+
+
+class VendorCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=200)
+    vendor_type: str = Field(min_length=2, max_length=80)
+    gstin: str | None = Field(default=None, max_length=20)
+    contact_name: str | None = None
+    phone: str | None = None
+    email: EmailStr | None = None
+    address: str | None = None
+    active: bool = True
+
+
+class VendorRead(VendorCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    organization_id: int
+    created_at: datetime
+
+
+class PurchaseOrderLineCreate(BaseModel):
+    part_id: int
+    quantity: int = Field(gt=0)
+    unit_cost_paise: int = Field(gt=0)
+
+
+class PurchaseOrderCreate(BaseModel):
+    vendor_id: int
+    expected_on: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    notes: str | None = None
+    lines: list[PurchaseOrderLineCreate] = Field(min_length=1)
+
+
+class PurchaseOrderLineRead(PurchaseOrderLineCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    line_total_paise: int
+
+
+class PurchaseOrderRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    organization_id: int
+    vendor_id: int
+    order_number: str
+    status: str
+    expected_on: str | None
+    notes: str | None
+    total_paise: int
+    created_by: int
+    created_at: datetime
+    lines: list[PurchaseOrderLineRead] = Field(default_factory=list)
+
+
+class PurchaseOrderStatusUpdate(BaseModel):
+    status: str = Field(pattern="^(Draft|Submitted|Approved|Partially received|Received|Cancelled)$")
+
+
+class DocumentUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=200)
+    document_type: str | None = Field(default=None, min_length=2, max_length=80)
+    issued_by: str | None = None
+    expires_on: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    file_key: str | None = None
+    status: str | None = None

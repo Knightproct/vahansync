@@ -181,6 +181,51 @@ class Expense(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
 
+class Vendor(Base):
+    __tablename__ = "vendors"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    vendor_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    gstin: Mapped[Optional[str]] = mapped_column(String(20))
+    contact_name: Mapped[Optional[str]] = mapped_column(String(160))
+    phone: Mapped[Optional[str]] = mapped_column(String(40))
+    email: Mapped[Optional[str]] = mapped_column(String(255))
+    address: Mapped[Optional[str]] = mapped_column(String(300))
+    active: Mapped[bool] = mapped_column(default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class PurchaseOrder(Base):
+    __tablename__ = "purchase_orders"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    vendor_id: Mapped[int] = mapped_column(ForeignKey("vendors.id"), nullable=False, index=True)
+    order_number: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(30), default="Draft", nullable=False)
+    expected_on: Mapped[Optional[str]] = mapped_column(String(20))
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+    total_paise: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    lines: Mapped[list["PurchaseOrderLine"]] = relationship(back_populates="purchase_order", cascade="all, delete-orphan")
+
+
+class PurchaseOrderLine(Base):
+    __tablename__ = "purchase_order_lines"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    purchase_order_id: Mapped[int] = mapped_column(ForeignKey("purchase_orders.id"), nullable=False, index=True)
+    part_id: Mapped[int] = mapped_column(ForeignKey("parts.id"), nullable=False, index=True)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    unit_cost_paise: Mapped[int] = mapped_column(Integer, nullable=False)
+    line_total_paise: Mapped[int] = mapped_column(Integer, nullable=False)
+    purchase_order: Mapped[PurchaseOrder] = relationship(back_populates="lines")
+
+
 class AuditLog(Base):
     __tablename__ = "audit_logs"
 

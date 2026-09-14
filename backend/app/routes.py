@@ -4,17 +4,18 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from .config import get_settings
 from .database import get_db
 from .dependencies import get_current_user, require_roles
-from .models import AuditLog, ComplianceDocument, Expense, InventoryMovement, InventoryTransaction, MaintenancePlan, Organization, Part, StockLocation, User, Vehicle, VehicleComponent, WorkOrder
+from .models import AuditLog, ComplianceDocument, Expense, InventoryMovement, InventoryTransaction, MaintenancePlan, Organization, Part, PurchaseOrder, PurchaseOrderLine, StockLocation, User, Vehicle, VehicleComponent, Vendor, WorkOrder
 from .schemas import (
     ComponentCreate,
     ComponentRead,
     DocumentCreate,
     DocumentRead,
+    DocumentUpdate,
     ExpenseCreate,
     ExpenseRead,
     InventoryTransactionCreate,
@@ -26,12 +27,17 @@ from .schemas import (
     MaintenancePlanRead,
     PartCreate,
     PartRead,
+    PurchaseOrderCreate,
+    PurchaseOrderRead,
+    PurchaseOrderStatusUpdate,
     StockLocationCreate,
     StockLocationRead,
     Token,
     UserRead,
     VehicleCreate,
     VehicleRead,
+    VendorCreate,
+    VendorRead,
     WorkOrderCreate,
     WorkOrderRead,
     WorkOrderUpdate,
@@ -402,6 +408,63 @@ def create_document(
     return document
 
 
+@router.patch("/documents/{document_id}", response_model=DocumentRead)
+def update_document(
+    document_id: int,
+    payload: DocumentUpdate,
+    request: Request,
+    user: User = Depends(require_roles("owner", "admin", "manager")),
+    database: Session = Depends(get_db),
+) -> ComplianceDocument:
+    document = database.scalar(select(ComplianceDocument).where(ComplianceDocument.id == document_id, ComplianceDocument.organization_id == user.organization_id))
+    if document is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+    changes = payload.model_dump(exclude_unset=True)
+    for key, value in changes.items():
+        setattr(document, key, value)
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="document.updated",
+        entity_type="compliance_document",
+        entity_id=str(document.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps(changes),
+    ))
+    database.commit()
+    database.refresh(document)
+    return document
+
+
+@router.get("/alerts")
+def list_alerts(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[dict[str, str | int]]:
+    today = date.today()
+    alerts: list[dict[str, str | int]] = []
+    documents = database.scalars(select(ComplianceDocument).where(ComplianceDocument.organization_id == user.organization_id)).all()
+    for document in documents:
+        expires_on = date.fromisoformat(document.expires_on)
+        days_until_expiry = (expires_on - today).days
+        if days_until_expiry <= 30:
+            alerts.append({
+                "type": "document_expiry",
+                "severity": "danger" if days_until_expiry < 0 else "warning",
+                "entity_id": document.id,
+                "title": f"{document.name} {'expired' if days_until_expiry < 0 else 'expires soon'}",
+                "detail": f"{abs(days_until_expiry)} days {'overdue' if days_until_expiry < 0 else 'remaining'}",
+            })
+    parts = database.scalars(select(Part).where(Part.organization_id == user.organization_id)).all()
+    for part in parts:
+        if part.quantity_on_hand <= part.reorder_level:
+            alerts.append({
+                "type": "stock_reorder",
+                "severity": "warning",
+                "entity_id": part.id,
+                "title": f"Reorder {part.name}",
+                "detail": f"{part.quantity_on_hand} on hand, minimum {part.reorder_level}",
+            })
+    return alerts
+
+
 @router.get("/expenses", response_model=list[ExpenseRead])
 def list_expenses(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[Expense]:
     return list(database.scalars(select(Expense).where(Expense.organization_id == user.organization_id).order_by(Expense.incurred_on.desc(), Expense.id.desc())).all())
@@ -435,11 +498,124 @@ def create_expense(
     return expense
 
 
+@router.get("/vendors", response_model=list[VendorRead])
+def list_vendors(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[Vendor]:
+    return list(database.scalars(select(Vendor).where(Vendor.organization_id == user.organization_id).order_by(Vendor.name.asc())).all())
+
+
+@router.post("/vendors", response_model=VendorRead, status_code=status.HTTP_201_CREATED)
+def create_vendor(
+    payload: VendorCreate,
+    request: Request,
+    user: User = Depends(require_roles("owner", "admin", "manager")),
+    database: Session = Depends(get_db),
+) -> Vendor:
+    vendor = Vendor(organization_id=user.organization_id, **payload.model_dump())
+    database.add(vendor)
+    database.flush()
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="vendor.created",
+        entity_type="vendor",
+        entity_id=str(vendor.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps({"name": vendor.name, "vendor_type": vendor.vendor_type}),
+    ))
+    database.commit()
+    database.refresh(vendor)
+    return vendor
+
+
+@router.get("/purchase-orders", response_model=list[PurchaseOrderRead])
+def list_purchase_orders(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[PurchaseOrder]:
+    statement = select(PurchaseOrder).options(selectinload(PurchaseOrder.lines)).where(PurchaseOrder.organization_id == user.organization_id).order_by(PurchaseOrder.id.desc())
+    return list(database.scalars(statement).unique().all())
+
+
+@router.post("/purchase-orders", response_model=PurchaseOrderRead, status_code=status.HTTP_201_CREATED)
+def create_purchase_order(
+    payload: PurchaseOrderCreate,
+    request: Request,
+    user: User = Depends(require_roles("owner", "admin", "manager")),
+    database: Session = Depends(get_db),
+) -> PurchaseOrder:
+    vendor = database.scalar(select(Vendor).where(Vendor.id == payload.vendor_id, Vendor.organization_id == user.organization_id, Vendor.active.is_(True)))
+    if vendor is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Active vendor not found in this organization")
+    part_ids = [line.part_id for line in payload.lines]
+    parts = list(database.scalars(select(Part).where(Part.id.in_(part_ids), Part.organization_id == user.organization_id)).all())
+    parts_by_id = {part.id: part for part in parts}
+    if len(parts_by_id) != len(set(part_ids)):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="One or more parts were not found in this organization")
+    total_paise = sum(line.quantity * line.unit_cost_paise for line in payload.lines)
+    order = PurchaseOrder(
+        organization_id=user.organization_id,
+        vendor_id=vendor.id,
+        order_number=f"PO-{date.today().strftime('%Y%m%d')}-{uuid4().hex[:6].upper()}",
+        expected_on=payload.expected_on,
+        notes=payload.notes,
+        total_paise=total_paise,
+        created_by=user.id,
+    )
+    order.lines = [
+        PurchaseOrderLine(
+            organization_id=user.organization_id,
+            part_id=line.part_id,
+            quantity=line.quantity,
+            unit_cost_paise=line.unit_cost_paise,
+            line_total_paise=line.quantity * line.unit_cost_paise,
+        )
+        for line in payload.lines
+    ]
+    database.add(order)
+    database.flush()
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="purchase_order.created",
+        entity_type="purchase_order",
+        entity_id=str(order.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps({"vendor_id": vendor.id, "total_paise": total_paise}),
+    ))
+    database.commit()
+    statement = select(PurchaseOrder).options(selectinload(PurchaseOrder.lines)).where(PurchaseOrder.id == order.id)
+    return database.scalar(statement)
+
+
+@router.patch("/purchase-orders/{purchase_order_id}", response_model=PurchaseOrderRead)
+def update_purchase_order_status(
+    purchase_order_id: int,
+    payload: PurchaseOrderStatusUpdate,
+    request: Request,
+    user: User = Depends(require_roles("owner", "admin", "manager")),
+    database: Session = Depends(get_db),
+) -> PurchaseOrder:
+    order = database.scalar(select(PurchaseOrder).where(PurchaseOrder.id == purchase_order_id, PurchaseOrder.organization_id == user.organization_id))
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Purchase order not found")
+    order.status = payload.status
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="purchase_order.status_updated",
+        entity_type="purchase_order",
+        entity_id=str(order.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps({"status": order.status}),
+    ))
+    database.commit()
+    statement = select(PurchaseOrder).options(selectinload(PurchaseOrder.lines)).where(PurchaseOrder.id == order.id)
+    return database.scalar(statement)
+
+
 def seed_database() -> None:
     from .database import Base, engine
 
-    Base.metadata.create_all(bind=engine)
     settings = get_settings()
+    if settings.environment.lower() == "development":
+        Base.metadata.create_all(bind=engine)
     with next(get_db()) as database:
         if database.scalar(select(User).where(User.email == settings.seed_admin_email.lower())):
             return

@@ -16,6 +16,7 @@ In a second terminal, create the API environment once and start the backend:
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -r backend/requirements.txt
+npm run migrate
 npm run api
 ```
 
@@ -48,6 +49,9 @@ The current operations slice also includes:
 - Compliance document register with vehicle linkage and expired-document status calculation
 - Organization-scoped expense ledger with live costs and finance dashboard views
 - Role checks for operational mutations and runtime rejection of development secrets in staging/production
+- Alembic baseline migrations for controlled schema rollout
+- Vendor register, purchase orders, line-level totals, procurement status transitions, and audit events
+- Document update endpoint and unified alerts for expiring compliance records and low stock
 
 For non-development environments, set a unique `VAHANA_JWT_SECRET` and a non-default `VAHANA_SEED_ADMIN_PASSWORD`. The current local bootstrap uses `Base.metadata.create_all` for development and tests; production rollout should run a reviewed schema migration before starting the API.
 

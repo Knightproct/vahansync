@@ -106,3 +106,20 @@ def test_health_and_vehicle_lifecycle(tmp_path: Path, monkeypatch):
         })
         assert expense.status_code == 201
         assert client.get("/api/v1/expenses", headers=headers).json()[0]["description"] == "Brake service"
+        vendor = client.post("/api/v1/vendors", headers=headers, json={
+            "name": "TVS Autoparts",
+            "vendor_type": "Parts supplier",
+            "gstin": "27ABCDE1234F1Z5",
+        })
+        assert vendor.status_code == 201
+        purchase_order = client.post("/api/v1/purchase-orders", headers=headers, json={
+            "vendor_id": vendor.json()["id"],
+            "expected_on": "2027-02-01",
+            "lines": [{"part_id": part.json()["id"], "quantity": 4, "unit_cost_paise": 130000}],
+        })
+        assert purchase_order.status_code == 201
+        assert purchase_order.json()["total_paise"] == 520000
+        updated_po = client.patch(f"/api/v1/purchase-orders/{purchase_order.json()['id']}", headers=headers, json={"status": "Submitted"})
+        assert updated_po.status_code == 200
+        assert updated_po.json()["status"] == "Submitted"
+        assert client.get("/api/v1/alerts", headers=headers).status_code == 200
