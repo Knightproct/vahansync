@@ -1,4 +1,4 @@
-import { StrictMode, useEffect, useMemo, useState } from 'react'
+import React, { StrictMode, useEffect, useMemo, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import './styles.css'
 import { createVehicle, createWorkOrder, getComponents, getDocuments, getExpenses, getMaintenancePlans, getNotifications, getParts, getPurchaseOrders, getVehicles, getVendors, getWorkOrders, login } from './api'
