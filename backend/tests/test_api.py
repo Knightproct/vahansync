@@ -218,9 +218,15 @@ def test_health_and_vehicle_lifecycle(tmp_path: Path, monkeypatch):
         assert updated_po.status_code == 200
         assert updated_po.json()["status"] == "Submitted"
         assert client.get("/api/v1/alerts", headers=headers).status_code == 200
+        contact = client.patch("/api/v1/users/me/contact", headers=headers, json={"mobile_phone": "+919999999999"})
+        assert contact.status_code == 200
         notifications = client.get("/api/v1/notifications", headers=headers)
         assert notifications.status_code == 200
         assert notifications.json()
+        deliveries = client.get("/api/v1/notification-deliveries", headers=headers)
+        assert deliveries.status_code == 200
+        assert any(delivery["channel"] == "in_app" for delivery in deliveries.json())
+        assert any(delivery["channel"] == "sms" and delivery["status"] == "queued" for delivery in deliveries.json())
         notification_id = notifications.json()[0]["id"]
         updated_notification = client.patch(
             f"/api/v1/notifications/{notification_id}",
@@ -229,5 +235,18 @@ def test_health_and_vehicle_lifecycle(tmp_path: Path, monkeypatch):
         )
         assert updated_notification.status_code == 200
         assert updated_notification.json()["status"] == "read"
+        integration = client.post("/api/v1/telematics/integrations", headers=headers, json={
+            "provider": "Intangles",
+            "base_url": "https://gps.example.test",
+            "sync_path": "/readings",
+            "sync_interval_minutes": 1440,
+        })
+        assert integration.status_code == 201
+        synced = client.post(
+            f"/api/v1/telematics/integrations/{integration.json()['id']}/sync",
+            headers=headers,
+        )
+        assert synced.status_code == 200
+        assert synced.json()["status"] == "missing_credentials"
         assert client.post("/api/v1/auth/logout", headers=headers).status_code == 204
         assert client.get("/api/v1/auth/me", headers=headers).status_code == 401

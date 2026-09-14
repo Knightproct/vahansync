@@ -35,6 +35,7 @@ class User(Base):
     organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     full_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    mobile_phone: Mapped[Optional[str]] = mapped_column(String(32))
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     supabase_user_id: Mapped[Optional[str]] = mapped_column(String(80), unique=True, index=True)
     role: Mapped[str] = mapped_column(String(48), default="owner", nullable=False)
@@ -55,6 +56,7 @@ class OrganizationInvitation(Base):
     invited_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     full_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    mobile_phone: Mapped[Optional[str]] = mapped_column(String(32))
     role: Mapped[str] = mapped_column(String(48), nullable=False)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -311,6 +313,22 @@ class TollTransaction(Base):
     tag_reference: Mapped[Optional[str]] = mapped_column(String(120))
     status: Mapped[str] = mapped_column(String(30), default="Approved", nullable=False)
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class TelematicsIntegration(Base):
+    __tablename__ = "telematics_integrations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    provider: Mapped[str] = mapped_column(String(80), nullable=False)
+    base_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    sync_path: Mapped[str] = mapped_column(String(500), default="/readings", nullable=False)
+    credential_ref: Mapped[Optional[str]] = mapped_column(String(160))
+    active: Mapped[bool] = mapped_column(default=True, nullable=False)
+    sync_interval_minutes: Mapped[int] = mapped_column(Integer, default=1440, nullable=False)
+    last_synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    last_sync_status: Mapped[Optional[str]] = mapped_column(String(40))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
 

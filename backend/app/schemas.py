@@ -24,6 +24,7 @@ class OrganizationSignup(BaseModel):
     organization_name: str = Field(min_length=2, max_length=160)
     full_name: str = Field(min_length=2, max_length=160)
     email: EmailStr
+    mobile_phone: str | None = Field(default=None, max_length=32)
     password: str = Field(min_length=8)
 
 
@@ -33,6 +34,7 @@ class UserRead(BaseModel):
     id: int
     email: EmailStr
     full_name: str
+    mobile_phone: str | None = None
     role: str
     organization_id: int
     organization_name: str
@@ -51,6 +53,7 @@ class OrganizationSignupRead(BaseModel):
 class InvitationCreate(BaseModel):
     email: EmailStr
     full_name: str = Field(min_length=2, max_length=160)
+    mobile_phone: str | None = Field(default=None, max_length=32)
     role: str = Field(pattern=r"^(fleet_manager|inventory_manager|driver|technician|accountant)$")
     expires_in_days: int = Field(default=7, ge=1, le=30)
 
@@ -83,12 +86,17 @@ class InvitationAcceptRead(BaseModel):
 class UserCreate(BaseModel):
     email: EmailStr
     full_name: str = Field(min_length=2, max_length=160)
+    mobile_phone: str | None = Field(default=None, max_length=32)
     password: str = Field(min_length=8)
     role: str = Field(pattern=r"^(fleet_manager|inventory_manager|driver|technician|accountant)$")
 
 
 class UserRoleUpdate(BaseModel):
     role: str = Field(pattern=r"^(fleet_manager|inventory_manager|driver|technician|accountant)$")
+
+
+class UserContactUpdate(BaseModel):
+    mobile_phone: str | None = Field(default=None, max_length=32)
 
 
 class NotificationPreferenceRead(BaseModel):
@@ -496,6 +504,25 @@ class TelemetryReadingRead(TelemetryReadingCreate):
     organization_id: int
     vehicle_id: int
     device_id: int
+    created_at: datetime
+
+
+class TelematicsIntegrationCreate(BaseModel):
+    provider: str = Field(min_length=2, max_length=80)
+    base_url: str = Field(min_length=8, max_length=500)
+    sync_path: str = Field(default="/readings", min_length=1, max_length=500)
+    credential_ref: str | None = Field(default=None, max_length=160)
+    active: bool = True
+    sync_interval_minutes: int = Field(default=1440, ge=15, le=10080)
+
+
+class TelematicsIntegrationRead(TelematicsIntegrationCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    organization_id: int
+    last_synced_at: datetime | None
+    last_sync_status: str | None
     created_at: datetime
 
 

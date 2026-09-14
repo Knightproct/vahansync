@@ -28,6 +28,14 @@ class Settings(BaseSettings):
     supabase_jwt_secret: str | None = None
     supabase_jwks_url: str | None = None
     supabase_storage_bucket: str = "documents"
+    sms_provider: str | None = None
+    sms_api_url: str | None = None
+    sms_auth_token: str | None = None
+    sms_sender_id: str | None = None
+    sms_template_id: str | None = None
+    sms_account_sid: str | None = None
+    sms_from_number: str | None = None
+    telematics_default_timeout_seconds: int = 30
     razorpay_key_id: str | None = None
     razorpay_key_secret: str | None = None
     razorpay_webhook_secret: str | None = None

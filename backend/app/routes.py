@@ -3,6 +3,7 @@ import hmac
 import csv
 import io
 import json
+import os
 import secrets
 from html import escape
 from datetime import date, datetime, timedelta, timezone
@@ -17,7 +18,7 @@ from sqlalchemy.orm import Session, selectinload
 from .config import get_settings
 from .database import get_db
 from .dependencies import get_current_user, require_permission, require_roles
-from .models import AuditLog, ComplianceDocument, DocumentAsset, Expense, FuelTransaction, InventoryMovement, InventoryTransaction, MaintenancePlan, NotificationPreference, NotificationDelivery, OperationalNotification, Organization, OrganizationInvitation, Part, PurchaseOrder, PurchaseOrderLine, StockLocation, TelematicsDevice, TelemetryReading, TollTransaction, User, Vehicle, VehicleComponent, Vendor, WorkOrder, utc_now
+from .models import AuditLog, ComplianceDocument, DocumentAsset, Expense, FuelTransaction, InventoryMovement, InventoryTransaction, MaintenancePlan, NotificationPreference, NotificationDelivery, OperationalNotification, Organization, OrganizationInvitation, Part, PurchaseOrder, PurchaseOrderLine, StockLocation, TelematicsDevice, TelematicsIntegration, TelemetryReading, TollTransaction, User, Vehicle, VehicleComponent, Vendor, WorkOrder, utc_now
 from .security import create_access_token, hash_password, provision_supabase_user, verify_password
 from .schemas import (
     ComponentCreate,
@@ -63,6 +64,8 @@ from .schemas import (
     TollTransactionRead,
     TelematicsDeviceCreate,
     TelematicsDeviceRead,
+    TelematicsIntegrationCreate,
+    TelematicsIntegrationRead,
     TelemetryReadingCreate,
     TelemetryReadingRead,
     Token,
@@ -73,6 +76,7 @@ from .schemas import (
     RazorpaySubscriptionVerify,
     UserRead,
     UserCreate,
+    UserContactUpdate,
     UserRoleUpdate,
     VehicleCreate,
     VehicleRead,
@@ -163,6 +167,7 @@ def signup(payload: OrganizationSignup, database: Session = Depends(get_db)) -> 
         organization_id=organization.id,
         email=email,
         full_name=payload.full_name.strip(),
+        mobile_phone=payload.mobile_phone,
         password_hash=hash_password(payload.password),
         supabase_user_id=supabase_user_id,
         role="owner",
@@ -227,6 +232,18 @@ def current_user(user: User = Depends(get_current_user)) -> User:
     return user
 
 
+@router.patch("/users/me/contact", response_model=UserRead)
+def update_my_contact(
+    payload: UserContactUpdate,
+    user: User = Depends(get_current_user),
+    database: Session = Depends(get_db),
+) -> User:
+    user.mobile_phone = payload.mobile_phone.strip() if payload.mobile_phone else None
+    database.commit()
+    database.refresh(user)
+    return user
+
+
 @router.get("/invitations", response_model=list[InvitationRead])
 def list_invitations(
     user: User = Depends(require_roles("owner")),
@@ -263,6 +280,7 @@ def create_invitation(
         invited_by=user.id,
         email=email,
         full_name=payload.full_name.strip(),
+        mobile_phone=payload.mobile_phone,
         role=payload.role,
         token_hash=invitation_token_hash(raw_token),
         expires_at=datetime.now(timezone.utc) + timedelta(days=payload.expires_in_days),
@@ -338,6 +356,7 @@ def accept_invitation(payload: InvitationAccept, database: Session = Depends(get
         organization_id=invitation.organization_id,
         email=invitation.email,
         full_name=invitation.full_name,
+        mobile_phone=invitation.mobile_phone,
         password_hash=hash_password(payload.password),
         supabase_user_id=supabase_user_id,
         role=invitation.role,
@@ -390,6 +409,7 @@ def create_user(
         organization_id=user.organization_id,
         email=email,
         full_name=payload.full_name.strip(),
+        mobile_phone=payload.mobile_phone,
         password_hash=hash_password(payload.password),
         supabase_user_id=supabase_user_id,
         role=payload.role,
@@ -633,6 +653,33 @@ def list_notification_deliveries(
         NotificationDelivery.organization_id == user.organization_id,
         NotificationDelivery.user_id == user.id,
     ).order_by(NotificationDelivery.id.desc()).limit(100)).all())
+
+
+@router.post("/notification-deliveries/dispatch")
+def dispatch_queued_sms(
+    user: User = Depends(require_permission("notifications")),
+    database: Session = Depends(get_db),
+) -> dict[str, int]:
+    deliveries = database.scalars(
+        select(NotificationDelivery)
+        .where(
+            NotificationDelivery.organization_id == user.organization_id,
+            NotificationDelivery.channel == "sms",
+            NotificationDelivery.status.in_(("queued", "failed")),
+        )
+        .order_by(NotificationDelivery.id)
+        .limit(100)
+    ).all()
+    processed = 0
+    for delivery in deliveries:
+        notification = database.get(OperationalNotification, delivery.notification_id)
+        recipient = database.get(User, delivery.user_id)
+        if notification is None or recipient is None:
+            continue
+        dispatch_sms(delivery, notification, recipient)
+        processed += 1
+    database.commit()
+    return {"processed": processed}
 
 
 @router.get("/vehicles", response_model=list[VehicleRead])
@@ -1350,6 +1397,50 @@ def list_alerts(user: User = Depends(get_current_user), database: Session = Depe
     return build_alerts(user, database)
 
 
+def dispatch_sms(delivery: NotificationDelivery, notification: OperationalNotification, recipient: User) -> None:
+    settings = get_settings()
+    if not recipient.mobile_phone:
+        delivery.status = "skipped"
+        return
+    if not settings.sms_provider or not settings.sms_api_url or not settings.sms_auth_token:
+        delivery.status = "queued"
+        return
+    try:
+        if settings.sms_provider.lower() == "twilio":
+            response = httpx.post(
+                settings.sms_api_url,
+                auth=httpx.BasicAuth(settings.sms_account_sid or "", settings.sms_auth_token),
+                data={
+                    "To": recipient.mobile_phone,
+                    "From": settings.sms_from_number or settings.sms_sender_id or "",
+                    "Body": f"{notification.title}: {notification.detail}",
+                },
+                timeout=10,
+            )
+        else:
+            response = httpx.post(
+                settings.sms_api_url,
+                headers={
+                    "Authorization": settings.sms_auth_token,
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "sender": settings.sms_sender_id,
+                    "template_id": settings.sms_template_id,
+                    "recipients": [{"mobiles": recipient.mobile_phone, "title": notification.title, "detail": notification.detail}],
+                },
+                timeout=10,
+            )
+        if response.is_error:
+            delivery.status = "failed"
+            return
+        delivery.status = "delivered"
+        delivery.provider_message_id = str(response.json().get("message_id") or response.headers.get("x-request-id") or "")
+        delivery.sent_at = utc_now()
+    except (httpx.HTTPError, ValueError):
+        delivery.status = "failed"
+
+
 def sync_notifications(user: User, database: Session) -> None:
     for alert in build_alerts(user, database):
         if alert["type"] == "document_expiry":
@@ -1392,14 +1483,14 @@ def sync_notifications(user: User, database: Session) -> None:
                 NotificationPreference.notification_type == str(alert["type"]),
             ))
             channels = ["in_app"]
+            if recipient.mobile_phone:
+                channels.append("sms")
             if preference is not None:
-                channels = []
-                if preference.in_app:
-                    channels.append("in_app")
                 if preference.email:
                     channels.append("email")
                 if preference.sms:
-                    channels.append("sms")
+                    if "sms" not in channels:
+                        channels.append("sms")
                 if preference.whatsapp:
                     channels.append("whatsapp")
                 if preference.push:
@@ -1411,14 +1502,18 @@ def sync_notifications(user: User, database: Session) -> None:
                     NotificationDelivery.channel == channel,
                 ))
                 if existing_delivery is None:
-                    database.add(NotificationDelivery(
+                    delivery = NotificationDelivery(
                         organization_id=user.organization_id,
                         notification_id=notification.id,
                         user_id=recipient.id,
                         channel=channel,
                         status="queued" if channel != "in_app" else "delivered",
                         sent_at=utc_now() if channel == "in_app" else None,
-                    ))
+                    )
+                    database.add(delivery)
+                    database.flush()
+                    if channel == "sms":
+                        dispatch_sms(delivery, notification, recipient)
     database.commit()
 
 
@@ -1645,6 +1740,214 @@ def list_telematics_devices(user: User = Depends(get_current_user), database: Se
         .where(TelematicsDevice.organization_id == user.organization_id)
         .order_by(TelematicsDevice.id.desc())
     ).all())
+
+
+def integration_credential(integration: TelematicsIntegration) -> str | None:
+    if not integration.credential_ref:
+        return None
+    env_name = f"VAHANA_TELEMATICS_TOKEN_{integration.credential_ref.upper().replace('-', '_')}"
+    return os.getenv(env_name) or os.getenv(integration.credential_ref)
+
+
+def normalize_external_reading(item: dict) -> dict:
+    return {
+        "device_identifier": item.get("device_identifier") or item.get("imei") or item.get("device_id"),
+        "recorded_at": item.get("recorded_at") or item.get("timestamp") or item.get("recordedAt"),
+        "odometer_km": item.get("odometer_km") if item.get("odometer_km") is not None else item.get("odometer"),
+        "latitude_e6": item.get("latitude_e6") if item.get("latitude_e6") is not None else (
+            round(float(item["latitude"]) * 1_000_000) if item.get("latitude") is not None else None
+        ),
+        "longitude_e6": item.get("longitude_e6") if item.get("longitude_e6") is not None else (
+            round(float(item["longitude"]) * 1_000_000) if item.get("longitude") is not None else None
+        ),
+        "speed_kph": item.get("speed_kph") if item.get("speed_kph") is not None else item.get("speed"),
+        "fuel_level_percent": item.get("fuel_level_percent") if item.get("fuel_level_percent") is not None else item.get("fuel_level"),
+        "engine_on": item.get("engine_on"),
+    }
+
+
+def sync_telematics_integration(integration: TelematicsIntegration, database: Session) -> dict[str, int | str]:
+    token = integration_credential(integration)
+    if not token:
+        integration.last_sync_status = "missing_credentials"
+        database.commit()
+        return {"integration_id": integration.id, "status": "missing_credentials", "readings": 0, "vehicles_updated": 0}
+    try:
+        response = httpx.get(
+            f"{integration.base_url.rstrip('/')}/{integration.sync_path.lstrip('/')}",
+            headers={"Authorization": f"Bearer {token}", "X-Provider": integration.provider},
+            timeout=get_settings().telematics_default_timeout_seconds,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        readings = payload.get("readings", payload) if isinstance(payload, dict) else payload
+        if not isinstance(readings, list):
+            raise ValueError("GPS provider response must contain a readings list")
+        created = 0
+        updated = 0
+        for raw_item in readings:
+            if not isinstance(raw_item, dict):
+                continue
+            item = normalize_external_reading(raw_item)
+            identifier = item["device_identifier"]
+            recorded_at = item["recorded_at"]
+            if not identifier or not recorded_at:
+                continue
+            device = database.scalar(select(TelematicsDevice).where(
+                TelematicsDevice.organization_id == integration.organization_id,
+                TelematicsDevice.device_identifier == str(identifier),
+                TelematicsDevice.active.is_(True),
+            ))
+            if device is None:
+                continue
+            recorded_datetime = datetime.fromisoformat(str(recorded_at).replace("Z", "+00:00"))
+            exists = database.scalar(select(TelemetryReading).where(
+                TelemetryReading.device_id == device.id,
+                TelemetryReading.recorded_at == recorded_datetime,
+            ))
+            if exists is not None:
+                continue
+            vehicle = database.get(Vehicle, device.vehicle_id)
+            if vehicle is None:
+                continue
+            reading = TelemetryReading(
+                organization_id=integration.organization_id,
+                vehicle_id=device.vehicle_id,
+                device_id=device.id,
+                recorded_at=recorded_datetime,
+                odometer_km=item["odometer_km"],
+                latitude_e6=item["latitude_e6"],
+                longitude_e6=item["longitude_e6"],
+                speed_kph=item["speed_kph"],
+                fuel_level_percent=item["fuel_level_percent"],
+                engine_on=item["engine_on"],
+            )
+            database.add(reading)
+            if item["odometer_km"] is not None and item["odometer_km"] > vehicle.odometer_km:
+                vehicle.odometer_km = item["odometer_km"]
+                updated += 1
+            device.last_seen_at = recorded_datetime
+            created += 1
+        integration.last_synced_at = utc_now()
+        integration.last_sync_status = "success"
+        database.commit()
+        return {"integration_id": integration.id, "status": "success", "readings": created, "vehicles_updated": updated}
+    except (httpx.HTTPError, ValueError, TypeError, KeyError):
+        integration.last_synced_at = utc_now()
+        integration.last_sync_status = "failed"
+        database.commit()
+        return {"integration_id": integration.id, "status": "failed", "readings": 0, "vehicles_updated": 0}
+
+
+@router.get("/telematics/integrations", response_model=list[TelematicsIntegrationRead])
+def list_telematics_integrations(
+    user: User = Depends(require_permission("fleet")),
+    database: Session = Depends(get_db),
+) -> list[TelematicsIntegration]:
+    return list(database.scalars(select(TelematicsIntegration).where(
+        TelematicsIntegration.organization_id == user.organization_id,
+    ).order_by(TelematicsIntegration.id.desc())).all())
+
+
+@router.post("/telematics/integrations", response_model=TelematicsIntegrationRead, status_code=status.HTTP_201_CREATED)
+def create_telematics_integration(
+    payload: TelematicsIntegrationCreate,
+    request: Request,
+    user: User = Depends(require_roles("owner", "fleet_manager")),
+    database: Session = Depends(get_db),
+) -> TelematicsIntegration:
+    integration = TelematicsIntegration(organization_id=user.organization_id, **payload.model_dump())
+    database.add(integration)
+    database.flush()
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="telematics_integration.created",
+        entity_type="telematics_integration",
+        entity_id=str(integration.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps({"provider": integration.provider, "credential_ref": integration.credential_ref}),
+    ))
+    database.commit()
+    database.refresh(integration)
+    return integration
+
+
+@router.patch("/telematics/integrations/{integration_id}", response_model=TelematicsIntegrationRead)
+def update_telematics_integration(
+    integration_id: int,
+    payload: TelematicsIntegrationCreate,
+    user: User = Depends(require_roles("owner", "fleet_manager")),
+    database: Session = Depends(get_db),
+) -> TelematicsIntegration:
+    integration = database.scalar(select(TelematicsIntegration).where(
+        TelematicsIntegration.id == integration_id,
+        TelematicsIntegration.organization_id == user.organization_id,
+    ))
+    if integration is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Telematics integration not found")
+    integration.provider = payload.provider
+    integration.base_url = payload.base_url
+    integration.sync_path = payload.sync_path
+    integration.credential_ref = payload.credential_ref
+    integration.active = payload.active
+    integration.sync_interval_minutes = payload.sync_interval_minutes
+    database.commit()
+    database.refresh(integration)
+    return integration
+
+
+@router.delete("/telematics/integrations/{integration_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_telematics_integration(
+    integration_id: int,
+    user: User = Depends(require_roles("owner", "fleet_manager")),
+    database: Session = Depends(get_db),
+) -> Response:
+    integration = database.scalar(select(TelematicsIntegration).where(
+        TelematicsIntegration.id == integration_id,
+        TelematicsIntegration.organization_id == user.organization_id,
+    ))
+    if integration is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Telematics integration not found")
+    database.delete(integration)
+    database.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/telematics/integrations/{integration_id}/sync")
+def sync_telematics(
+    integration_id: int,
+    user: User = Depends(require_permission("fleet")),
+    database: Session = Depends(get_db),
+) -> dict[str, int | str]:
+    integration = database.scalar(select(TelematicsIntegration).where(
+        TelematicsIntegration.id == integration_id,
+        TelematicsIntegration.organization_id == user.organization_id,
+        TelematicsIntegration.active.is_(True),
+    ))
+    if integration is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Active telematics integration not found")
+    return sync_telematics_integration(integration, database)
+
+
+@router.post("/telematics/sync-due")
+def sync_due_telematics(
+    user: User = Depends(require_permission("fleet")),
+    database: Session = Depends(get_db),
+) -> list[dict[str, int | str]]:
+    now = utc_now()
+    integrations = database.scalars(select(TelematicsIntegration).where(
+        TelematicsIntegration.organization_id == user.organization_id,
+        TelematicsIntegration.active.is_(True),
+    )).all()
+    results = []
+    for integration in integrations:
+        if integration.last_synced_at is not None and (
+            now - integration.last_synced_at
+        ).total_seconds() < integration.sync_interval_minutes * 60:
+            continue
+        results.append(sync_telematics_integration(integration, database))
+    return results
 
 
 @router.post("/telematics/devices", response_model=TelematicsDeviceRead, status_code=status.HTTP_201_CREATED)

@@ -260,6 +260,17 @@ export function getNotifications(token) {
   return request('/api/v1/notifications', { headers: { Authorization: `Bearer ${token}` } })
 }
 
+export function getTelematicsIntegrations(token) {
+  return request('/api/v1/telematics/integrations', { headers: { Authorization: `Bearer ${token}` } })
+}
+
+export function syncDueTelematics(token) {
+  return request('/api/v1/telematics/sync-due', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
 export function updateNotification(token, notificationId, status) {
   return request(`/api/v1/notifications/${notificationId}`, {
     method: 'PATCH',
