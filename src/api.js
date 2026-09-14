@@ -31,8 +31,12 @@ async function request(path, options = {}) {
 export async function login(email, password) {
   if (supabase) {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) throw new Error(error.message)
-    return { access_token: data.session.access_token, token_type: 'bearer' }
+    if (!error && data.session) {
+      return { access_token: data.session.access_token, token_type: 'bearer' }
+    }
+    if (!import.meta.env.DEV) {
+      throw new Error(error?.message || 'Unable to sign in')
+    }
   }
   return request('/api/v1/auth/login', {
     method: 'POST',
