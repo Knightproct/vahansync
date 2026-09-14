@@ -188,6 +188,8 @@ class ComponentCreate(BaseModel):
     component_type: str = Field(min_length=2, max_length=80)
     serial_number: str | None = None
     installed_at_km: int = Field(default=0, ge=0)
+    last_service_km: int | None = Field(default=None, ge=0)
+    service_interval_km: int | None = Field(default=None, gt=0)
     next_service_km: int | None = Field(default=None, ge=0)
     status: str = "Healthy"
 
@@ -198,6 +200,28 @@ class ComponentRead(ComponentCreate):
     id: int
     organization_id: int
     created_at: datetime
+
+
+class ComponentUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=160)
+    component_type: str | None = Field(default=None, min_length=2, max_length=80)
+    serial_number: str | None = None
+    installed_at_km: int | None = Field(default=None, ge=0)
+    last_service_km: int | None = Field(default=None, ge=0)
+    service_interval_km: int | None = Field(default=None, gt=0)
+    next_service_km: int | None = Field(default=None, ge=0)
+    status: str | None = None
+
+
+class VehicleUpdate(BaseModel):
+    model: str | None = Field(default=None, min_length=2, max_length=160)
+    vehicle_type: str | None = Field(default=None, min_length=2, max_length=80)
+    depot: str | None = Field(default=None, min_length=2, max_length=120)
+    status: str | None = None
+    health: int | None = Field(default=None, ge=0, le=100)
+    odometer_km: int | None = Field(default=None, ge=0)
+    driver_name: str | None = None
+    assigned_driver_id: int | None = None
 
 
 class WorkOrderCreate(BaseModel):

@@ -76,6 +76,14 @@ export function getVehicles(token) {
   }).then((vehicles) => vehicles.map(mapVehicle))
 }
 
+export function updateVehicle(token, vehicleId, payload) {
+  return request(`/api/v1/vehicles/${vehicleId}`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
+  }).then(mapVehicle)
+}
+
 export function getCurrentUser(token) {
   return request('/api/v1/auth/me', { headers: { Authorization: `Bearer ${token}` } })
 }
@@ -145,6 +153,29 @@ export function getComponents(token) {
   return request('/api/v1/components', { headers: { Authorization: `Bearer ${token}` } })
 }
 
+export function createComponent(token, component) {
+  return request('/api/v1/components', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(component),
+  })
+}
+
+export function updateComponent(token, componentId, payload) {
+  return request(`/api/v1/components/${componentId}`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function completeComponentService(token, componentId, odometerKm) {
+  return request(`/api/v1/components/${componentId}/service-complete?odometer_km=${odometerKm}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
 export function getMaintenancePlans(token) {
   return request('/api/v1/maintenance-plans', { headers: { Authorization: `Bearer ${token}` } })
 }
@@ -173,8 +204,43 @@ export function getVendors(token) {
   return request('/api/v1/vendors', { headers: { Authorization: `Bearer ${token}` } })
 }
 
+export function createVendor(token, vendor) {
+  return request('/api/v1/vendors', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(vendor),
+  })
+}
+
 export function getPurchaseOrders(token) {
   return request('/api/v1/purchase-orders', { headers: { Authorization: `Bearer ${token}` } })
+}
+
+export function downloadUrl(path) {
+  return `${API_BASE_URL}${path}`
+}
+
+export async function downloadFile(token, path, filename) {
+  const response = await fetch(downloadUrl(path), {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!response.ok) throw new Error(`Download failed with status ${response.status}`)
+  const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+export function exportResource(token, resource) {
+  return fetch(downloadUrl(`/api/v1/export/${resource}`), {
+    headers: { Authorization: `Bearer ${token}` },
+  }).then(async (response) => {
+    if (!response.ok) throw new Error(`Export failed with status ${response.status}`)
+    return response.blob()
+  })
 }
 
 export function getAlerts(token) {

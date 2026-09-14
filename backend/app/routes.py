@@ -1,7 +1,10 @@
 import hashlib
 import hmac
+import csv
+import io
 import json
 import secrets
+from html import escape
 from datetime import date, datetime, timedelta, timezone
 from uuid import uuid4
 
@@ -18,6 +21,7 @@ from .models import AuditLog, ComplianceDocument, DocumentAsset, Expense, FuelTr
 from .schemas import (
     ComponentCreate,
     ComponentRead,
+    ComponentUpdate,
     DocumentCreate,
     DocumentAssetRead,
     DocumentRead,
@@ -71,6 +75,7 @@ from .schemas import (
     UserRoleUpdate,
     VehicleCreate,
     VehicleRead,
+    VehicleUpdate,
     VendorCreate,
     VendorRead,
     WorkOrderCreate,
@@ -604,6 +609,15 @@ def list_vehicles(user: User = Depends(get_current_user), database: Session = De
     statement = select(Vehicle).where(Vehicle.organization_id == user.organization_id)
     if user.role == "driver":
         statement = statement.where(Vehicle.assigned_driver_id == user.id)
+    elif user.role == "technician":
+        statement = statement.where(Vehicle.id.in_(
+            select(WorkOrder.vehicle_id).where(
+                WorkOrder.organization_id == user.organization_id,
+                WorkOrder.assigned_user_id == user.id,
+            )
+        ))
+    elif user.role not in ("owner", "fleet_manager"):
+        statement = statement.where(Vehicle.id == -1)
     return list(database.scalars(statement.order_by(Vehicle.id.desc())).all())
 
 
@@ -655,6 +669,45 @@ def create_vehicle(
     return vehicle
 
 
+@router.patch("/vehicles/{vehicle_id}", response_model=VehicleRead)
+def update_vehicle(
+    vehicle_id: int,
+    payload: VehicleUpdate,
+    request: Request,
+    user: User = Depends(require_permission("fleet")),
+    database: Session = Depends(get_db),
+) -> Vehicle:
+    vehicle = database.scalar(select(Vehicle).where(
+        Vehicle.id == vehicle_id,
+        Vehicle.organization_id == user.organization_id,
+    ))
+    if vehicle is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
+    changes = payload.model_dump(exclude_unset=True)
+    if "assigned_driver_id" in changes and changes["assigned_driver_id"] is not None:
+        driver = database.scalar(select(User).where(
+            User.id == changes["assigned_driver_id"],
+            User.organization_id == user.organization_id,
+            User.role == "driver",
+        ))
+        if driver is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Assigned user must be a driver in this organization")
+    for key, value in changes.items():
+        setattr(vehicle, key, value)
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="vehicle.updated",
+        entity_type="vehicle",
+        entity_id=str(vehicle.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps(changes),
+    ))
+    database.commit()
+    database.refresh(vehicle)
+    return vehicle
+
+
 @router.get("/components", response_model=list[ComponentRead])
 def list_components(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[VehicleComponent]:
     statement = select(VehicleComponent).where(VehicleComponent.organization_id == user.organization_id)
@@ -662,6 +715,15 @@ def list_components(user: User = Depends(get_current_user), database: Session = 
         statement = statement.where(VehicleComponent.vehicle_id.in_(
             select(Vehicle.id).where(Vehicle.assigned_driver_id == user.id)
         ))
+    elif user.role == "technician":
+        statement = statement.where(VehicleComponent.vehicle_id.in_(
+            select(WorkOrder.vehicle_id).where(
+                WorkOrder.organization_id == user.organization_id,
+                WorkOrder.assigned_user_id == user.id,
+            )
+        ))
+    elif user.role not in ("owner", "fleet_manager"):
+        statement = statement.where(VehicleComponent.id == -1)
     return list(database.scalars(statement.order_by(VehicleComponent.id.desc())).all())
 
 
@@ -692,11 +754,85 @@ def create_component(
     return component
 
 
+@router.patch("/components/{component_id}", response_model=ComponentRead)
+def update_component(
+    component_id: int,
+    payload: ComponentUpdate,
+    request: Request,
+    user: User = Depends(require_permission("maintenance")),
+    database: Session = Depends(get_db),
+) -> VehicleComponent:
+    statement = select(VehicleComponent).where(
+        VehicleComponent.id == component_id,
+        VehicleComponent.organization_id == user.organization_id,
+    )
+    if user.role == "technician":
+        statement = statement.where(VehicleComponent.vehicle_id.in_(
+            select(WorkOrder.vehicle_id).where(
+                WorkOrder.organization_id == user.organization_id,
+                WorkOrder.assigned_user_id == user.id,
+            )
+        ))
+    component = database.scalar(statement)
+    if component is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Component not found")
+    changes = payload.model_dump(exclude_unset=True)
+    for key, value in changes.items():
+        setattr(component, key, value)
+    if component.service_interval_km and component.last_service_km is not None and "next_service_km" not in changes:
+        component.next_service_km = component.last_service_km + component.service_interval_km
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="component.updated",
+        entity_type="vehicle_component",
+        entity_id=str(component.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps(changes),
+    ))
+    database.commit()
+    database.refresh(component)
+    return component
+
+
+@router.post("/components/{component_id}/service-complete", response_model=ComponentRead)
+def complete_component_service(
+    component_id: int,
+    odometer_km: int,
+    request: Request,
+    user: User = Depends(require_roles("fleet_manager")),
+    database: Session = Depends(get_db),
+) -> VehicleComponent:
+    component = database.scalar(select(VehicleComponent).where(
+        VehicleComponent.id == component_id,
+        VehicleComponent.organization_id == user.organization_id,
+    ))
+    if component is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Component not found")
+    component.last_service_km = odometer_km
+    component.next_service_km = odometer_km + component.service_interval_km if component.service_interval_km else None
+    component.status = "Healthy"
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="component.service_completed",
+        entity_type="vehicle_component",
+        entity_id=str(component.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps({"last_service_km": odometer_km, "next_service_km": component.next_service_km}),
+    ))
+    database.commit()
+    database.refresh(component)
+    return component
+
+
 @router.get("/work-orders", response_model=list[WorkOrderRead])
 def list_work_orders(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[WorkOrder]:
     statement = select(WorkOrder).where(WorkOrder.organization_id == user.organization_id)
     if user.role == "technician":
         statement = statement.where(WorkOrder.assigned_user_id == user.id)
+    elif user.role not in ("owner", "fleet_manager", "technician"):
+        statement = statement.where(WorkOrder.id == -1)
     return list(database.scalars(statement.order_by(WorkOrder.id.desc())).all())
 
 
@@ -764,6 +900,35 @@ def update_work_order(
     database.commit()
     database.refresh(work_order)
     return work_order
+
+
+@router.get("/work-orders/{work_order_id}/download")
+def download_work_order(
+    work_order_id: int,
+    user: User = Depends(require_permission("maintenance")),
+    database: Session = Depends(get_db),
+) -> Response:
+    statement = select(WorkOrder).where(
+        WorkOrder.id == work_order_id,
+        WorkOrder.organization_id == user.organization_id,
+    )
+    if user.role == "technician":
+        statement = statement.where(WorkOrder.assigned_user_id == user.id)
+    work_order = database.scalar(statement)
+    if work_order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Work order not found")
+    vehicle = database.scalar(select(Vehicle).where(Vehicle.id == work_order.vehicle_id))
+    body = f"""<!doctype html><html><head><meta charset="utf-8"><title>WO-{work_order.id}</title>
+    <style>body{{font-family:Arial;max-width:800px;margin:40px auto}}h1{{color:#123}}</style></head>
+    <body><h1>Work order WO-{work_order.id}</h1><p><b>Vehicle:</b> {escape(vehicle.registration_number if vehicle else 'Unknown')}</p>
+    <p><b>Title:</b> {escape(work_order.title)}</p><p><b>Status:</b> {escape(work_order.status)}</p>
+    <p><b>Priority:</b> {escape(work_order.priority)}</p><p><b>Due:</b> {escape(work_order.due_date or 'Unscheduled')}</p>
+    <h2>Instructions</h2><p>{escape(work_order.description or 'No additional instructions')}</p></body></html>"""
+    return Response(
+        content=body,
+        media_type="text/html",
+        headers={"Content-Disposition": f'attachment; filename="WO-{work_order.id}.html"'},
+    )
 
 
 @router.get("/maintenance-plans", response_model=list[MaintenancePlanRead])
@@ -947,6 +1112,8 @@ def list_documents(user: User = Depends(get_current_user), database: Session = D
         statement = statement.where(ComplianceDocument.vehicle_id.in_(
             select(Vehicle.id).where(Vehicle.assigned_driver_id == user.id)
         ))
+    elif user.role not in ("owner", "fleet_manager", "driver"):
+        statement = statement.where(ComplianceDocument.id == -1)
     documents = list(database.scalars(statement.order_by(ComplianceDocument.expires_on.asc())).all())
     today = date.today().isoformat()
     for document in documents:
@@ -1231,7 +1398,10 @@ def update_notification(
 
 @router.get("/expenses", response_model=list[ExpenseRead])
 def list_expenses(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[Expense]:
-    return list(database.scalars(select(Expense).where(Expense.organization_id == user.organization_id).order_by(Expense.incurred_on.desc(), Expense.id.desc())).all())
+    statement = select(Expense).where(Expense.organization_id == user.organization_id)
+    if user.role not in ("owner", "accountant"):
+        statement = statement.where(Expense.id == -1)
+    return list(database.scalars(statement.order_by(Expense.incurred_on.desc(), Expense.id.desc())).all())
 
 
 @router.post("/expenses", response_model=ExpenseRead, status_code=status.HTTP_201_CREATED)
@@ -1608,6 +1778,127 @@ def update_purchase_order_status(
     database.commit()
     statement = select(PurchaseOrder).options(selectinload(PurchaseOrder.lines)).where(PurchaseOrder.id == order.id)
     return database.scalar(statement)
+
+
+@router.get("/purchase-orders/{purchase_order_id}/download")
+def download_purchase_order(
+    purchase_order_id: int,
+    user: User = Depends(require_permission("procurement")),
+    database: Session = Depends(get_db),
+) -> Response:
+    order = database.scalar(select(PurchaseOrder).options(selectinload(PurchaseOrder.lines)).where(
+        PurchaseOrder.id == purchase_order_id,
+        PurchaseOrder.organization_id == user.organization_id,
+    ))
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Purchase order not found")
+    vendor = database.scalar(select(Vendor).where(Vendor.id == order.vendor_id))
+    rows = ["Order number,Vendor,Status,Expected on,Part ID,Quantity,Unit cost paise,Line total paise"]
+    for line in order.lines:
+        rows.append(",".join(map(str, [
+            order.order_number,
+            (vendor.name if vendor else ""),
+            order.status,
+            order.expected_on or "",
+            line.part_id,
+            line.quantity,
+            line.unit_cost_paise,
+            line.line_total_paise,
+        ])))
+    return Response(
+        content="\n".join(rows),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{order.order_number}.csv"'},
+    )
+
+
+@router.get("/export/{resource}")
+def export_resource(
+    resource: str,
+    user: User = Depends(get_current_user),
+    database: Session = Depends(get_db),
+) -> Response:
+    if resource == "vehicles":
+        rows = database.scalars(select(Vehicle).where(Vehicle.organization_id == user.organization_id)).all()
+        headers = ["registration_number", "model", "vehicle_type", "depot", "status", "health", "odometer_km"]
+        data = [[row.registration_number, row.model, row.vehicle_type, row.depot, row.status, row.health, row.odometer_km] for row in rows]
+    elif resource == "components":
+        rows = database.scalars(select(VehicleComponent).where(VehicleComponent.organization_id == user.organization_id)).all()
+        headers = ["vehicle_id", "name", "component_type", "serial_number", "installed_at_km", "last_service_km", "service_interval_km", "next_service_km", "status"]
+        data = [[row.vehicle_id, row.name, row.component_type, row.serial_number or "", row.installed_at_km, row.last_service_km or "", row.service_interval_km or "", row.next_service_km or "", row.status] for row in rows]
+    elif resource == "parts":
+        rows = database.scalars(select(Part).where(Part.organization_id == user.organization_id)).all()
+        headers = ["sku", "name", "category", "quantity_on_hand", "reorder_level", "unit_cost_paise", "supplier"]
+        data = [[row.sku, row.name, row.category, row.quantity_on_hand, row.reorder_level, row.unit_cost_paise, row.supplier or ""] for row in rows]
+    elif resource == "vendors":
+        rows = database.scalars(select(Vendor).where(Vendor.organization_id == user.organization_id)).all()
+        headers = ["name", "vendor_type", "gstin", "phone", "email", "active"]
+        data = [[row.name, row.vendor_type, row.gstin or "", row.phone or "", row.email or "", row.active] for row in rows]
+    else:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unsupported export resource")
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(headers)
+    writer.writerows(data)
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{resource}.csv"'},
+    )
+
+
+@router.post("/import/vehicles", status_code=status.HTTP_201_CREATED)
+async def import_vehicles(
+    file: UploadFile = File(...),
+    user: User = Depends(require_permission("fleet")),
+    database: Session = Depends(get_db),
+) -> dict[str, int]:
+    content = (await file.read()).decode("utf-8-sig")
+    imported = 0
+    for row in csv.DictReader(io.StringIO(content)):
+        registration = row["registration_number"].strip().upper()
+        if database.scalar(select(Vehicle).where(Vehicle.organization_id == user.organization_id, Vehicle.registration_number == registration)):
+            continue
+        database.add(Vehicle(
+            organization_id=user.organization_id,
+            registration_number=registration,
+            model=row["model"].strip(),
+            vehicle_type=row.get("vehicle_type", "Heavy truck").strip(),
+            depot=row.get("depot", "Unassigned").strip(),
+            status=row.get("status", "Idle / parked").strip(),
+            health=int(row.get("health") or 100),
+            odometer_km=int(row.get("odometer_km") or 0),
+        ))
+        imported += 1
+    database.commit()
+    return {"imported": imported}
+
+
+@router.post("/import/parts", status_code=status.HTTP_201_CREATED)
+async def import_parts(
+    file: UploadFile = File(...),
+    user: User = Depends(require_permission("inventory")),
+    database: Session = Depends(get_db),
+) -> dict[str, int]:
+    content = (await file.read()).decode("utf-8-sig")
+    imported = 0
+    for row in csv.DictReader(io.StringIO(content)):
+        sku = row["sku"].strip().upper()
+        if database.scalar(select(Part).where(Part.organization_id == user.organization_id, Part.sku == sku)):
+            continue
+        database.add(Part(
+            organization_id=user.organization_id,
+            sku=sku,
+            name=row["name"].strip(),
+            category=row.get("category", "General").strip(),
+            quantity_on_hand=int(row.get("quantity_on_hand") or 0),
+            reorder_level=int(row.get("reorder_level") or 0),
+            unit_cost_paise=int(row.get("unit_cost_paise") or 0),
+            supplier=row.get("supplier") or None,
+        ))
+        imported += 1
+    database.commit()
+    return {"imported": imported}
 
 
 def seed_database() -> None:

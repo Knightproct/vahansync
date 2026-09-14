@@ -87,6 +87,8 @@ class VehicleComponent(Base):
     component_type: Mapped[str] = mapped_column(String(80), nullable=False)
     serial_number: Mapped[Optional[str]] = mapped_column(String(120))
     installed_at_km: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_service_km: Mapped[Optional[int]] = mapped_column(Integer)
+    service_interval_km: Mapped[Optional[int]] = mapped_column(Integer)
     next_service_km: Mapped[Optional[int]] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(String(40), default="Healthy", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
