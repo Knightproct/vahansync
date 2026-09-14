@@ -1,5 +1,6 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+import { supabase } from './supabase'
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 function mapVehicle(vehicle) {
   return {
     ...vehicle,
@@ -27,7 +28,12 @@ async function request(path, options = {}) {
   return response.json()
 }
 
-export function login(email, password) {
+export async function login(email, password) {
+  if (supabase) {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) throw new Error(error.message)
+    return { access_token: data.session.access_token, token_type: 'bearer' }
+  }
   return request('/api/v1/auth/login', {
     method: 'POST',
     body: JSON.stringify({ email, password }),
@@ -46,6 +52,22 @@ export function getCurrentUser(token) {
 
 export function getSubscription(token) {
   return request('/api/v1/subscription', { headers: { Authorization: `Bearer ${token}` } })
+}
+
+export function createSubscriptionCheckout(token, planCode) {
+  return request('/api/v1/subscription/checkout', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ plan_code: planCode }),
+  })
+}
+
+export function verifySubscriptionPayment(token, payment) {
+  return request('/api/v1/subscription/verify', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payment),
+  })
 }
 
 export function getNotificationPreferences(token) {

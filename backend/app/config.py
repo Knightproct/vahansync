@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    app_name: str = "Vahana Fleet OS API"
+    app_name: str = "VahanSync Fleet Operations API"
     environment: str = "development"
     database_url: str = "sqlite:///./vahana.db"
     jwt_secret: str = "local-development-secret-change-me"
@@ -21,6 +21,20 @@ class Settings(BaseSettings):
     identity_provider_issuer: str | None = None
     identity_provider_client_id: str | None = None
     identity_provider_enabled: bool = False
+    auth_provider: str = "local"
+    supabase_url: str | None = None
+    supabase_anon_key: str | None = None
+    supabase_service_role_key: str | None = None
+    supabase_jwt_secret: str | None = None
+    supabase_jwks_url: str | None = None
+    supabase_storage_bucket: str = "documents"
+    razorpay_key_id: str | None = None
+    razorpay_key_secret: str | None = None
+    razorpay_webhook_secret: str | None = None
+    razorpay_plan_starter: str | None = None
+    razorpay_plan_growth: str | None = None
+    razorpay_plan_scale: str | None = None
+    razorpay_plan_enterprise: str | None = None
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="VAHANA_", extra="ignore")
 
@@ -34,6 +48,10 @@ class Settings(BaseSettings):
                 raise RuntimeError("VAHANA_JWT_SECRET must be changed outside development")
             if self.seed_admin_password == "ChangeMe!123":
                 raise RuntimeError("VAHANA_SEED_ADMIN_PASSWORD must be changed outside development")
+        if self.auth_provider == "supabase" and not (self.supabase_jwt_secret or self.supabase_jwks_url):
+            raise RuntimeError("Configure VAHANA_SUPABASE_JWT_SECRET or VAHANA_SUPABASE_JWKS_URL when using Supabase Auth")
+        if self.storage_backend == "supabase" and not self.supabase_service_role_key:
+            raise RuntimeError("VAHANA_SUPABASE_SERVICE_ROLE_KEY is required when VAHANA_STORAGE_BACKEND=supabase")
 
 
 @lru_cache

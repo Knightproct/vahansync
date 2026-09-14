@@ -96,6 +96,23 @@ class SubscriptionChange(BaseModel):
     plan_code: str = Field(pattern=r"^(starter|growth|scale|enterprise)$")
 
 
+class SubscriptionCheckoutRead(BaseModel):
+    subscription_id: str
+    plan_code: str
+    razorpay_key_id: str
+    short_url: str | None = None
+
+
+class RazorpaySubscriptionVerify(BaseModel):
+    razorpay_payment_id: str
+    razorpay_subscription_id: str
+    razorpay_signature: str
+
+
+class RazorpayWebhookPayload(BaseModel):
+    event: str
+
+
 class VehicleCreate(BaseModel):
     registration_number: str = Field(min_length=3, max_length=32)
     model: str = Field(min_length=2, max_length=160)

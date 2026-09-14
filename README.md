@@ -75,7 +75,28 @@ VahanSync is priced by managed fleet size rather than by every operational actio
 | Scale | Up to 200 vehicles | 75 | ₹19,999 |
 | Enterprise | Custom | Custom | Contact sales |
 
-The product models trialing, pending activation, renewal, plan limits, and audit history. Payment checkout and external message delivery remain provider adapters so production credentials can be added without coupling the ERP to a single billing or messaging vendor.
+The product models trialing, pending activation, renewal, plan limits, and audit history. Razorpay checkout is now available through the backend subscription endpoint and verified webhooks; recurring billing becomes active after Razorpay plan IDs and credentials are configured.
+
+### Supabase and Razorpay deployment
+
+Supabase is the target production platform:
+
+```text
+VAHANA_DATABASE_URL=postgresql://...
+VAHANA_AUTH_PROVIDER=supabase
+VAHANA_SUPABASE_URL=https://<project>.supabase.co
+VAHANA_SUPABASE_ANON_KEY=<browser-safe-anon-key>
+VAHANA_SUPABASE_JWT_SECRET=<server-only-jwt-secret>
+# Or use the project's asymmetric signing keys:
+# VAHANA_SUPABASE_JWKS_URL=https://<project>.supabase.co/auth/v1/.well-known/jwks.json
+VAHANA_STORAGE_BACKEND=supabase
+VAHANA_SUPABASE_SERVICE_ROLE_KEY=<server-only-service-role-key>
+VAHANA_SUPABASE_STORAGE_BUCKET=documents
+```
+
+Run `npm run migrate` against the Supabase database before starting the API. The service-role key is backend-only; the browser receives only the anon key. Supabase Auth users are matched to pre-provisioned application users by email and then linked by their Auth subject.
+
+Configure Razorpay with `VAHANA_RAZORPAY_KEY_ID`, `VAHANA_RAZORPAY_KEY_SECRET`, `VAHANA_RAZORPAY_WEBHOOK_SECRET`, and one Razorpay plan ID per paid tier (`VAHANA_RAZORPAY_PLAN_STARTER`, `VAHANA_RAZORPAY_PLAN_GROWTH`, `VAHANA_RAZORPAY_PLAN_SCALE`). Point the Razorpay webhook to `/api/v1/webhooks/razorpay`. Until these values are configured, checkout intentionally returns a configuration error rather than pretending payments are live.
 
 For non-development environments, set a unique `VAHANA_JWT_SECRET` and a non-default `VAHANA_SEED_ADMIN_PASSWORD`. Set `VAHANA_STORAGE_PATH` to a persistent volume or select an approved object-storage adapter with `VAHANA_STORAGE_BACKEND` and its provider settings. The current local bootstrap uses `Base.metadata.create_all` for development and tests; production rollout should run a reviewed schema migration before starting the API.
 

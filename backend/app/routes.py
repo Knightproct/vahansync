@@ -1,9 +1,12 @@
+import hashlib
+import hmac
 import json
 from datetime import date
 from uuid import uuid4
 
+import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -54,6 +57,8 @@ from .schemas import (
     SubscriptionChange,
     SubscriptionPlanRead,
     SubscriptionRead,
+    SubscriptionCheckoutRead,
+    RazorpaySubscriptionVerify,
     UserRead,
     UserCreate,
     UserRoleUpdate,
@@ -66,7 +71,7 @@ from .schemas import (
     WorkOrderUpdate,
 )
 from .security import create_access_token, hash_password, verify_password
-from .storage import resolve_object, save_upload
+from .storage import download_object, resolve_object, save_upload
 
 router = APIRouter(prefix="/api/v1")
 
@@ -239,6 +244,116 @@ def change_subscription(
         entity_id=str(organization.id),
         request_id=request.headers.get("x-request-id", str(uuid4())),
         changes=json.dumps({"plan": payload.plan_code}),
+    ))
+    database.commit()
+    return get_subscription(user, database)
+
+
+@router.post("/subscription/checkout", response_model=SubscriptionCheckoutRead)
+def create_subscription_checkout(
+    payload: SubscriptionChange,
+    user: User = Depends(require_roles("owner", "admin")),
+    database: Session = Depends(get_db),
+) -> SubscriptionCheckoutRead:
+    settings = get_settings()
+    plan_id = {
+        "starter": settings.razorpay_plan_starter,
+        "growth": settings.razorpay_plan_growth,
+        "scale": settings.razorpay_plan_scale,
+        "enterprise": settings.razorpay_plan_enterprise,
+    }[payload.plan_code]
+    if not settings.razorpay_key_id or not settings.razorpay_key_secret or not plan_id:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Razorpay subscription plans are not configured")
+    response = httpx.post(
+        "https://api.razorpay.com/v1/subscriptions",
+        auth=(settings.razorpay_key_id, settings.razorpay_key_secret),
+        json={"plan_id": plan_id, "total_count": 120, "customer_notify": 1},
+        timeout=30,
+    )
+    if response.is_error:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Razorpay could not create the subscription")
+    subscription = response.json()
+    organization = database.get(Organization, user.organization_id)
+    organization.subscription_plan = payload.plan_code
+    organization.subscription_status = "pending_activation"
+    organization.razorpay_subscription_id = subscription["id"]
+    database.add(AuditLog(
+        organization_id=organization.id,
+        actor_user_id=user.id,
+        action="subscription.checkout_created",
+        entity_type="organization",
+        entity_id=str(organization.id),
+        request_id=str(uuid4()),
+        changes=json.dumps({"plan_code": payload.plan_code, "razorpay_subscription_id": subscription["id"]}),
+    ))
+    database.commit()
+    return SubscriptionCheckoutRead(
+        subscription_id=subscription["id"],
+        plan_code=payload.plan_code,
+        razorpay_key_id=settings.razorpay_key_id,
+        short_url=subscription.get("short_url"),
+    )
+
+
+@router.post("/webhooks/razorpay", status_code=status.HTTP_204_NO_CONTENT)
+async def razorpay_webhook(request: Request, database: Session = Depends(get_db)) -> None:
+    settings = get_settings()
+    if not settings.razorpay_webhook_secret:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Razorpay webhook verification is not configured")
+    body = await request.body()
+    signature = request.headers.get("x-razorpay-signature", "")
+    expected = hmac.new(settings.razorpay_webhook_secret.encode(), body, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(signature, expected):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Razorpay webhook signature")
+    event = json.loads(body)
+    subscription_entity = event.get("payload", {}).get("subscription", {}).get("entity", {})
+    subscription_id = subscription_entity.get("id")
+    if not subscription_id:
+        return
+    organization = database.scalar(select(Organization).where(Organization.razorpay_subscription_id == subscription_id))
+    if organization is None:
+        return
+    event_name = event.get("event", "")
+    if event_name in {"subscription.activated", "subscription.charged"}:
+        organization.subscription_status = "active"
+    elif event_name in {"subscription.halted", "subscription.cancelled", "subscription.completed"}:
+        organization.subscription_status = event_name.split(".", 1)[1]
+    database.add(AuditLog(
+        organization_id=organization.id,
+        action=f"razorpay.{event_name}",
+        entity_type="subscription",
+        entity_id=subscription_id,
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps({"event": event_name}),
+    ))
+    database.commit()
+
+
+@router.post("/subscription/verify", response_model=SubscriptionRead)
+def verify_subscription_payment(
+    payload: RazorpaySubscriptionVerify,
+    user: User = Depends(require_roles("owner", "admin")),
+    database: Session = Depends(get_db),
+) -> SubscriptionRead:
+    settings = get_settings()
+    if not settings.razorpay_key_secret:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Razorpay verification is not configured")
+    message = f"{payload.razorpay_payment_id}|{payload.razorpay_subscription_id}".encode()
+    expected = hmac.new(settings.razorpay_key_secret.encode(), message, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(payload.razorpay_signature, expected):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Razorpay payment signature")
+    organization = database.get(Organization, user.organization_id)
+    if organization.razorpay_subscription_id != payload.razorpay_subscription_id:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Subscription does not belong to this organization")
+    organization.subscription_status = "active"
+    database.add(AuditLog(
+        organization_id=organization.id,
+        actor_user_id=user.id,
+        action="subscription.payment_verified",
+        entity_type="subscription",
+        entity_id=payload.razorpay_subscription_id,
+        request_id=str(uuid4()),
+        changes=json.dumps({"razorpay_payment_id": payload.razorpay_payment_id}),
     ))
     database.commit()
     return get_subscription(user, database)
@@ -681,7 +796,7 @@ def upload_document_file(
     if not file.filename:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="A file name is required")
     try:
-        object_key, size_bytes, checksum = save_upload(file)
+        object_key, size_bytes, checksum = save_upload(file, f"organizations/{user.organization_id}")
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail=str(error)) from error
     asset = DocumentAsset(
@@ -716,7 +831,7 @@ def download_document_file(
     document_id: int,
     user: User = Depends(get_current_user),
     database: Session = Depends(get_db),
-) -> FileResponse:
+) -> Response:
     asset = database.scalar(
         select(DocumentAsset)
         .where(DocumentAsset.document_id == document_id, DocumentAsset.organization_id == user.organization_id)
@@ -725,12 +840,19 @@ def download_document_file(
     if asset is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document file not found")
     try:
-        path = resolve_object(asset.object_key)
+        if get_settings().storage_backend == "local":
+            path = resolve_object(asset.object_key)
+            if not path.is_file():
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document file not found")
+            return FileResponse(path, media_type=asset.content_type, filename=asset.file_name)
+        content = download_object(asset.object_key)
     except ValueError as error:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
-    if not path.is_file():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document file not found")
-    return FileResponse(path, media_type=asset.content_type, filename=asset.file_name)
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    return Response(
+        content=content,
+        media_type=asset.content_type,
+        headers={"Content-Disposition": f'attachment; filename="{asset.file_name}"'},
+    )
 
 
 def build_alerts(user: User, database: Session) -> list[dict[str, str | int]]:

@@ -22,6 +22,8 @@ class Organization(Base):
     subscription_status: Mapped[str] = mapped_column(String(24), default="trialing", nullable=False)
     trial_ends_on: Mapped[Optional[str]] = mapped_column(String(20))
     subscription_renews_on: Mapped[Optional[str]] = mapped_column(String(20))
+    razorpay_subscription_id: Mapped[Optional[str]] = mapped_column(String(120))
+    razorpay_last_order_id: Mapped[Optional[str]] = mapped_column(String(120))
     users: Mapped[list["User"]] = relationship(back_populates="organization")
     vehicles: Mapped[list["Vehicle"]] = relationship(back_populates="organization")
 
@@ -34,6 +36,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     full_name: Mapped[str] = mapped_column(String(160), nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    supabase_user_id: Mapped[Optional[str]] = mapped_column(String(80), unique=True, index=True)
     role: Mapped[str] = mapped_column(String(48), default="admin", nullable=False)
     token_version: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
