@@ -3,7 +3,10 @@ import { createRoot } from 'react-dom/client'
 import './styles.css'
 import { acceptInvitation, approveWorkOrder, changeSubscription, completeComponentService, completeWorkOrder, createComponent, createDocument, createDriverInspection, createDriverIssue, createExpense, createFuelTransaction, createInventoryMovement, createInventoryTransaction, createMaintenancePlan, createPart, createPurchaseOrder, createStockLocation, createSubscriptionCheckout, createTelematicsDevice, createTelematicsIntegration, createTollTransaction, createUser, createVehicle, createInvitation, createVendor, createWorkOrder, dispatchQueuedSms, downloadFile, exportResource, getComponents, getCurrentUser, getDocuments, getDriverInspections, getDriverIssues, getExpenses, getInvitations, getMaintenancePlans, getNotificationDeliveries, getNotificationPreferences, getNotifications, getParts, getPurchaseOrders, getStockLocations, getSubscription, getSubscriptionPlans, getTelematicsDevices, getTelematicsIntegrations, getUsers, getVehicles, getVendors, getWorkOrders, importResource, login, reconcileExpense, resolveNotification, revokeInvitation, signupOrganization, startWorkOrder, syncDueTelematics, updateDocument, updateExpense, updateMyContact, updateNotification, updateNotificationPreference, updatePurchaseOrder, updateUserRole, updateVehicle, updateWorkOrder, uploadDocumentFile } from './api'
 
-const isPublicPage = ['/', '/signup'].includes(window.location.pathname) || window.location.pathname.startsWith('/invite/')
+const queryPage = new URLSearchParams(window.location.search).get('page')
+const routePath = queryPage ? `/${queryPage}` : window.location.pathname
+const invitationToken = new URLSearchParams(window.location.search).get('token')
+const isPublicPage = ['/', '/signup', '/invite'].includes(routePath) || routePath.startsWith('/invite/')
 
 const navItems = [
   { id: 'overview', label: 'Overview', icon: '⌂', permissions: ['fleet', 'maintenance', 'finance', 'compliance'] },
@@ -144,9 +147,9 @@ function App() {
     window.setTimeout(() => setToast(''), 2800)
   }
 
-  if (window.location.pathname === '/signup') return <SignupScreen onAuthenticated={(accessToken) => { window.sessionStorage.setItem('vahana:access-token', accessToken); window.location.href = '/app' }} />
-  if (window.location.pathname.startsWith('/invite/')) return <InvitationScreen tokenFromPath={window.location.pathname.split('/').pop()} onAuthenticated={(accessToken) => { window.sessionStorage.setItem('vahana:access-token', accessToken); window.location.href = '/app' }} />
-  if (window.location.pathname === '/') return <Landing />
+  if (routePath === '/signup') return <SignupScreen onAuthenticated={(accessToken) => { window.sessionStorage.setItem('vahana:access-token', accessToken); window.location.href = '/app' }} />
+  if (routePath === '/invite' || routePath.startsWith('/invite/')) return <InvitationScreen tokenFromPath={invitationToken || routePath.split('/').pop()} onAuthenticated={(accessToken) => { window.sessionStorage.setItem('vahana:access-token', accessToken); window.location.href = '/app' }} />
+  if (routePath === '/') return <Landing />
   if (apiState === 'loading') return <AppState title="Connecting to VahanSync" detail="Loading your organization data securely..." />
   if (apiState === 'error') return <AppState title="VahanSync API unavailable" detail={`${apiError}. Start the backend service and reload this workspace.`} />
   if (apiState === 'unauthenticated') return <LoginScreen onAuthenticated={(accessToken) => { window.sessionStorage.setItem('vahana:access-token', accessToken); setToken(accessToken) }} />
