@@ -427,6 +427,24 @@ function DriverPage({ token, data, refresh }) {
 }
 
 function FinancePage({ token, data, refresh }) {
+  return <><FinancePageLegacy token={token} data={data} refresh={refresh} /><FinanceLineagePanel token={token} data={data} refresh={refresh} /></>
+}
+
+function FinanceLineagePanel({ token, data, refresh }) {
+  const [form, setForm] = useState({ vehicle_id: '', category: 'Maintenance', description: '', amount_paise: 0, gst_amount_paise: 0, cgst_amount_paise: 0, sgst_amount_paise: 0, igst_amount_paise: 0, tax_category: '', invoice_number: '', tds_amount_paise: 0, vendor: '', gstin: '', cost_center: '', payment_reference: '', incurred_on: today() })
+  async function submit(event) {
+    event.preventDefault()
+    try {
+      await createExpense(token, { ...form, vehicle_id: form.vehicle_id ? Number(form.vehicle_id) : null, amount_paise: Number(form.amount_paise), gst_amount_paise: Number(form.gst_amount_paise), cgst_amount_paise: Number(form.cgst_amount_paise), sgst_amount_paise: Number(form.sgst_amount_paise), igst_amount_paise: Number(form.igst_amount_paise), tds_amount_paise: Number(form.tds_amount_paise) })
+      refresh('India tax expense submitted.')
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+  return <DataPanel title="India tax and invoice capture" eyebrow="CGST / SGST / IGST · TDS · vendor lineage"><form className="form-grid" onSubmit={submit}><SelectField label="Vehicle" value={form.vehicle_id} onChange={(value) => setForm({ ...form, vehicle_id: value })} options={[['', 'Organisation expense'], ...data.vehicles.map((vehicle) => [String(vehicle.id), vehicle.registration_number])]} /><Field label="Category" value={form.category} onChange={(value) => setForm({ ...form, category: value })} required /><Field label="Description" value={form.description} onChange={(value) => setForm({ ...form, description: value })} required /><Field label="Amount (paise)" type="number" value={form.amount_paise} onChange={(value) => setForm({ ...form, amount_paise: value })} required /><Field label="GST total (paise)" type="number" value={form.gst_amount_paise} onChange={(value) => setForm({ ...form, gst_amount_paise: value })} /><Field label="CGST (paise)" type="number" value={form.cgst_amount_paise} onChange={(value) => setForm({ ...form, cgst_amount_paise: value })} /><Field label="SGST (paise)" type="number" value={form.sgst_amount_paise} onChange={(value) => setForm({ ...form, sgst_amount_paise: value })} /><Field label="IGST (paise)" type="number" value={form.igst_amount_paise} onChange={(value) => setForm({ ...form, igst_amount_paise: value })} /><Field label="Tax category" value={form.tax_category} onChange={(value) => setForm({ ...form, tax_category: value })} placeholder="Intra-state / inter-state" /><Field label="Invoice number" value={form.invoice_number} onChange={(value) => setForm({ ...form, invoice_number: value })} /><Field label="TDS (paise)" type="number" value={form.tds_amount_paise} onChange={(value) => setForm({ ...form, tds_amount_paise: value })} /><Field label="Vendor" value={form.vendor} onChange={(value) => setForm({ ...form, vendor: value })} /><Field label="GSTIN" value={form.gstin} onChange={(value) => setForm({ ...form, gstin: value })} /><Field label="Cost centre" value={form.cost_center} onChange={(value) => setForm({ ...form, cost_center: value })} /><Field label="Payment reference" value={form.payment_reference} onChange={(value) => setForm({ ...form, payment_reference: value })} /><Field label="Incurred on" type="date" value={form.incurred_on} onChange={(value) => setForm({ ...form, incurred_on: value })} /><button className="primary-button">Submit India finance record</button></form></DataPanel>
+}
+
+function FinancePageLegacy({ token, data, refresh }) {
   const [expense, setExpense] = useState({ vehicle_id: '', category: 'Maintenance', description: '', amount_paise: 0, gst_amount_paise: 0, incurred_on: today(), vendor: '', gstin: '', tax_category: '', invoice_number: '', tds_amount_paise: 0, cost_center: '', payment_mode: 'Bank transfer', payment_reference: '' })
   const [fuel, setFuel] = useState({ vehicle_id: '', station: '', fuel_type: 'Diesel', litres_milli: 0, price_per_litre_paise: 0, odometer_km: 0, incurred_on: today(), reference: '' })
   const [toll, setToll] = useState({ vehicle_id: '', toll_operator: '', plaza: '', amount_paise: 0, incurred_on: today(), tag_reference: '' })
