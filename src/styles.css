@@ -343,6 +343,7 @@ body { background: var(--canvas); color: var(--ink); }
 .checklist-list { display: grid; gap: 10px; margin: 18px 0; }
 .checklist-item { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 14px; background: #fbfcfd; color: var(--ink); }
 .checklist-item input { width: 18px; height: 18px; accent-color: var(--teal); }
+.audit-filters { padding: 16px 21px; border-bottom: 1px solid #edf1f4; }
 .command-signals article { display: grid; gap: 7px; padding: 17px 19px; border: 1px solid var(--line); border-radius: 17px; background: #fff; box-shadow: var(--shadow-sm); }
 .command-signals article > span { color: #728697; font-size: 10px; font-weight: 700; }
 .command-signals article strong { color: var(--ink); font-family: 'Plus Jakarta Sans'; font-size: 21px; letter-spacing: -.6px; }

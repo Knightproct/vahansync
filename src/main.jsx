@@ -253,7 +253,7 @@ function App() {
           {active === 'documents' && <Documents token={token} documents={documentsData} vehicles={fleet} onNotify={notify} onDocumentCreated={(document) => setDocumentsData((current) => [document, ...current])} />}
           {active === 'costs' && <Costs token={token} expenses={expenses} vehicles={fleet} onNotify={notify} onExpenseCreated={(expense) => setExpenses((current) => [expense, ...current])} onExpenseUpdated={(expense) => setExpenses((current) => current.map((item) => item.id === expense.id ? expense : item))} />}
           {active === 'settings' && <WorkspaceControls token={token} user={currentUser} subscription={subscription} notifications={notifications} onNotify={notify} onSubscriptionChanged={setSubscription} onNotificationsChanged={setNotifications} />}
-          {active === 'audit' && <AuditWorkspace entries={auditLog} summary={operationsSummary} />}
+          {active === 'audit' && <AuditWorkspace token={token} entries={auditLog} summary={operationsSummary} onEntriesChanged={setAuditLog} />}
         </div>
       </main>
 
@@ -470,7 +470,14 @@ function RoleCommandCentre({ role, subscription, vehicles, workOrders, parts, pu
   </main>
 }
 
-function AuditWorkspace({ entries, summary }) {
+function AuditWorkspace({ token, entries, summary, onEntriesChanged }) {
+  const [filters, setFilters] = useState({ actor_role: '', entity_type: '', action: '', outcome: '' })
+  const [loading, setLoading] = useState(false)
+  const search = async (event) => {
+    event.preventDefault()
+    setLoading(true)
+    try { onEntriesChanged(await getAuditLog(token, filters)) } catch {} finally { setLoading(false) }
+  }
   return <div className="workspace-page">
     <PageHeader eyebrow="Governance · auditability" title="Audit trail" subtitle="Searchable evidence of every governance and operating handoff in this organisation." />
     {summary && <section className="metric-grid">
@@ -481,6 +488,13 @@ function AuditWorkspace({ entries, summary }) {
     </section>}
     <section className="panel table-panel">
       <div className="table-header"><div><span className="eyebrow">Evidence stream</span><h2>Recent organisation activity</h2></div><span>{entries.length} events loaded</span></div>
+      <form className="form-grid audit-filters" onSubmit={search}>
+        <select value={filters.actor_role} onChange={(event) => setFilters({ ...filters, actor_role: event.target.value })}><option value="">All actor roles</option><option value="owner">Owner</option><option value="fleet_manager">Fleet Manager</option><option value="inventory_manager">Inventory Manager</option><option value="driver">Driver</option><option value="technician">Technician</option><option value="accountant">Accountant</option></select>
+        <input placeholder="Entity type" value={filters.entity_type} onChange={(event) => setFilters({ ...filters, entity_type: event.target.value })} />
+        <input placeholder="Action contains" value={filters.action} onChange={(event) => setFilters({ ...filters, action: event.target.value })} />
+        <input placeholder="Outcome contains" value={filters.outcome} onChange={(event) => setFilters({ ...filters, outcome: event.target.value })} />
+        <button className="secondary-button" type="submit">{loading ? 'Searching…' : 'Search audit'}</button>
+      </form>
       <div className="data-table">
         <div className="data-row data-head"><span>Action</span><span>Entity</span><span>Actor</span><span>Request</span><span>When</span></div>
         {entries.length ? entries.map((entry) => <div className="data-row" key={entry.id}><span><strong>{entry.action}</strong><small>{entry.changes || 'No change payload'}</small></span><span>{entry.entity_type} #{entry.entity_id}</span><span>User #{entry.actor_user_id}</span><span>{entry.request_id || '—'}</span><span>{new Date(entry.created_at).toLocaleString('en-IN')}</span></div>) : <EmptyState title="No audit events yet" detail="Governance and workflow actions will appear here as your organisation operates." />}
