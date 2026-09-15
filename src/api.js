@@ -79,6 +79,33 @@ export function getInvitations(token) {
   return request('/api/v1/invitations', { headers: { Authorization: `Bearer ${token}` } })
 }
 
+export function revokeInvitation(token, invitationId) {
+  return request(`/api/v1/invitations/${invitationId}/revoke`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function getUsers(token) {
+  return request('/api/v1/users', { headers: { Authorization: `Bearer ${token}` } })
+}
+
+export function createUser(token, payload) {
+  return request('/api/v1/users', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function updateUserRole(token, userId, role) {
+  return request(`/api/v1/users/${userId}`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ role }),
+  })
+}
+
 export function getVehicles(token) {
   return request('/api/v1/vehicles', {
     headers: { Authorization: `Bearer ${token}` },
@@ -97,8 +124,28 @@ export function getCurrentUser(token) {
   return request('/api/v1/auth/me', { headers: { Authorization: `Bearer ${token}` } })
 }
 
+export function updateMyContact(token, mobile_phone) {
+  return request('/api/v1/users/me/contact', {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ mobile_phone }),
+  })
+}
+
 export function getSubscription(token) {
   return request('/api/v1/subscription', { headers: { Authorization: `Bearer ${token}` } })
+}
+
+export function changeSubscription(token, planCode) {
+  return request('/api/v1/subscription', {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ plan_code: planCode }),
+  })
+}
+
+export function getSubscriptionPlans(token) {
+  return request('/api/v1/subscription/plans', { headers: { Authorization: `Bearer ${token}` } })
 }
 
 export function createSubscriptionCheckout(token, planCode) {
@@ -129,6 +176,17 @@ export function updateNotificationPreference(token, preference) {
   })
 }
 
+export function getNotificationDeliveries(token) {
+  return request('/api/v1/notification-deliveries', { headers: { Authorization: `Bearer ${token}` } })
+}
+
+export function dispatchQueuedSms(token) {
+  return request('/api/v1/notification-deliveries/dispatch', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
 export function createVehicle(token, vehicle) {
   return request('/api/v1/vehicles', {
     method: 'POST',
@@ -155,6 +213,14 @@ export function createWorkOrder(token, workOrder) {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
     body: JSON.stringify(workOrder),
+  })
+}
+
+export function updateWorkOrder(token, workOrderId, payload) {
+  return request(`/api/v1/work-orders/${workOrderId}`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
   })
 }
 
@@ -189,8 +255,52 @@ export function getMaintenancePlans(token) {
   return request('/api/v1/maintenance-plans', { headers: { Authorization: `Bearer ${token}` } })
 }
 
+export function createMaintenancePlan(token, plan) {
+  return request('/api/v1/maintenance-plans', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(plan),
+  })
+}
+
 export function getParts(token) {
   return request('/api/v1/parts', { headers: { Authorization: `Bearer ${token}` } })
+}
+
+export function createPart(token, part) {
+  return request('/api/v1/parts', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(part),
+  })
+}
+
+export function createInventoryTransaction(token, transaction) {
+  return request('/api/v1/inventory/transactions', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(transaction),
+  })
+}
+
+export function getStockLocations(token) {
+  return request('/api/v1/stock-locations', { headers: { Authorization: `Bearer ${token}` } })
+}
+
+export function createStockLocation(token, location) {
+  return request('/api/v1/stock-locations', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(location),
+  })
+}
+
+export function createInventoryMovement(token, movement) {
+  return request('/api/v1/inventory/movements', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(movement),
+  })
 }
 
 export function getExpenses(token) {
@@ -205,8 +315,60 @@ export function createExpense(token, expense) {
   })
 }
 
+export function updateExpense(token, expenseId, payload) {
+  return request(`/api/v1/expenses/${expenseId}`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function createFuelTransaction(token, payload) {
+  return request('/api/v1/fuel-transactions', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function createTollTransaction(token, payload) {
+  return request('/api/v1/toll-transactions', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
+  })
+}
+
 export function getDocuments(token) {
   return request('/api/v1/documents', { headers: { Authorization: `Bearer ${token}` } })
+}
+
+export function createDocument(token, document) {
+  return request('/api/v1/documents', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(document),
+  })
+}
+
+export function updateDocument(token, documentId, document) {
+  return request(`/api/v1/documents/${documentId}`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(document),
+  })
+}
+
+export async function uploadDocumentFile(token, documentId, file) {
+  const form = new FormData()
+  form.append('file', file)
+  const response = await fetch(`${API_BASE_URL}/api/v1/documents/${documentId}/file`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  })
+  if (!response.ok) throw new Error(`Upload failed with status ${response.status}`)
+  return response.json()
 }
 
 export function getVendors(token) {
@@ -223,6 +385,22 @@ export function createVendor(token, vendor) {
 
 export function getPurchaseOrders(token) {
   return request('/api/v1/purchase-orders', { headers: { Authorization: `Bearer ${token}` } })
+}
+
+export function createPurchaseOrder(token, payload) {
+  return request('/api/v1/purchase-orders', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function updatePurchaseOrder(token, orderId, status) {
+  return request(`/api/v1/purchase-orders/${orderId}`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ status }),
+  })
 }
 
 export function downloadUrl(path) {
@@ -252,6 +430,18 @@ export function exportResource(token, resource) {
   })
 }
 
+export async function importResource(token, resource, file) {
+  const form = new FormData()
+  form.append('file', file)
+  const response = await fetch(`${API_BASE_URL}/api/v1/import/${resource}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  })
+  if (!response.ok) throw new Error(`Import failed with status ${response.status}`)
+  return response.json()
+}
+
 export function getAlerts(token) {
   return request('/api/v1/alerts', { headers: { Authorization: `Bearer ${token}` } })
 }
@@ -268,6 +458,49 @@ export function syncDueTelematics(token) {
   return request('/api/v1/telematics/sync-due', {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function createTelematicsIntegration(token, payload) {
+  return request('/api/v1/telematics/integrations', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function createTelematicsDevice(token, payload) {
+  return request('/api/v1/telematics/devices', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function updateTelematicsIntegration(token, integrationId, payload) {
+  return request(`/api/v1/telematics/integrations/${integrationId}`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteTelematicsIntegration(token, integrationId) {
+  return request(`/api/v1/telematics/integrations/${integrationId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function getTelematicsDevices(token) {
+  return request('/api/v1/telematics/devices', { headers: { Authorization: `Bearer ${token}` } })
+}
+
+export function ingestTelemetry(token, deviceId, payload) {
+  return request(`/api/v1/telematics/devices/${deviceId}/readings`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
   })
 }
 
