@@ -1,7 +1,7 @@
-import React, { StrictMode, useEffect, useMemo, useState } from 'react'
+import React, { StrictMode, useCallback, useEffect, useMemo, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import './styles.css'
-import { acceptInvitation, approveWorkOrder, changeSubscription, completeComponentService, completeWorkOrder, createComponent, createDocument, createDriverInspection, createDriverIssue, createExpense, createFuelTransaction, createInventoryMovement, createInventoryTransaction, createMaintenancePlan, createPart, createPurchaseOrder, createStockLocation, createSubscriptionCheckout, createTelematicsDevice, createTelematicsIntegration, createTollTransaction, createUser, createVehicle, createInvitation, createVendor, createWorkOrder, dispatchQueuedSms, downloadFile, exportResource, getComponents, getCurrentUser, getDocuments, getDriverInspections, getDriverIssues, getExpenses, getInvitations, getMaintenancePlans, getNotificationDeliveries, getNotificationPreferences, getNotifications, getParts, getPurchaseOrders, getStockLocations, getSubscription, getSubscriptionPlans, getTelematicsDevices, getTelematicsIntegrations, getUsers, getVehicles, getVendors, getWorkOrders, importResource, login, reconcileExpense, resolveNotification, revokeInvitation, signupOrganization, startWorkOrder, syncDueTelematics, updateDocument, updateExpense, updateMyContact, updateNotification, updateNotificationPreference, updatePurchaseOrder, updateUserRole, updateVehicle, updateWorkOrder, uploadDocumentFile } from './api'
+import { acceptInvitation, approveWorkOrder, changeSubscription, completeComponentService, completeWorkOrder, createComponent, createDocument, createDriverInspection, createDriverIssue, createExpense, createFuelTransaction, createInventoryMovement, createInventoryTransaction, createMaintenancePlan, createPart, createPurchaseOrder, createStockLocation, createSubscriptionCheckout, createTelematicsDevice, createTelematicsIntegration, createTollTransaction, createUser, createVehicle, createInvitation, createVendor, createWorkOrder, dispatchQueuedSms, downloadFile, exportResource, getComponents, getCurrentUser, getDocuments, getDriverInspections, getDriverIssues, getExpenses, getInvitations, getMaintenancePlans, getNotificationDeliveries, getNotificationPreferences, getNotifications, getParts, getPurchaseOrders, getStockLocations, getSubscription, getSubscriptionPlans, getTelematicsDevices, getTelematicsIntegrations, getUsers, getVehicles, getVendors, getWorkOrders, importResource, login, logout, reconcileExpense, resolveNotification, revokeInvitation, signupOrganization, startWorkOrder, syncDueTelematics, updateDocument, updateExpense, updateMyContact, updateNotification, updateNotificationPreference, updatePurchaseOrder, updateUserRole, updateVehicle, updateWorkOrder, uploadDocumentFile } from './api'
 
 const queryPage = new URLSearchParams(window.location.search).get('page')
 const routePath = queryPage ? `/${queryPage}` : window.location.pathname
@@ -16,7 +16,7 @@ const navItems = [
   { id: 'workshop', label: 'Workshop', icon: '⌘', permissions: ['workshop', 'inventory'] },
   { id: 'documents', label: 'Documents', icon: '▤', permissions: ['compliance'] },
   { id: 'costs', label: 'Costs & finance', icon: '₹', permissions: ['finance'] },
-  { id: 'settings', label: 'Workspace controls', icon: '⚙', permissions: ['*', 'notifications'] },
+  { id: 'settings', label: 'Workspace controls', icon: '⚙', permissions: ['governance', 'notifications'] },
 ]
 
 const maintenance = [
@@ -133,19 +133,33 @@ function App() {
   )
 
   const title = navItems.find((item) => item.id === active)?.label ?? 'Overview'
-  const rolePermissions = currentUser?.role === 'owner' ? new Set(['*']) : new Set({
-    fleet_manager: ['fleet', 'maintenance', 'compliance'],
-    inventory_manager: ['inventory', 'workshop'],
-    driver: ['fleet', 'maintenance'],
-    technician: ['maintenance', 'workshop', 'inventory'],
-    accountant: ['finance'],
+  const rolePermissions = new Set({
+    owner: ['governance', 'notifications'],
+    fleet_manager: ['fleet', 'maintenance', 'compliance', 'notifications'],
+    inventory_manager: ['inventory', 'workshop', 'notifications'],
+    driver: ['driver', 'notifications'],
+    technician: ['maintenance', 'workshop', 'notifications'],
+    accountant: ['finance', 'notifications'],
   }[currentUser?.role] || [])
-  const visibleNavItems = navItems.filter((item) => rolePermissions.has('*') || item.permissions.some((permission) => rolePermissions.has(permission)))
+  const visibleNavItems = navItems.filter((item) => item.permissions.some((permission) => rolePermissions.has(permission)))
 
-  const notify = (message) => {
+  const signOut = async () => {
+    try {
+      await logout()
+    } finally {
+      window.sessionStorage.removeItem('vahana:access-token')
+      setToken(null)
+      setCurrentUser(null)
+      setApiState('unauthenticated')
+      setActive('overview')
+      notify('Signed out securely.')
+    }
+  }
+
+  const notify = useCallback((message) => {
     setToast(message)
     window.setTimeout(() => setToast(''), 2800)
-  }
+  }, [])
 
   if (routePath === '/signup') return <SignupScreen onAuthenticated={(accessToken) => { window.sessionStorage.setItem('vahana:access-token', accessToken); window.location.href = '/app' }} />
   if (routePath === '/invite' || routePath.startsWith('/invite/')) return <InvitationScreen tokenFromPath={invitationToken || routePath.split('/').pop()} onAuthenticated={(accessToken) => { window.sessionStorage.setItem('vahana:access-token', accessToken); window.location.href = '/app' }} />
@@ -187,9 +201,6 @@ function App() {
             </button>
           ))}
           <span className="nav-section nav-section-spaced">Workspace</span>
-          <button className="nav-item" onClick={() => notify('Reports are being prepared for your workspace.')}>
-            <span className="nav-icon">▥</span><span>Reports</span>
-          </button>
           {visibleNavItems.some((item) => item.id === 'settings') && <button className={`nav-item ${active === 'settings' ? 'active' : ''}`} onClick={() => setActive('settings')}>
             <span className="nav-icon">⚙</span><span>Settings</span>
           </button>}
@@ -207,7 +218,7 @@ function App() {
           <div className="user-row">
             <div className="user-avatar">{(currentUser?.full_name || 'VS').split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase()}</div>
             <div><strong>{currentUser?.full_name || 'Workspace user'}</strong><span>{currentUser?.role?.replaceAll('_', ' ') || 'Member'}</span></div>
-            <span className="more">•••</span>
+            <button className="sign-out-button" type="button" onClick={signOut}>Sign out</button>
           </div>
         </div>
       </aside>
@@ -224,7 +235,7 @@ function App() {
         </header>
 
         <div className="page">
-          {active === 'overview' && <Overview role={currentUser?.role} vehicles={fleet} workOrders={workOrders} documents={documentsData} expenses={expenses} onNotify={notify} />}
+          {active === 'overview' && <Overview role={currentUser?.role} subscription={subscription} vehicles={fleet} workOrders={workOrders} documents={documentsData} expenses={expenses} onNotify={notify} />}
           {active === 'fleet' && <Fleet role={currentUser?.role} vehicles={filteredVehicles} components={components} token={token} onAdd={() => setShowAdd(true)} onNotify={notify} onVehicleUpdated={(updated) => setFleet((current) => current.map((item) => item.id === updated.id ? updated : item))} onComponentCreated={(component) => setComponents((current) => [component, ...current])} onComponentUpdated={(updated) => setComponents((current) => current.map((item) => item.id === updated.id ? updated : item))} />}
           {active === 'maintenance' && <Maintenance role={currentUser?.role} workOrders={workOrders} components={components} plans={maintenancePlans} vehicles={fleet} token={token} onCreated={(workOrder) => setWorkOrders((current) => [workOrder, ...current])} onUpdated={(workOrder) => setWorkOrders((current) => current.map((item) => item.id === workOrder.id ? workOrder : item))} onPlanCreated={(plan) => setMaintenancePlans((current) => [plan, ...current])} onNotify={notify} />}
           {active === 'driver' && <DriverWorkspace token={token} vehicles={fleet} onNotify={notify} />}
@@ -350,7 +361,7 @@ function PageHeader({ eyebrow, title, subtitle, action, onAction }) {
   </div>
 }
 
-function Overview({ role, vehicles: fleet, workOrders, documents, expenses, onAdd, onNotify }) {
+function Overview({ role, subscription, vehicles: fleet, workOrders, documents, expenses, onAdd, onNotify }) {
   const workspace = {
     owner: ['Owner command centre', 'Control people, policy, billing, and every operational area.'],
     fleet_manager: ['Fleet manager workspace', 'Monitor availability, vehicle health, assignments, and compliance risk.'],
@@ -359,21 +370,26 @@ function Overview({ role, vehicles: fleet, workOrders, documents, expenses, onAd
     technician: ['Technician workspace', 'Work through assigned jobs, parts, checklists, and completion updates.'],
     accountant: ['Finance workspace', 'Keep expenses, GST, vendors, and reconciliations accurate.'],
   }[role] || ['Operations workspace', 'Here’s what’s happening across your fleet today.']
-  const canSeeFleet = ['owner', 'fleet_manager'].includes(role)
-  const canSeeMaintenance = ['owner', 'fleet_manager', 'technician'].includes(role)
-  const canSeeFinance = ['owner', 'accountant'].includes(role)
+  const canSeeFleet = role === 'fleet_manager'
+  const canSeeMaintenance = ['fleet_manager', 'technician'].includes(role)
+  const canSeeFinance = role === 'accountant'
   const fleetHealth = fleet.length
     ? Math.round(fleet.reduce((sum, vehicle) => sum + vehicle.health, 0) / fleet.length)
     : 0
   const statusCount = (status) => fleet.filter((vehicle) => vehicle.status === status).length
   return <div>
     <PageHeader eyebrow={workspace[0]} title={workspace[1]} subtitle="VahanSync shows the work relevant to your role, with organisation-wide controls behind it." />
-    <div className="metric-grid">
+    {role === 'owner' ? <div className="metric-grid">
+      <MetricCard label="Organisation access" value="Governance" change="owner" detail="members, roles, and policy" icon="◈" tone="navy" />
+      <MetricCard label="Billing state" value={subscription?.status || 'Loading'} change={subscription?.trial_ends_on ? `ends ${subscription.trial_ends_on}` : 'subscription'} detail="organisation billing" icon="₹" tone="blue" />
+      <MetricCard label="Member policy" value="Unlimited" change="all plans" detail="no seat cap for operators" icon="◎" tone="green" />
+      <MetricCard label="Operational ownership" value="Delegated" change="role-based" detail="fleet teams run daily work" icon="⌁" tone="purple" />
+    </div> : <div className="metric-grid">
       <MetricCard label="Fleet health" value={`${fleetHealth}%`} change="live" detail="average vehicle health" icon="◒" tone="navy" />
       <MetricCard label="Active vehicles" value={`${statusCount('On route')} / ${fleet.length}`} change="live" detail="currently on route" icon="▱" tone="blue" />
       <MetricCard label="Open work orders" value={workOrders.length} change="live" detail="from maintenance planner" icon="⌁" tone="orange" />
       <MetricCard label="Recorded cost" value={`₹${(expenses.reduce((sum, expense) => sum + expense.amount_paise, 0) / 100000).toFixed(1)}L`} change="live" detail="from expense ledger" icon="₹" tone="purple" />
-    </div>
+    </div>}
     <div className="content-grid">
       {canSeeFleet && <section className="panel fleet-panel">
         <PanelHeading title="Fleet overview" meta={`${fleet.length} vehicles`} action="View all" onAction={() => onNotify('Fleet view selected from the overview.')} />
@@ -623,7 +639,10 @@ function WorkspaceControls({ token, user, subscription, notifications, onNotify,
   const [directUser, setDirectUser] = useState({ email: '', full_name: '', mobile_phone: '', password: '', role: 'fleet_manager' })
 
   useEffect(() => {
-    Promise.all([getUsers(token), getInvitations(token), getNotificationDeliveries(token), getNotificationPreferences(token), getSubscriptionPlans(token)])
+    const membershipRequests = user?.role === 'owner'
+      ? [getUsers(token), getInvitations(token)]
+      : [Promise.resolve([]), Promise.resolve([])]
+    Promise.all([...membershipRequests, getNotificationDeliveries(token), getNotificationPreferences(token), getSubscriptionPlans(token)])
       .then(([loadedUsers, loadedInvitations, loadedDeliveries, loadedPreferences, loadedPlans]) => {
         setUsers(loadedUsers)
         setInvitations(loadedInvitations)
@@ -688,11 +707,11 @@ function WorkspaceControls({ token, user, subscription, notifications, onNotify,
       <form className="form-grid" onSubmit={createMember}><input required type="email" placeholder="Create user email" value={directUser.email} onChange={(event) => setDirectUser({ ...directUser, email: event.target.value })} /><input required placeholder="Full name" value={directUser.full_name} onChange={(event) => setDirectUser({ ...directUser, full_name: event.target.value })} /><input required type="tel" placeholder="+91 mobile phone" value={directUser.mobile_phone} onChange={(event) => setDirectUser({ ...directUser, mobile_phone: event.target.value })} /><input required type="password" placeholder="Temporary password" value={directUser.password} onChange={(event) => setDirectUser({ ...directUser, password: event.target.value })} /><select value={directUser.role} onChange={(event) => setDirectUser({ ...directUser, role: event.target.value })}><option value="fleet_manager">Fleet manager</option><option value="inventory_manager">Inventory manager</option><option value="driver">Driver</option><option value="technician">Mechanic / technician</option><option value="accountant">Accountant</option></select><button className="secondary-button" type="submit">Create user directly</button></form>
       <div className="data-table">{invitations.map((item) => <div className="data-row" key={item.id}><span><strong>{item.full_name}</strong><small>{item.email}</small></span><span>{item.role}</span><span>{item.revoked_at ? 'Revoked' : item.accepted_at ? 'Accepted' : `Expires ${item.expires_at}`}</span>{!item.revoked_at && !item.accepted_at ? <button className="row-more" onClick={async () => { try { await revokeInvitation(token, item.id); setInvitations((current) => current.map((entry) => entry.id === item.id ? { ...entry, revoked_at: new Date().toISOString() } : entry)); onNotify('Invitation revoked.') } catch (error) { onNotify(error.message) } }}>Revoke</button> : <span />}</div>)}</div>
     </section>}
-    <section className="panel table-panel">
+    {user?.role === 'owner' && <section className="panel table-panel">
       <div className="table-header"><div><h2>Subscription</h2><span>{subscription?.plan?.name} · {subscription?.status}</span></div></div>
       <div className="form-grid">{plans.map((plan) => <button type="button" className={`secondary-button ${subscription?.plan?.code === plan.code ? 'selected' : ''}`} key={plan.code} disabled={user?.role !== 'owner'} onClick={async () => { try { const changed = await changeSubscription(token, plan.code); onSubscriptionChanged(changed); onNotify(`Subscription changed to ${plan.name}.`) } catch (error) { onNotify(error.message) } }}><strong>{plan.name}</strong> · {plan.monthly_price_paise ? `₹${(plan.monthly_price_paise / 100).toLocaleString('en-IN')}/month` : 'Custom'}<small>{plan.included_vehicles} vehicles included · ₹{(plan.overage_vehicle_fee_paise / 100).toLocaleString('en-IN')} per additional vehicle</small></button>)}<button type="button" className="primary-button" disabled={user?.role !== 'owner'} onClick={async () => { try { const checkout = await createSubscriptionCheckout(token, subscription?.plan?.code || 'starter'); if (checkout.short_url) window.open(checkout.short_url, '_blank', 'noopener,noreferrer'); else onNotify('Razorpay checkout is ready when credentials are configured.') } catch (error) { onNotify(error.message) } }}>Open Razorpay checkout</button></div>
       {subscription && <div className="inline-note">{subscription.vehicle_count} active vehicles · {subscription.overage_vehicles} overage vehicles · unlimited members · estimated {subscription.estimated_subtotal_paise ? `₹${(subscription.estimated_subtotal_paise / 100).toLocaleString('en-IN')}/month` : 'custom quote'}{subscription.status === 'trialing' && subscription.trial_ends_on ? ` · trial ends ${subscription.trial_ends_on}` : ''}</div>}
-    </section>
+    </section>}
     <section className="panel table-panel">
       <div className="table-header"><div><h2>Mobile alerts</h2><span>SMS and WhatsApp stay queued until provider credentials are configured.</span></div><button className="secondary-button" onClick={refreshDeliveries}>Retry queued mobile alerts</button></div>
       <form className="form-grid" onSubmit={saveContact}><input placeholder="+91 mobile number" value={mobile} onChange={(event) => setMobile(event.target.value)} /><button className="primary-button" type="submit">Save mobile</button></form>

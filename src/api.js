@@ -43,6 +43,13 @@ export async function login(email, password) {
   })
 }
 
+export async function logout() {
+  if (useSupabaseAuth) {
+    const { error } = await supabase.auth.signOut()
+    if (error) throw new Error(error.message)
+  }
+}
+
 export function signupOrganization(payload) {
   return request('/api/v1/auth/signup', {
     method: 'POST',

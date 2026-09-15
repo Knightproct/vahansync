@@ -87,7 +87,12 @@ button { cursor: pointer; }
 .user-row strong, .user-row span { display: block; font-size: 11px; }
 .user-row strong { color: #f0f8f5; }
 .user-row span { color: #7896a2; margin-top: 3px; font-size: 10px; text-transform: capitalize; }
-.user-row .more { margin-left: auto; color: #7896a2; letter-spacing: 2px; }
+.sign-out-button {
+  margin-left: auto; border: 1px solid rgba(212,243,106,.28); border-radius: 8px;
+  padding: 7px 9px; color: var(--lime); background: rgba(212,243,106,.08);
+  font-size: 10px; font-weight: 700; white-space: nowrap;
+}
+.sign-out-button:hover { color: var(--navy); background: var(--lime); }
 .main-content { flex: 1; min-width: 0; }
 .topbar {
   min-height: 78px; display: flex; align-items: center; justify-content: space-between; gap: 22px;
