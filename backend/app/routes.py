@@ -1192,6 +1192,17 @@ def create_driver_issue(
         request_id=request.headers.get("x-request-id", str(uuid4())),
         changes=json.dumps({"title": payload.title, "priority": payload.priority}),
     ))
+    queue_role_notification(
+        database,
+        organization_id=user.organization_id,
+        notification_type="driver_issue",
+        severity="danger" if payload.priority in {"High", "Critical"} else "warning",
+        title=f"Driver issue: {payload.title}",
+        detail=f"{vehicle.registration_number}: {payload.detail}",
+        entity_type="vehicle_issue",
+        entity_id=str(issue.id),
+        roles={"owner", "fleet_manager"},
+    )
     database.commit()
     database.refresh(issue)
     return issue
@@ -1227,6 +1238,18 @@ def create_work_order(
         request_id=request.headers.get("x-request-id", str(uuid4())),
         changes=json.dumps({"vehicle_id": vehicle.id, "title": work_order.title}),
     ))
+    queue_role_notification(
+        database,
+        organization_id=user.organization_id,
+        notification_type="work_order_assigned",
+        severity="danger" if work_order.priority in {"High", "Critical"} else "warning",
+        title=f"Work order assigned: {work_order.title}",
+        detail=f"{vehicle.registration_number} · {work_order.priority} priority",
+        entity_type="work_order",
+        entity_id=str(work_order.id),
+        roles={"owner", "fleet_manager", "technician"},
+        user_ids={work_order.assigned_user_id} if work_order.assigned_user_id is not None else set(),
+    )
     database.commit()
     database.refresh(work_order)
     return work_order
@@ -2120,6 +2143,77 @@ def dispatch_whatsapp(delivery: NotificationDelivery, notification: OperationalN
         delivery.sent_at = utc_now()
     except (httpx.HTTPError, ValueError):
         delivery.status = "failed"
+
+
+def queue_role_notification(
+    database: Session,
+    organization_id: int,
+    notification_type: str,
+    severity: str,
+    title: str,
+    detail: str,
+    entity_type: str,
+    entity_id: str,
+    roles: set[str],
+    user_ids: set[int] | None = None,
+) -> None:
+    dedupe_key = f"{notification_type}:{entity_id}"
+    existing = database.scalar(select(OperationalNotification).where(
+        OperationalNotification.organization_id == organization_id,
+        OperationalNotification.dedupe_key == dedupe_key,
+    ))
+    if existing is not None:
+        return
+    notification = OperationalNotification(
+        organization_id=organization_id,
+        notification_type=notification_type,
+        severity=severity,
+        title=title,
+        detail=detail,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        dedupe_key=dedupe_key,
+        status="unread",
+    )
+    database.add(notification)
+    database.flush()
+    recipients = database.scalars(select(User).where(
+        User.organization_id == organization_id,
+        User.role.in_(roles),
+    )).all()
+    if user_ids:
+        recipients.extend(database.scalars(select(User).where(
+            User.organization_id == organization_id,
+            User.id.in_(user_ids),
+        )).all())
+    unique_recipients = {recipient.id: recipient for recipient in recipients}.values()
+    for recipient in unique_recipients:
+        preference = database.scalar(select(NotificationPreference).where(
+            NotificationPreference.organization_id == organization_id,
+            NotificationPreference.user_id == recipient.id,
+            NotificationPreference.notification_type == notification_type,
+        ))
+        channels = ["in_app"]
+        if recipient.mobile_phone:
+            channels.append("sms")
+        if preference is not None:
+            if preference.email:
+                channels.append("email")
+            if preference.sms and "sms" not in channels:
+                channels.append("sms")
+            if preference.whatsapp:
+                channels.append("whatsapp")
+            if preference.push:
+                channels.append("push")
+        for channel in channels:
+            database.add(NotificationDelivery(
+                organization_id=organization_id,
+                notification_id=notification.id,
+                user_id=recipient.id,
+                channel=channel,
+                status="queued" if channel != "in_app" else "delivered",
+                sent_at=utc_now() if channel == "in_app" else None,
+            ))
 
 
 def sync_notifications(user: User, database: Session) -> None:

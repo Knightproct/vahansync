@@ -75,6 +75,9 @@ def test_health_and_vehicle_lifecycle(tmp_path: Path, monkeypatch):
             "priority": "High",
         })
         assert work_order.status_code == 201
+        work_notifications = client.get("/api/v1/notifications", headers=headers)
+        assert work_notifications.status_code == 200
+        assert any(item["notification_type"] == "work_order_assigned" for item in work_notifications.json())
         updated_order = client.patch(f"/api/v1/work-orders/{work_order.json()['id']}", headers=headers, json={"status": "In progress"})
         assert updated_order.status_code == 200
         assert updated_order.json()["status"] == "In progress"
