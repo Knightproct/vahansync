@@ -1615,6 +1615,36 @@ def approve_work_order(
     return work_order
 
 
+@router.post("/work-orders/{work_order_id}/archive", response_model=WorkOrderRead)
+def archive_work_order(
+    work_order_id: int,
+    request: Request,
+    user: User = Depends(require_roles("owner", "fleet_manager")),
+    database: Session = Depends(get_db),
+) -> WorkOrder:
+    work_order = database.scalar(select(WorkOrder).where(
+        WorkOrder.id == work_order_id,
+        WorkOrder.organization_id == user.organization_id,
+    ))
+    if work_order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Work order not found")
+    if work_order.status not in {"Completed", "Closed"}:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only completed or closed work orders can be archived")
+    work_order.status = "Archived"
+    work_order.archived_at = utc_now()
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="work_order.archived",
+        entity_type="work_order",
+        entity_id=str(work_order.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+    ))
+    database.commit()
+    database.refresh(work_order)
+    return work_order
+
+
 @router.get("/work-orders/{work_order_id}/parts", response_model=list[WorkOrderPartUsageRead])
 def list_work_order_parts(
     work_order_id: int,

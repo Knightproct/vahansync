@@ -626,6 +626,13 @@ export function approveWorkOrder(token, workOrderId) {
   })
 }
 
+export function archiveWorkOrder(token, workOrderId) {
+  return request(`/api/v1/work-orders/${workOrderId}/archive`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
 export function getWorkOrderParts(token, workOrderId) {
   return request(`/api/v1/work-orders/${workOrderId}/parts`, {
     headers: { Authorization: `Bearer ${token}` },

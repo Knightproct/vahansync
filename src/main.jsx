@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import './styles.css'
 import {
-  acceptInvitation, approveWorkOrder, changeSubscription, completeComponentService, completeWorkOrder,
+  acceptInvitation, approveWorkOrder, archiveWorkOrder, changeSubscription, completeComponentService, completeWorkOrder,
   createComponent, createDocument, createDriverInspection, createDriverIssue, createExpense,
   createFuelTransaction, createInventoryMovement, createMaintenancePlan, createPart, createPurchaseOrder,
   createStockLocation, createTelematicsDevice, createTelematicsIntegration, createTollTransaction,
@@ -342,7 +342,7 @@ function MaintenancePage({ token, data, refresh, query }) {
   async function createWork(event) { event.preventDefault(); try { await createWorkOrder(token, { ...form, vehicle_id: Number(form.vehicle_id), assigned_user_id: null }); refresh('Work order dispatched.'); setForm({ ...form, title: '', description: '' }) } catch (error) { refresh(error.message) } }
   async function createPlan(event) { event.preventDefault(); try { await createMaintenancePlan(token, { ...plan, vehicle_id: Number(plan.vehicle_id), interval_km: plan.interval_km ? Number(plan.interval_km) : null, interval_days: plan.interval_days ? Number(plan.interval_days) : null, next_due_km: plan.next_due_km ? Number(plan.next_due_km) : null }); refresh('Maintenance plan created.') } catch (error) { refresh(error.message) } }
   async function createComp(event) { event.preventDefault(); try { await createComponent(token, { ...component, vehicle_id: Number(component.vehicle_id), installed_at_km: Number(component.installed_at_km), service_interval_km: component.service_interval_km ? Number(component.service_interval_km) : null, next_service_km: component.service_interval_km ? Number(component.installed_at_km) + Number(component.service_interval_km) : null }); refresh('Component lifecycle record created.') } catch (error) { refresh(error.message) } }
-  async function transition(order, action) { try { if (action === 'start') await startWorkOrder(token, order.id); if (action === 'complete') await completeWorkOrder(token, order.id); if (action === 'approve') await approveWorkOrder(token, order.id); refresh('Work order updated.') } catch (error) { refresh(error.message) } }
+  async function transition(order, action) { try { if (action === 'start') await startWorkOrder(token, order.id); if (action === 'complete') await completeWorkOrder(token, order.id); if (action === 'approve') await approveWorkOrder(token, order.id); if (action === 'archive') await archiveWorkOrder(token, order.id); refresh('Work order updated.') } catch (error) { refresh(error.message) } }
   function beginEdit(order) { setEditing(order.id); setEditForm({ title: order.title, description: order.description || '', priority: order.priority, due_date: order.due_date || '', assigned_to: order.assigned_to || '' }) }
   async function saveEdit(event) {
     event.preventDefault()
