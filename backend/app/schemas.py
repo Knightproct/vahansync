@@ -598,6 +598,9 @@ class ExpenseCreate(BaseModel):
     description: str = Field(min_length=2, max_length=240)
     amount_paise: int = Field(gt=0)
     gst_amount_paise: int = Field(default=0, ge=0)
+    cgst_amount_paise: int = Field(default=0, ge=0)
+    sgst_amount_paise: int = Field(default=0, ge=0)
+    igst_amount_paise: int = Field(default=0, ge=0)
     incurred_on: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
     vendor: str | None = None
     gstin: str | None = Field(default=None, max_length=20)

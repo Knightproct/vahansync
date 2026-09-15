@@ -150,10 +150,24 @@ def test_health_and_vehicle_lifecycle(tmp_path: Path, monkeypatch):
             "category": "Maintenance",
             "description": "Brake service",
             "amount_paise": 970000,
+            "gst_amount_paise": 18000,
+            "cgst_amount_paise": 9000,
+            "sgst_amount_paise": 9000,
             "incurred_on": "2027-01-15",
             "vendor": "Workshop partner",
         })
         assert expense.status_code == 201
+        assert expense.json()["cgst_amount_paise"] == 9000
+        invalid_gst = client.post("/api/v1/expenses", headers=headers, json={
+            "category": "Maintenance",
+            "description": "Invalid tax split",
+            "amount_paise": 100000,
+            "gst_amount_paise": 18000,
+            "igst_amount_paise": 18000,
+            "cgst_amount_paise": 9000,
+            "incurred_on": "2027-01-15",
+        })
+        assert invalid_gst.status_code == 422
         assert client.get("/api/v1/expenses", headers=headers).json()[0]["description"] == "Brake service"
         approved_expense = client.patch(
             f"/api/v1/expenses/{expense.json()['id']}",

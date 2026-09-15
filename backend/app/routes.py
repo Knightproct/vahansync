@@ -2615,6 +2615,11 @@ def create_expense(
         vehicle = database.scalar(select(Vehicle).where(Vehicle.id == payload.vehicle_id, Vehicle.organization_id == user.organization_id))
         if vehicle is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found in this organization")
+    gst_components = payload.cgst_amount_paise + payload.sgst_amount_paise + payload.igst_amount_paise
+    if gst_components and gst_components != payload.gst_amount_paise:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="GST components must equal the GST amount")
+    if payload.igst_amount_paise and (payload.cgst_amount_paise or payload.sgst_amount_paise):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="IGST cannot be combined with CGST or SGST")
     expense = Expense(organization_id=user.organization_id, **payload.model_dump())
     if expense.status == "Approved":
         expense.approved_by = user.id
