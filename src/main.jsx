@@ -1,1011 +1,350 @@
-import React, { StrictMode, useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import './styles.css'
-import { acceptInvitation, approveWorkOrder, changeSubscription, completeComponentService, completeWorkOrder, createComponent, createDocument, createDriverInspection, createDriverIssue, createExpense, createFuelTransaction, createInventoryMovement, createInventoryTransaction, createMaintenancePlan, createPart, createPurchaseOrder, createStockLocation, createSubscriptionCheckout, createTelematicsDevice, createTelematicsIntegration, createTollTransaction, createUser, createVehicle, createInvitation, createVendor, createWorkOrder, dispatchQueuedSms, downloadFile, exportResource, getAuditLog, getComponents, getCurrentUser, getDocuments, getDriverInspections, getDriverIssues, getExpenses, getFleetOperationsSummary, getInvitations, getMaintenancePlans, getNotificationDeliveries, getNotificationPreferences, getNotifications, getParts, getPurchaseOrders, getStockLocations, getSubscription, getSubscriptionPlans, getTelematicsDevices, getTelematicsIntegrations, getUsers, getVehicles, getVendors, getWorkOrderChecklist, getWorkOrders, importResource, login, logout, reconcileExpense, resolveNotification, revokeInvitation, signupOrganization, startWorkOrder, syncDueTelematics, updateDocument, updateExpense, updateMyContact, updateNotification, updateNotificationPreference, updatePurchaseOrder, updateUserRole, updateVehicle, updateWorkOrder, updateWorkOrderChecklist, uploadDocumentFile, uploadWorkOrderEvidence } from './api'
+import {
+  acceptInvitation, approveWorkOrder, changeSubscription, completeComponentService, completeWorkOrder,
+  createComponent, createDocument, createDriverInspection, createDriverIssue, createExpense,
+  createFuelTransaction, createInventoryMovement, createMaintenancePlan, createPart, createPurchaseOrder,
+  createStockLocation, createTelematicsDevice, createTelematicsIntegration, createTollTransaction,
+  createVehicle, createInvitation, createVendor, createWorkOrder, dispatchQueuedSms, getAuditLog,
+  getComponents, getCurrentUser, getDocuments, getDriverInspections, getDriverIssues, getExpenses,
+  getFleetOperationsSummary, getInvitations, getMaintenancePlans, getNotificationDeliveries,
+  getNotificationPreferences, getNotifications, getParts, getPurchaseOrders, getStockLocations,
+  getSubscription, getSubscriptionPlans, getTelematicsDevices, getTelematicsIntegrations, getUsers,
+  getVehicles, getVendors, getWorkOrderChecklist, getWorkOrders, login, logout, reconcileExpense,
+  resolveNotification, revokeInvitation, signupOrganization, startWorkOrder, syncDueTelematics,
+  updateDocument, updateNotification, updateNotificationPreference, updatePurchaseOrder, updateUserRole,
+  updateVehicle, updateWorkOrderChecklist, uploadWorkOrderEvidence,
+} from './api'
 
-const queryPage = new URLSearchParams(window.location.search).get('page')
-const routePath = queryPage ? `/${queryPage}` : window.location.pathname
-const invitationToken = new URLSearchParams(window.location.search).get('token')
-const isPublicPage = ['/', '/signup', '/invite'].includes(routePath) || routePath.startsWith('/invite/')
-
-const navItems = [
-  { id: 'overview', label: 'Overview', icon: '⌂', permissions: ['fleet', 'maintenance', 'finance', 'compliance', 'inventory', 'workshop', 'driver', 'governance'] },
-  { id: 'fleet', label: 'Fleet', icon: '▱', permissions: ['fleet'] },
-  { id: 'maintenance', label: 'Maintenance', icon: '⌁', permissions: ['maintenance'] },
-  { id: 'driver', label: 'Driver checks', icon: '✓', permissions: ['driver'] },
-  { id: 'workshop', label: 'Workshop', icon: '⌘', permissions: ['workshop', 'inventory'] },
-  { id: 'documents', label: 'Documents', icon: '▤', permissions: ['compliance'] },
-  { id: 'costs', label: 'Costs & finance', icon: '₹', permissions: ['finance'] },
-  { id: 'settings', label: 'Workspace controls', icon: '⚙', permissions: ['governance', 'notifications'] },
-  { id: 'audit', label: 'Audit trail', icon: '≋', permissions: ['governance'] },
-]
-
-const maintenance = [
-  { title: 'Brake pad replacement', vehicle: 'KA 03 MN 7712', due: 'Today', priority: 'High', icon: '◉', color: 'red' },
-  { title: 'Engine oil & filter', vehicle: 'TN 38 AB 1904', due: 'Tomorrow', priority: 'Medium', icon: '◌', color: 'amber' },
-  { title: 'Quarterly inspection', vehicle: 'MH 12 QX 4821', due: '18 Jun', priority: 'Low', icon: '✓', color: 'green' },
-]
-
-const documents = [
-  { name: 'Fitness certificate', vehicle: 'MH 12 QX 4821', date: '18 Jun 2024', days: '3 days', tone: 'danger' },
-  { name: 'Insurance policy', vehicle: 'GJ 01 RT 6388', date: '24 Jun 2024', days: '9 days', tone: 'warning' },
-  { name: 'PUC certificate', vehicle: 'TN 38 AB 1904', date: '02 Jul 2024', days: '17 days', tone: 'neutral' },
-]
-
-const inventory = [
-  { part: 'Brake pad set · Front axle', sku: 'BP-AL-3520-F', category: 'Brakes', stock: 8, min: 5, cost: '₹4,850', supplier: 'TVS Autoparts' },
-  { part: '15W40 Diesel engine oil', sku: 'OIL-15W40-20L', category: 'Lubricants', stock: 12, min: 10, cost: '₹3,260', supplier: 'Castrol India' },
-  { part: 'Air filter · Prima series', sku: 'AF-TATA-5530', category: 'Filters', stock: 3, min: 6, cost: '₹1,420', supplier: 'Fleetguard' },
-  { part: 'Clutch plate assembly', sku: 'CL-EC-6042', category: 'Drivetrain', stock: 2, min: 2, cost: '₹18,900', supplier: 'Eicher Motors' },
-]
+const route = window.location.pathname
+const invitationToken = new URLSearchParams(window.location.search).get('token') || ''
+const roleNames = {
+  owner: 'Owner / Superadmin',
+  fleet_manager: 'Fleet Manager',
+  inventory_manager: 'Inventory Manager',
+  technician: 'Technician',
+  driver: 'Driver',
+  accountant: 'Accountant',
+}
+const navByRole = {
+  owner: [['command', 'Command centre', '⌂'], ['members', 'Members & invitations', '♙'], ['billing', 'Billing & plans', '₹'], ['audit', 'Audit trail', '≋'], ['notifications', 'Notifications', '◌']],
+  fleet_manager: [['command', 'Fleet command', '⌂'], ['vehicles', 'Vehicle register', '▣'], ['maintenance', 'Maintenance board', '◆'], ['compliance', 'Compliance vault', '▤'], ['telematics', 'GPS & odometer', '⌁'], ['notifications', 'Notifications', '◌']],
+  inventory_manager: [['command', 'Workshop command', '⌂'], ['inventory', 'Parts & stock', '▦'], ['procurement', 'Procurement', '◇'], ['notifications', 'Notifications', '◌']],
+  technician: [['command', 'Repair command', '⌂'], ['work', 'Assigned work', '◆'], ['notifications', 'Notifications', '◌']],
+  driver: [['command', 'Driver home', '⌂'], ['checks', 'Daily checks', '✓'], ['notifications', 'Notifications', '◌']],
+  accountant: [['command', 'Finance command', '⌂'], ['finance', 'Ledger & costs', '₹'], ['notifications', 'Notifications', '◌']],
+}
+const today = () => new Date().toISOString().slice(0, 10)
+const money = (paise = 0) => `₹${(Number(paise) / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
+const dateText = (value) => value ? new Date(value).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
+const initials = (name = 'VahanSync') => name.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase()
 
 function App() {
-  const [active, setActive] = useState('overview')
-  const [search, setSearch] = useState('')
-  const [showAdd, setShowAdd] = useState(false)
-  const [showInvite, setShowInvite] = useState(false)
-  const [showSettings, setShowSettings] = useState(false)
-  const [toast, setToast] = useState('')
-  const [fleet, setFleet] = useState([])
-  const [workOrders, setWorkOrders] = useState([])
-  const [parts, setParts] = useState([])
-  const [documentsData, setDocumentsData] = useState([])
-  const [expenses, setExpenses] = useState([])
-  const [components, setComponents] = useState([])
-  const [maintenancePlans, setMaintenancePlans] = useState([])
-  const [vendors, setVendors] = useState([])
-  const [purchaseOrders, setPurchaseOrders] = useState([])
-  const [notifications, setNotifications] = useState([])
-  const [currentUser, setCurrentUser] = useState(null)
-  const [subscription, setSubscription] = useState(null)
-  const [token, setToken] = useState(() => window.sessionStorage.getItem('vahana:access-token'))
-  const [apiState, setApiState] = useState('loading')
-  const [apiError, setApiError] = useState('')
-  const [auditLog, setAuditLog] = useState([])
-  const [operationsSummary, setOperationsSummary] = useState(null)
+  if (route === '/') return <LandingPage />
+  if (route === '/signup') return <AuthPage mode="signup" />
+  if (route === '/invite' || route.startsWith('/invite/')) return <AuthPage mode="invite" token={invitationToken} />
+  return <AuthenticatedApp />
+}
 
-  useEffect(() => {
-    if (isPublicPage) return
-    const bootstrap = async () => {
-      try {
-        let accessToken = token
-        if (!accessToken && import.meta.env.DEV) {
-          const session = await login(import.meta.env.VITE_DEV_EMAIL || 'admin@example.com', import.meta.env.VITE_DEV_PASSWORD || 'ChangeMe!123')
-          accessToken = session.access_token
-          window.sessionStorage.setItem('vahana:access-token', accessToken)
-          setToken(accessToken)
-        }
-        if (!accessToken) {
-          setApiState('unauthenticated')
-          return
-        }
-        const loadedUser = await getCurrentUser(accessToken)
-        const [loadedSubscription, loadedFleet, loadedWorkOrders, loadedParts, loadedDocuments, loadedExpenses, loadedComponents, loadedPlans, loadedVendors, loadedPurchaseOrders, loadedNotifications] = await Promise.all([
-          getSubscription(accessToken),
-          getVehicles(accessToken),
-          getWorkOrders(accessToken),
-          getParts(accessToken),
-          getDocuments(accessToken),
-          getExpenses(accessToken),
-          getComponents(accessToken),
-          getMaintenancePlans(accessToken),
-          getVendors(accessToken),
-          getPurchaseOrders(accessToken),
-          getNotifications(accessToken),
-        ])
-        setCurrentUser(loadedUser)
-        setSubscription(loadedSubscription)
-        setFleet(loadedFleet)
-        setWorkOrders(loadedWorkOrders)
-        setParts(loadedParts)
-        setDocumentsData(loadedDocuments)
-        setExpenses(loadedExpenses)
-        setComponents(loadedComponents)
-        setMaintenancePlans(loadedPlans)
-        setVendors(loadedVendors)
-        setPurchaseOrders(loadedPurchaseOrders)
-        setNotifications(loadedNotifications)
-        if (loadedUser.role === 'owner') {
-          const [loadedAuditLog, loadedSummary] = await Promise.all([getAuditLog(accessToken), getFleetOperationsSummary(accessToken)])
-          setAuditLog(loadedAuditLog)
-          setOperationsSummary(loadedSummary)
-        } else if (loadedUser.role === 'fleet_manager') {
-          setOperationsSummary(await getFleetOperationsSummary(accessToken))
-        }
-        setApiState('ready')
-      } catch (error) {
-        if (
-          error.message === 'Not authenticated'
-          || error.message.includes('401')
-          || error.message.includes('authentication credentials')
-        ) {
-          window.sessionStorage.removeItem('vahana:access-token')
-          setToken(null)
-          setApiState('unauthenticated')
-          return
-        }
-        setApiError(error.message)
-        setApiState('error')
-      }
-    }
-    bootstrap()
-  }, [token])
-
-  useEffect(() => {
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch(() => {})
-    }
-  }, [])
-
-  const filteredVehicles = useMemo(
-    () => fleet.filter((vehicle) => `${vehicle.reg} ${vehicle.model} ${vehicle.depot}`.toLowerCase().includes(search.toLowerCase())),
-    [fleet, search],
-  )
-
-  const title = navItems.find((item) => item.id === active)?.label ?? 'Overview'
-  const rolePermissions = new Set({
-    owner: ['governance', 'notifications'],
-    fleet_manager: ['fleet', 'maintenance', 'compliance', 'notifications'],
-    inventory_manager: ['inventory', 'workshop', 'notifications'],
-    driver: ['driver', 'notifications'],
-    technician: ['maintenance', 'workshop', 'notifications'],
-    accountant: ['finance', 'notifications'],
-  }[currentUser?.role] || [])
-  const visibleNavItems = navItems.filter((item) => item.permissions.some((permission) => rolePermissions.has(permission)))
-
-  const signOut = async () => {
+function AuthPage({ mode, token }) {
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [form, setForm] = useState(mode === 'signup' ? { organization_name: '', full_name: '', email: '', mobile_phone: '', password: '' } : { password: '' })
+  async function submit(event) {
+    event.preventDefault()
+    setError('')
+    setBusy(true)
     try {
-      await logout()
+      const result = mode === 'signup' ? await signupOrganization(form) : await acceptInvitation({ token, password: form.password })
+      sessionStorage.setItem('vahana:access-token', result.access_token)
+      window.location.href = '/app'
+    } catch (requestError) {
+      setError(requestError.message)
     } finally {
-      window.sessionStorage.removeItem('vahana:access-token')
-      setToken(null)
-      setCurrentUser(null)
-      setApiState('unauthenticated')
-      setActive('overview')
-      notify('Signed out securely.')
+      setBusy(false)
     }
   }
-
-  const notify = useCallback((message) => {
-    setToast(message)
-    window.setTimeout(() => setToast(''), 2800)
-  }, [])
-
-  if (routePath === '/signup') return <SignupScreen onAuthenticated={(accessToken) => { window.sessionStorage.setItem('vahana:access-token', accessToken); window.location.href = '/app' }} />
-  if (routePath === '/invite' || routePath.startsWith('/invite/')) return <InvitationScreen tokenFromPath={invitationToken || routePath.split('/').pop()} onAuthenticated={(accessToken) => { window.sessionStorage.setItem('vahana:access-token', accessToken); window.location.href = '/app' }} />
-  if (routePath === '/') return <Landing />
-  if (apiState === 'loading') return <AppState title="Connecting to VahanSync" detail="Loading your organization data securely..." />
-  if (apiState === 'error') return <AppState title="VahanSync API unavailable" detail={`${apiError}. Start the backend service and reload this workspace.`} />
-  if (apiState === 'unauthenticated') return <LoginScreen onAuthenticated={(accessToken) => { window.sessionStorage.setItem('vahana:access-token', accessToken); setToken(accessToken) }} />
-
-  return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand">
-          <div className="brand-mark">V</div>
-          <div>
-            <strong>VahanSync</strong>
-            <span>Fleet operations OS</span>
-          </div>
-        </div>
-
-          <div className="workspace-switcher">
-          <div className="workspace-avatar">{(currentUser?.full_name || 'VS').split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase()}</div>
-          <div>
-            <span className="eyebrow">Workspace</span>
-          <strong>{currentUser?.organization_name || currentUser?.full_name || 'Workspace'}</strong>
-          </div>
-          <span className="chevron">⌄</span>
-        </div>
-        <div className="role-chip">{currentUser?.role?.replaceAll('_', ' ') || 'workspace'} · {subscription?.plan?.name || 'plan'}</div>
-
-        <nav className="nav-list">
-          <span className="nav-section">Command centre</span>
-          {visibleNavItems.map((item) => (
-            <button className={`nav-item ${active === item.id ? 'active' : ''}`} key={item.id} onClick={() => setActive(item.id)}>
-              <span className="nav-icon">{item.icon}</span>
-              <span>{item.label}</span>
-              {item.id === 'fleet' && <em>{fleet.length}</em>}
-              {item.id === 'maintenance' && <em>{workOrders.length}</em>}
-              {item.id === 'documents' && <em>{documentsData.length}</em>}
-            </button>
-          ))}
-          <span className="nav-section nav-section-spaced">Workspace</span>
-          {visibleNavItems.some((item) => item.id === 'settings') && <button className={`nav-item ${active === 'settings' ? 'active' : ''}`} onClick={() => setActive('settings')}>
-            <span className="nav-icon">⚙</span><span>Settings</span>
-          </button>}
-          {currentUser?.role === 'owner' && <button className="nav-item" onClick={() => setShowInvite(true)}>
-            <span className="nav-icon">+</span><span>Invite teammate</span>
-          </button>}
-        </nav>
-
-        <div className="sidebar-footer">
-          <div className="help-card">
-            <div className="help-icon">?</div>
-            <div><strong>Need a hand?</strong><span>Talk to your fleet advisor</span></div>
-            <button onClick={() => notify('Your fleet advisor will reach out shortly.')}>↗</button>
-          </div>
-          <div className="user-row">
-            <div className="user-avatar">{(currentUser?.full_name || 'VS').split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase()}</div>
-            <div><strong>{currentUser?.full_name || 'Workspace user'}</strong><span>{currentUser?.role?.replaceAll('_', ' ') || 'Member'}</span></div>
-            <button className="sign-out-button" type="button" onClick={signOut}>Sign out</button>
-          </div>
-        </div>
-      </aside>
-
-      <main className="main-content">
-        <header className="topbar">
-          <div className="breadcrumb"><span>VahanSync</span><b>/</b><strong>{title}</strong></div>
-          <div className="top-actions">
-            <span className="sync-status"><i></i> Live sync</span>
-            <div className="search-box"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search vehicles, parts, docs..." /><kbd>⌘ K</kbd></div>
-            <button className="icon-button" onClick={() => notify(notifications.length ? `${notifications.filter((item) => item.status === 'unread').length} operational notifications need attention.` : 'You are all caught up.')}>♢{notifications.some((item) => item.status === 'unread') && <i></i>}</button>
-            <button className="icon-button" aria-label="Contact VahanSync support" onClick={() => { window.location.href = 'mailto:support@vahansync.com?subject=VahanSync support' }}>?</button>
-          </div>
-        </header>
-
-        <div className="page">
-          {active === 'overview' && <Overview role={currentUser?.role} subscription={subscription} vehicles={fleet} workOrders={workOrders} parts={parts} purchaseOrders={purchaseOrders} documents={documentsData} expenses={expenses} operationsSummary={operationsSummary} onNotify={notify} onNavigate={setActive} />}
-          {active === 'fleet' && <Fleet role={currentUser?.role} vehicles={filteredVehicles} components={components} token={token} onAdd={() => setShowAdd(true)} onNotify={notify} onVehicleUpdated={(updated) => setFleet((current) => current.map((item) => item.id === updated.id ? updated : item))} onComponentCreated={(component) => setComponents((current) => [component, ...current])} onComponentUpdated={(updated) => setComponents((current) => current.map((item) => item.id === updated.id ? updated : item))} />}
-          {active === 'maintenance' && <Maintenance role={currentUser?.role} workOrders={workOrders} components={components} plans={maintenancePlans} vehicles={fleet} token={token} onCreated={(workOrder) => setWorkOrders((current) => [workOrder, ...current])} onUpdated={(workOrder) => setWorkOrders((current) => current.map((item) => item.id === workOrder.id ? workOrder : item))} onPlanCreated={(plan) => setMaintenancePlans((current) => [plan, ...current])} onNotify={notify} />}
-          {active === 'driver' && <DriverWorkspace token={token} vehicles={fleet} onNotify={notify} />}
-          {active === 'workshop' && <Workshop token={token} parts={parts} vendors={vendors} purchaseOrders={purchaseOrders} onVendorCreated={(vendor) => setVendors((current) => [...current, vendor])} onPartCreated={(part) => setParts((current) => [part, ...current])} onNotify={notify} />}
-          {active === 'documents' && <Documents token={token} documents={documentsData} vehicles={fleet} onNotify={notify} onDocumentCreated={(document) => setDocumentsData((current) => [document, ...current])} />}
-          {active === 'costs' && <Costs token={token} expenses={expenses} vehicles={fleet} onNotify={notify} onExpenseCreated={(expense) => setExpenses((current) => [expense, ...current])} onExpenseUpdated={(expense) => setExpenses((current) => current.map((item) => item.id === expense.id ? expense : item))} />}
-          {active === 'settings' && <WorkspaceControls token={token} user={currentUser} subscription={subscription} notifications={notifications} onNotify={notify} onSubscriptionChanged={setSubscription} onNotificationsChanged={setNotifications} />}
-          {active === 'audit' && <AuditWorkspace token={token} entries={auditLog} summary={operationsSummary} onEntriesChanged={setAuditLog} />}
-        </div>
-      </main>
-
-      {showAdd && currentUser?.role === 'fleet_manager' && <AddVehicleModal onClose={() => setShowAdd(false)} onSave={async (vehicle) => { try { const createdVehicle = await createVehicle(token, vehicle); setFleet((currentFleet) => [createdVehicle, ...currentFleet]); setShowAdd(false); notify('Vehicle added to your fleet.'); } catch (error) { notify(error.message) } }} />}
-      {showInvite && <InviteModal token={token} onClose={() => setShowInvite(false)} onCreated={(invite) => { setShowInvite(false); notify(`Invite created for ${invite.email}. Share the secure invitation link.`) }} />}
-      {toast && <div className="toast"><span>✓</span>{toast}</div>}
-    </div>
-  )
+  return <div className="auth-layout"><section className="auth-story"><Brand /><div className="auth-story-copy"><span className="overline">India-ready fleet operations</span><h1>{mode === 'signup' ? 'Build a calmer operating rhythm.' : 'Join the operating picture.'}</h1><p>{mode === 'signup' ? 'Put vehicles, people, work orders, inventory, compliance, and finance on one accountable record.' : 'Your invitation connects you to the workspace responsibilities assigned by your organisation owner.'}</p><div className="story-list"><span>01 <b>Every vehicle has a history.</b></span><span>02 <b>Every handoff has evidence.</b></span><span>03 <b>Every rupee has context.</b></span></div></div><small className="auth-footnote">Secure, organisation-scoped access for fleet operators.</small></section><section className="auth-panel"><form className="auth-card" onSubmit={submit}><span className="overline">{mode === 'signup' ? 'Create workspace' : 'Invitation access'}</span><h2>{mode === 'signup' ? 'Start your organisation' : 'Activate your membership'}</h2><p className="muted">{mode === 'signup' ? 'Your first account is created as Owner / Superadmin.' : 'Set a password to accept this role assignment.'}</p>{mode === 'signup' && <><Field label="Organisation name" value={form.organization_name} onChange={(value) => setForm({ ...form, organization_name: value })} required /><Field label="Your full name" value={form.full_name} onChange={(value) => setForm({ ...form, full_name: value })} required /><Field label="Work email" type="email" value={form.email} onChange={(value) => setForm({ ...form, email: value })} required /><Field label="Mobile number" type="tel" placeholder="+91 98765 43210" value={form.mobile_phone} onChange={(value) => setForm({ ...form, mobile_phone: value })} required /></>}{mode === 'invite' && <div className="invite-confirm"><span>Invitation token received</span><strong>Your assigned workspace is ready to activate.</strong></div>}<Field label={mode === 'signup' ? 'Password' : 'Create password'} type="password" value={form.password} onChange={(value) => setForm({ ...form, password: value })} minLength="8" required />{error && <div className="error-box">{error}</div>}<button className="primary-button wide" disabled={busy}>{busy ? 'Working…' : mode === 'signup' ? 'Create organisation' : 'Accept invitation'}</button><a className="auth-switch" href="/app">{mode === 'signup' ? 'Already have access? Sign in' : 'Already activated? Sign in'}</a></form></section></div>
 }
 
-function AppState({ title, detail }) {
-  return <div className="app-state"><div className="brand-mark">V</div><h1>{title}</h1><p>{detail}</p></div>
+function AuthenticatedApp() {
+  const [token, setToken] = useState(() => sessionStorage.getItem('vahana:access-token'))
+  const [user, setUser] = useState(null)
+  const [page, setPage] = useState('command')
+  const [query, setQuery] = useState('')
+  const [notice, setNotice] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [refreshKey, setRefreshKey] = useState(0)
+  const [data, setData] = useState({})
+
+  useEffect(() => {
+    if (!token) {
+      setLoading(false)
+      return
+    }
+    let active = true
+    async function load() {
+      setLoading(true)
+      try {
+        const current = await getCurrentUser(token)
+        const results = await Promise.allSettled([
+          getVehicles(token), getWorkOrders(token), getComponents(token), getDocuments(token),
+          getNotifications(token), getSubscription(token), getParts(token), getExpenses(token),
+          getMaintenancePlans(token), getVendors(token), getPurchaseOrders(token), getStockLocations(token),
+          getNotificationPreferences(token), getNotificationDeliveries(token), getDriverInspections(token),
+          getDriverIssues(token), getTelematicsIntegrations(token), getTelematicsDevices(token),
+          current.role === 'owner' ? getUsers(token) : Promise.resolve([]),
+          current.role === 'owner' ? getInvitations(token) : Promise.resolve([]),
+          current.role === 'owner' ? getAuditLog(token) : Promise.resolve([]),
+          ['owner', 'fleet_manager'].includes(current.role) ? getFleetOperationsSummary(token) : Promise.resolve(null),
+          getSubscriptionPlans(token),
+        ])
+        if (!active) return
+        const value = results.map((result) => result.status === 'fulfilled' ? result.value : null)
+        setUser(current)
+        setData({
+          vehicles: value[0] || [], workOrders: value[1] || [], components: value[2] || [], documents: value[3] || [],
+          notifications: value[4] || [], subscription: value[5], parts: value[6] || [], expenses: value[7] || [],
+          plans: value[8] || [], vendors: value[9] || [], purchaseOrders: value[10] || [], locations: value[11] || [],
+          notificationPreferences: value[12] || [], deliveries: value[13] || [], inspections: value[14] || [],
+          issues: value[15] || [], integrations: value[16] || [], devices: value[17] || [], users: value[18] || [],
+          invitations: value[19] || [], audit: value[20] || [], operations: value[21], subscriptionPlans: value[22] || [],
+        })
+      } catch (requestError) {
+        if (active) setError(requestError.message)
+      } finally {
+        if (active) setLoading(false)
+      }
+    }
+    load()
+    return () => { active = false }
+  }, [token, refreshKey])
+
+  function refresh(message) {
+    if (message) {
+      setNotice(message)
+      window.setTimeout(() => setNotice(''), 3500)
+    }
+    setRefreshKey((value) => value + 1)
+  }
+  async function signOut() {
+    try { await logout() } catch {}
+    sessionStorage.removeItem('vahana:access-token')
+    setToken(null)
+    window.location.href = '/app'
+  }
+  if (!token) return <LoginPage onAuthenticated={(value) => { sessionStorage.setItem('vahana:access-token', value); setToken(value) }} />
+  if (loading && !user) return <LoadingScreen />
+  if (error && !user) return <ErrorScreen error={error} onRetry={() => { setError(''); setRefreshKey((value) => value + 1) }} />
+  if (!user) return <LoginPage onAuthenticated={(value) => { sessionStorage.setItem('vahana:access-token', value); setToken(value) }} />
+
+  const nav = navByRole[user.role] || navByRole.owner
+  const filteredQuery = query.trim().toLowerCase()
+  return <div className="app-shell"><aside className="sidebar"><div className="sidebar-brand"><span className="brand-symbol">V</span><div><strong>VahanSync</strong><small>Operations OS</small></div></div><div className="tenant-switch"><span className="status-dot" /><div><small>Organisation</small><strong>{user.organization_name}</strong></div><span>⌄</span></div><nav className="primary-nav"><span className="nav-caption">Your workspace</span>{nav.map(([id, label, icon]) => <button key={id} className={page === id ? 'nav-item active' : 'nav-item'} onClick={() => setPage(id)}><span className="nav-icon">{icon}</span>{label}{id === 'notifications' && data.notifications?.some((item) => item.status === 'unread') && <i className="nav-badge" />}</button>)}</nav><div className="sidebar-bottom"><div className="user-card"><span className="avatar">{initials(user.full_name)}</span><div><strong>{user.full_name}</strong><small>{roleNames[user.role]}</small></div></div><button className="signout" onClick={signOut}>↪ Sign out</button></div></aside><main className="main-area"><header className="topbar"><div><span className="breadcrumb">VahanSync <b>/</b> {nav.find(([id]) => id === page)?.[1] || 'Workspace'}</span><h1>{pageTitle(page, user.role)}</h1></div><div className="topbar-actions"><label className="global-search"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search this workspace" /></label><span className="live-pill"><i /> Live data</span><button className="avatar avatar-button" onClick={() => setPage('notifications')}>{initials(user.full_name)}</button></div></header><div className="content">
+    {page === 'command' && <CommandPage role={user.role} data={data} onNavigate={setPage} />}
+    {page === 'members' && <MembersPage token={token} data={data} refresh={refresh} />}
+    {page === 'billing' && <BillingPage token={token} data={data} refresh={refresh} />}
+    {page === 'audit' && <AuditPage token={token} entries={data.audit} summary={data.operations} />}
+    {page === 'vehicles' && <VehiclesPage token={token} data={data} refresh={refresh} query={filteredQuery} />}
+    {page === 'maintenance' && <MaintenancePage token={token} data={data} refresh={refresh} query={filteredQuery} />}
+    {page === 'compliance' && <CompliancePage token={token} data={data} refresh={refresh} query={filteredQuery} />}
+    {page === 'telematics' && <TelematicsPage token={token} data={data} refresh={refresh} />}
+    {page === 'inventory' && <InventoryPage token={token} data={data} refresh={refresh} query={filteredQuery} />}
+    {page === 'procurement' && <ProcurementPage token={token} data={data} refresh={refresh} />}
+    {page === 'work' && <TechnicianPage token={token} data={data} refresh={refresh} query={filteredQuery} />}
+    {page === 'checks' && <DriverPage token={token} data={data} refresh={refresh} />}
+    {page === 'finance' && <FinancePage token={token} data={data} refresh={refresh} />}
+    {page === 'notifications' && <NotificationsPage token={token} data={data} refresh={refresh} />}
+  </div></main>{notice && <div className="toast">{notice}</div>}</div>
 }
 
-function Landing() {
-  return <div className="landing">
-    <header className="landing-nav">
-      <a className="landing-brand" href="/"><span className="brand-mark">V</span><span><strong>VahanSync</strong><small>Fleet operations OS</small></span></a>
-      <nav><a href="#platform">Platform</a><a href="#workflows">Workflows</a><a href="#india">Built for India</a></nav>
-      <div className="landing-actions"><a className="landing-text-link" href="/signup">Create organisation</a><a className="landing-login" href="/app">Sign in <span>→</span></a></div>
-    </header>
-    <main>
-      <section className="hero">
-        <div className="hero-copy">
-          <span className="landing-kicker">The operating system for modern fleets</span>
-          <h1>Run every vehicle, workshop, and rupee from one calm command centre.</h1>
-          <p>VahanSync brings fleet health, component lifecycle, maintenance, inventory, compliance, fuel, tolls, and finance together for Indian operators.</p>
-          <div className="hero-actions"><a className="hero-button" href="/signup">Start your organisation <span>↗</span></a><a className="hero-text-link" href="#platform">Explore the platform <span>↓</span></a></div>
-          <div className="hero-proof"><span>●</span><span>One source of truth for operations</span><span>·</span><span>INR-native cost controls</span></div>
-        </div>
-        <div className="hero-visual">
-          <div className="visual-window"><div className="visual-top"><span className="visual-dot"></span><span className="visual-dot"></span><span className="visual-dot"></span><small>VahanSync command centre</small></div><div className="visual-body"><div className="visual-sidebar"><b>V</b><i></i><i></i><i></i><i></i></div><div className="visual-dashboard"><span>FLEET HEALTH</span><strong>94.2%</strong><div className="visual-bars"><i></i><i></i><i></i><i></i></div><div className="visual-cards"><div></div><div></div><div></div></div></div></div></div>
-          <div className="floating-card"><span>Compliance readiness</span><strong>98%</strong><small>↑ 12% this month</small></div>
-        </div>
-      </section>
-      <section className="trust-row"><span>DESIGNED FOR</span><strong>Logistics operators</strong><strong>Contract fleets</strong><strong>Workshop networks</strong><strong>Transport enterprises</strong></section>
-      <section className="platform-section" id="platform"><div className="section-intro"><span className="landing-kicker">One connected platform</span><h2>From vehicle register to financial close.</h2><p>Every operational detail stays connected, so teams act on the same live picture instead of chasing spreadsheets.</p></div><div className="feature-grid"><Feature icon="01" title="Fleet intelligence" text="Track every vehicle, component, depot, status, and odometer movement in one live register." /><Feature icon="02" title="Workshop control" text="Turn maintenance plans into work orders, parts issues, stock movements, and measurable uptime." /><Feature icon="03" title="Compliance & cost" text="Keep documents, expiry alerts, fuel, tolls, GST-ready expenses, and approvals audit-ready." /></div></section>
-      <section className="india-section" id="india"><div><span className="landing-kicker">Built for Indian operations</span><h2>Local realities, enterprise discipline.</h2><p>VahanSync speaks the language of Indian fleet teams: registration numbers, FASTag, PUC, fitness, insurance, GST, INR paise precision, and multi-depot control.</p><a className="hero-text-link" href="/app">See the command centre <span>→</span></a></div><div className="india-stat-grid"><div><strong>24×7</strong><span>Operational visibility</span></div><div><strong>₹</strong><span>Paise-precise ledgers</span></div><div><strong>360°</strong><span>Vehicle lifecycle</span></div><div><strong>1</strong><span>Source of truth</span></div></div></section>
-      <section className="cta-section" id="workflows"><span className="landing-kicker">Make every kilometre count</span><h2>Your fleet has a lot moving.<br />Your system should feel simple.</h2><a className="hero-button" href="/app">Enter VahanSync <span>↗</span></a></section>
-    </main>
-    <footer className="landing-footer"><a className="landing-brand" href="/"><span className="brand-mark">V</span><span><strong>VahanSync</strong><small>Fleet operations OS</small></span></a><span>© 2026 VahanSync. Built for fleet operators in India.</span><a href="/app">Sign in →</a></footer>
-  </div>
-}
-
-function Feature({ icon, title, text }) {
-  return <article className="feature-card"><span>{icon}</span><h3>{title}</h3><p>{text}</p><a href="/app">Explore <b>→</b></a></article>
-}
-
-function LoginScreen({ onAuthenticated }) {
+function LoginPage({ onAuthenticated }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
-
-  const submit = async (event) => {
+  const [busy, setBusy] = useState(false)
+  async function submit(event) {
     event.preventDefault()
-    try {
-      const session = await login(email, password)
-      onAuthenticated(session.access_token)
-    } catch (requestError) {
-      setError(requestError.message)
-    }
+    setBusy(true)
+    setError('')
+    try { const session = await login(email, password); onAuthenticated(session.access_token) } catch (requestError) { setError(requestError.message) } finally { setBusy(false) }
   }
-
-  return <div className="login-screen"><form className="login-card" onSubmit={submit}><div className="brand-mark">V</div><span className="eyebrow">VahanSync</span><h1>Sign in to your workspace</h1><p>Secure access to your fleet operations command centre.</p><label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required placeholder="you@company.com" /></label><label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required minLength="8" /></label>{error && <div className="form-error">{error}</div>}<button className="primary-button" type="submit">Sign in</button><a className="login-link" href="/signup">Create a new organisation</a></form></div>
+  return <div className="login-layout"><div className="login-visual"><Brand /><div><span className="overline">Welcome back</span><h1>Keep every operating decision connected.</h1><p>Sign in to the workspace that matches your responsibility: governance, fleet, workshop, field, or finance.</p></div><div className="login-stat"><strong>One record.</strong><span>Vehicle identity, action, evidence, and cost.</span></div></div><form className="login-card" onSubmit={submit}><span className="overline">Secure sign in</span><h2>Enter your workspace</h2><p className="muted">Use the work email assigned to your VahanSync organisation.</p><Field label="Email" type="email" value={email} onChange={setEmail} required /><Field label="Password" type="password" value={password} onChange={setPassword} required minLength="8" />{error && <div className="error-box">{error}</div>}<button className="primary-button wide" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button><a className="auth-switch" href="/signup">Create a new organisation</a></form></div>
 }
 
-function SignupScreen({ onAuthenticated }) {
-  const [form, setForm] = useState({ organization_name: '', full_name: '', email: '', mobile_phone: '', password: '' })
+function LandingPage() {
+  return <div className="landing-page"><header className="landing-header"><Brand /><nav><a href="#platform">Platform</a><a href="#roles">Roles</a><a href="#india">India-ready</a></nav><div><a className="text-link" href="/app">Sign in</a><a className="primary-button small" href="/signup">Create organisation</a></div></header><main><section className="landing-hero"><div><span className="overline">A calmer fleet operating rhythm</span><h1>Make the next responsible action impossible to miss.</h1><p>VahanSync connects vehicle readiness, maintenance execution, parts, compliance, driver safety, GPS signals, and INR finance in one organisation-scoped operating picture.</p><div className="landing-actions"><a className="primary-button" href="/signup">Start your organisation →</a><a className="text-link" href="#platform">Explore the platform ↓</a></div><div className="proof-row"><span>14-day trial</span><span>Unlimited members</span><span>India-ready workflows</span></div></div><div className="hero-board"><div className="hero-board-top"><span><i /> VahanSync command centre</span><b>Live</b></div><div className="hero-board-main"><div className="hero-ring"><strong>92%</strong><span>readiness</span></div><div className="hero-board-list"><span><i className="green" /> Vehicles operational <b>24</b></span><span><i className="amber" /> Work needing action <b>07</b></span><span><i className="red" /> Compliance horizon <b>03</b></span></div></div><div className="hero-board-footer"><span>GPS sync</span><span>Workshop queue</span><span>INR ledger</span></div></div></section><section className="landing-section" id="platform"><div className="section-heading"><span className="overline">One connected platform</span><h2>From register to resolution.</h2><p>Every workspace is role-specific, but every action stays attached to the same operational record.</p></div><div className="feature-grid"><Feature number="01" title="Signal" text="Vehicle identity, odometer, components, documents, and telematics expose the next risk." /><Feature number="02" title="Execute" text="Fleet Managers dispatch. Technicians work. Drivers report. Inventory protects availability." /><Feature number="03" title="Close" text="Accountants reconcile the rupee trail while owners retain governance and audit visibility." /></div></section><section className="role-band" id="roles"><div className="section-heading"><span className="overline">Every member, the right surface</span><h2>Responsibility without noise.</h2></div><div className="role-grid">{Object.entries(roleNames).map(([key, name], index) => <article key={key}><span>{String(index + 1).padStart(2, '0')}</span><strong>{name}</strong><p>{roleDescription(key)}</p></article>)}</div></section><section className="landing-section india-section" id="india"><div className="india-copy"><span className="overline">Built for Indian fleet realities</span><h2>Registration numbers, PUC, fitness, GST, FASTag, and paise-precise finance.</h2><p>Provider-neutral telematics and daily odometer sync keep the operating model ready for the way Indian transport businesses actually work.</p><a className="text-link" href="/signup">Build your workspace →</a></div><div className="india-grid"><span><b>₹</b><small>INR-native</small></span><span><b>24/7</b><small>operational visibility</small></span><span><b>1</b><small>source of truth</small></span><span><b>∞</b><small>members per plan</small></span></div></section></main><footer className="landing-footer"><Brand /><span>© 2026 VahanSync · Built for fleet operators in India</span><a className="text-link" href="/app">Sign in →</a></footer></div>
+}
+
+function Feature({ number, title, text }) { return <article className="feature-card"><span>{number}</span><h3>{title}</h3><p>{text}</p><a className="text-link" href="/signup">Explore the workflow →</a></article> }
+function Brand() { return <a className="brand" href="/"><span className="brand-symbol">V</span><span><strong>VahanSync</strong><small>Fleet operating system</small></span></a> }
+
+function CommandPage({ role, data, onNavigate }) {
+  return <div className={`command-page role-${role}`}><section className="workspace-hero"><div><span className="overline">{roleNames[role]} workspace</span><h2>{commandHeadline(role)}</h2><p>{commandSubhead(role)}</p></div><div className="hero-date"><span>Today</span><strong>{new Date().toLocaleDateString('en-IN', { weekday: 'long', day: '2-digit', month: 'short' })}</strong><small>Live from organisation records</small></div></section><section className="stat-grid">{commandStats(role, data).map((stat) => <Metric key={stat.label} {...stat} />)}</section><div className="command-grid"><section className="panel"><PanelHeader eyebrow="Next actions" title="Move the operation forward" /><div className="action-list">{commandActions(role).map((action) => <button key={action.page} className="action-card" onClick={() => onNavigate(action.page)}><span className={`action-icon ${action.tone}`}>{action.icon}</span><span><strong>{action.title}</strong><small>{action.detail}</small></span><b>→</b></button>)}</div></section><section className="panel"><PanelHeader eyebrow="Operating picture" title="What needs attention" /><AttentionList role={role} data={data} onNavigate={onNavigate} /></section></div><section className="panel activity-panel"><PanelHeader eyebrow="Connected records" title="Recent organisation activity" /><RecentActivity data={data} /></section></div>
+}
+
+function MembersPage({ token, data, refresh }) {
+  const [showInvite, setShowInvite] = useState(false)
+  const [form, setForm] = useState({ email: '', full_name: '', mobile_phone: '', role: 'fleet_manager' })
   const [error, setError] = useState('')
-  const submit = async (event) => {
-    event.preventDefault()
-    try {
-      const result = await signupOrganization(form)
-      onAuthenticated(result.access_token)
-    } catch (requestError) {
-      setError(requestError.message)
-    }
-  }
-  return <div className="login-screen"><form className="login-card" onSubmit={submit}><div className="brand-mark">V</div><span className="eyebrow">VahanSync onboarding</span><h1>Create your organisation</h1><p>Your account becomes the organisation owner. Invite the rest of your team after setup.</p><label>Organisation name<input value={form.organization_name} onChange={(event) => setForm({ ...form, organization_name: event.target.value })} required /></label><label>Your full name<input value={form.full_name} onChange={(event) => setForm({ ...form, full_name: event.target.value })} required /></label><label>Work email<input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required /></label><label>Mobile number<input type="tel" placeholder="+91 9876543210" value={form.mobile_phone} onChange={(event) => setForm({ ...form, mobile_phone: event.target.value })} required /></label><label>Password<input type="password" minLength="8" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} required /></label>{error && <div className="form-error">{error}</div>}<button className="primary-button" type="submit">Create organisation</button><a className="login-link" href="/app">Already have an account? Sign in</a></form></div>
+  async function invite(event) { event.preventDefault(); try { await createInvitation(token, form); setForm({ email: '', full_name: '', mobile_phone: '', role: 'fleet_manager' }); setShowInvite(false); refresh('Invitation created.') } catch (requestError) { setError(requestError.message) } }
+  async function changeRole(id, role) { try { await updateUserRole(token, id, role); refresh('Member role updated.') } catch (requestError) { setError(requestError.message) } }
+  async function revoke(id) { try { await revokeInvitation(token, id); refresh('Invitation revoked.') } catch (requestError) { setError(requestError.message) } }
+  return <PageFrame eyebrow="01 · Governance" title="Members & invitations" description="Give each person the least-privileged workspace needed to move the fleet forward. The first account remains the organisation owner."><div className="page-toolbar"><div><strong>{data.users.length} members</strong><span>{data.invitations.filter((item) => !item.accepted_at && !item.revoked_at).length} pending invitations</span></div><button className="primary-button" onClick={() => setShowInvite(!showInvite)}>{showInvite ? 'Close invite form' : 'Invite teammate'}</button></div>{showInvite && <FormCard title="Invite a teammate" description="Mobile numbers enable SMS and WhatsApp delivery when provider credentials are configured."><form className="form-grid" onSubmit={invite}><Field label="Full name" value={form.full_name} onChange={(value) => setForm({ ...form, full_name: value })} required /><Field label="Work email" type="email" value={form.email} onChange={(value) => setForm({ ...form, email: value })} required /><Field label="Mobile number" type="tel" value={form.mobile_phone} onChange={(value) => setForm({ ...form, mobile_phone: value })} /><SelectField label="Workspace role" value={form.role} onChange={(value) => setForm({ ...form, role: value })} options={Object.keys(roleNames).filter((role) => role !== 'owner').map((role) => [role, roleNames[role]])} /><button className="primary-button">Send invitation</button></form>{error && <div className="error-box">{error}</div>}</FormCard>}<section className="split-grid"><DataPanel title="Organisation directory" eyebrow="Current access"><Table headers={['Member', 'Role', 'Mobile', 'Action']} rows={data.users.map((member) => [<span className="person-cell"><span className="avatar small">{initials(member.full_name)}</span><span><strong>{member.full_name}</strong><small>{member.email}</small></span></span>, member.role === 'owner' ? roleNames.owner : <select className="inline-select" value={member.role} onChange={(event) => changeRole(member.id, event.target.value)}>{Object.keys(roleNames).filter((role) => role !== 'owner').map((role) => <option key={role} value={role}>{roleNames[role]}</option>)}</select>, member.mobile_phone || 'Not added', member.role === 'owner' ? <span className="muted">Protected</span> : <span className="status good">Active</span>])} empty="No additional members have joined yet." /></DataPanel><DataPanel title="Invitation ledger" eyebrow="Access handoffs"><Table headers={['Invitee', 'Role', 'Expires', 'Status', 'Action']} rows={data.invitations.map((invite) => [<span><strong>{invite.full_name}</strong><small>{invite.email}</small></span>, roleNames[invite.role] || invite.role, dateText(invite.expires_at), invite.accepted_at ? <span className="status good">Accepted</span> : invite.revoked_at ? <span className="status bad">Revoked</span> : <span className="status warn">Pending</span>, !invite.accepted_at && !invite.revoked_at ? <button className="table-action" onClick={() => revoke(invite.id)}>Revoke</button> : '—'])} empty="No invitations have been created." /></DataPanel></section></PageFrame>
 }
 
-function InvitationScreen({ tokenFromPath, onAuthenticated }) {
-  const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
-  const submit = async (event) => {
-    event.preventDefault()
-    try {
-      const result = await acceptInvitation({ token: tokenFromPath, password })
-      onAuthenticated(result.access_token)
-    } catch (requestError) {
-      setError(requestError.message)
-    }
-  }
-  return <div className="login-screen"><form className="login-card" onSubmit={submit}><div className="brand-mark">V</div><span className="eyebrow">VahanSync invitation</span><h1>Join your organisation</h1><p>Set a password to activate your assigned role and workspace.</p><label>Password<input type="password" minLength="8" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>{error && <div className="form-error">{error}</div>}<button className="primary-button" type="submit">Accept invitation</button><a className="login-link" href="/app">Already active? Sign in</a></form></div>
+function BillingPage({ token, data, refresh }) {
+  const current = data.subscription
+  async function selectPlan(code) { try { await changeSubscription(token, code); refresh('Subscription plan updated.') } catch (error) { refresh(error.message) } }
+  return <PageFrame eyebrow="02 · Governance" title="Billing & plans" description="Choose the operating capacity that fits your fleet. Every plan includes a 14-day trial and unlimited member onboarding."><section className="billing-hero"><div><span className="overline">Current subscription</span><h3>{current?.plan?.name || 'Starter'}</h3><p>{current?.status || 'Trialing'} · trial ends {dateText(current?.trial_ends_on)}</p></div><div className="billing-numbers"><span><b>{current?.vehicle_count || 0}</b> vehicles</span><span><b>∞</b> members</span><span><b>{money(current?.estimated_subtotal_paise || 0)}</b> estimate</span></div></section><div className="plan-grid">{data.subscriptionPlans.map((plan) => <article className={current?.plan?.code === plan.code ? 'plan-card selected' : 'plan-card'} key={plan.code}><span className="plan-name">{plan.name}</span><strong>{plan.monthly_price_paise ? money(plan.monthly_price_paise) : 'Custom'}</strong><small>per month</small><p>{plan.description}</p><div className="plan-limit">{plan.included_vehicles || 'Custom'} included vehicles <b>·</b> unlimited members</div><ul>{plan.features.map((feature) => <li key={feature}>✓ {feature}</li>)}</ul><button className={current?.plan?.code === plan.code ? 'secondary-button wide' : 'primary-button wide'} onClick={() => selectPlan(plan.code)}>{current?.plan?.code === plan.code ? 'Current plan' : 'Choose plan'}</button></article>)}</div></PageFrame>
 }
 
-function InviteModal({ token, onClose, onCreated }) {
-  const [form, setForm] = useState({ email: '', full_name: '', role: 'fleet_manager' })
-  const [error, setError] = useState('')
-  const submit = async (event) => {
-    event.preventDefault()
-    try {
-      const result = await createInvitation(token, form)
-      onCreated(result)
-    } catch (requestError) {
-      setError(requestError.message)
-    }
-  }
-  return <div className="modal-backdrop"><form className="modal-card" onSubmit={submit}><div className="modal-header"><div><span className="eyebrow">Organisation access</span><h2>Invite a teammate</h2></div><button type="button" className="icon-button" onClick={onClose}>×</button></div><p>Assign one workspace role. The invitee creates their own password from the secure link.</p><label>Full name<input value={form.full_name} onChange={(event) => setForm({ ...form, full_name: event.target.value })} required /></label><label>Email<input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required /></label><label>Role<select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })}><option value="fleet_manager">Fleet manager</option><option value="inventory_manager">Inventory manager</option><option value="driver">Driver</option><option value="technician">Mechanic / technician</option><option value="accountant">Accountant</option></select></label>{error && <div className="form-error">{error}</div>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button className="primary-button" type="submit">Create invitation</button></div></form></div>
-}
-
-function PageHeader({ eyebrow, title, subtitle, action, onAction }) {
-  return <div className="page-header">
-    <div><span className="eyebrow">{eyebrow}</span><h1>{title}</h1><p>{subtitle}</p></div>
-    {action && <button className="primary-button" onClick={onAction}><span>+</span>{action}</button>}
-  </div>
-}
-
-function RoleCommandCentre({ role, subscription, vehicles, workOrders, parts, purchaseOrders, documents, expenses, operationsSummary, onNavigate }) {
-  const roleConfig = {
-    owner: {
-      eyebrow: 'Owner · governance command centre',
-      title: 'Run the organisation without taking over operations.',
-      description: 'People, policy, billing, audit visibility, and delegated accountability stay in one control room. Operational teams keep their own workspaces.',
-      heroValue: 'Governance',
-      heroLabel: 'owner control surface',
-      actions: [['settings', 'Manage members'], ['settings', 'Review billing']],
-    },
-    fleet_manager: {
-      eyebrow: 'Fleet manager · readiness command centre',
-      title: 'Make the next fleet decision before it becomes a breakdown.',
-      description: 'Vehicle identity, component life, odometer movement, service planning, assignments, and compliance exceptions are prioritised here.',
-      heroValue: `${vehicles.length}`,
-      heroLabel: 'fleet assets',
-      actions: [['fleet', 'Open vehicle register'], ['maintenance', 'Plan maintenance']],
-    },
-    inventory_manager: {
-      eyebrow: 'Inventory manager · supply command centre',
-      title: 'Keep every repair supplied before the vehicle reaches the bay.',
-      description: 'Stock balances, reorder exposure, procurement, vendor context, and movement evidence are organised around the next issue or receipt.',
-      heroValue: `${parts.length}`,
-      heroLabel: 'catalogue records',
-      actions: [['workshop', 'Open stock control'], ['workshop', 'Review procurement']],
-    },
-    driver: {
-      eyebrow: 'Driver · shift command centre',
-      title: 'Start with vehicle condition, not the route.',
-      description: 'Your assigned vehicle, readiness, inspection evidence, defect escalation, and odometer handoff are kept together for a safe shift.',
-      heroValue: vehicles[0]?.reg || '—',
-      heroLabel: 'assigned vehicle',
-      actions: [['driver', 'Start daily check'], ['driver', 'Report an issue']],
-    },
-    technician: {
-      eyebrow: 'Technician · repair command centre',
-      title: 'Turn every assigned job into a traceable return to service.',
-      description: 'Work orders, parts context, repair notes, evidence, checklist completion, and Fleet Manager handoff belong to the technician queue.',
-      heroValue: `${workOrders.length}`,
-      heroLabel: 'assigned work orders',
-      actions: [['maintenance', 'Open repair queue'], ['maintenance', 'Review handoffs']],
-    },
-    accountant: {
-      eyebrow: 'Accountant · finance command centre',
-      title: 'Turn fleet activity into a controlled INR ledger.',
-      description: 'Expenses, fuel, tolls, GST evidence, approvals, reconciliation, and exports stay connected to the vehicles and work that caused them.',
-      heroValue: `₹${(expenses.reduce((sum, item) => sum + Number(item.amount_paise || item.amount || 0), 0) / 100000).toFixed(1)}L`,
-      heroLabel: 'recorded operating cost',
-      actions: [['costs', 'Open finance ledger'], ['costs', 'Add transaction']],
-    },
-  }[role] || {
-    eyebrow: 'VahanSync · command centre',
-    title: 'A focused view of the work assigned to you.',
-    description: 'Every workspace keeps role responsibilities clear and operational actions close at hand.',
-    heroValue: 'Live',
-    heroLabel: 'workspace state',
-    actions: [['overview', 'Refresh overview']],
-  }
-  const status = (value, tone = 'neutral') => <b className={`command-status ${tone}`}>{value}</b>
-  const openOrders = workOrders.filter((item) => !['Completed', 'COMPLETED', 'Closed'].includes(item.status))
-  const lowStock = parts.filter((part) => Number(part.quantity_on_hand ?? part.quantityOnHand ?? 0) <= Number(part.reorder_level ?? part.minReorderLevel ?? 0))
-  const expiringDocs = documents.slice(0, 5)
-  const activity = role === 'owner'
-    ? [['Access', 'Member and invitation controls', 'Governance'], ['Billing', subscription?.status || 'Trial plan', 'Subscription'], ['Policy', 'Unlimited member onboarding', 'Organisation']]
-    : role === 'fleet_manager'
-      ? vehicles.slice(0, 5).map((item) => [item.reg || item.license_plate, `${item.health ?? 0}% health · ${item.status || 'Active'}`, 'Vehicle'])
-      : role === 'inventory_manager'
-        ? parts.slice(0, 5).map((item) => [item.name || item.part, `${item.quantity_on_hand ?? item.quantityOnHand ?? 0} units · ${item.sku || 'SKU pending'}`, 'Stock'])
-        : role === 'driver'
-          ? [['Readiness', 'Submit the first inspection before dispatch', 'Today'], ['Odometer', 'Keep the vehicle reading current', 'Required'], ['Defects', 'Escalate unsafe conditions immediately', 'Safety']]
-          : role === 'technician'
-            ? openOrders.slice(0, 5).map((item) => [item.title, `${item.priority || 'Normal'} · ${item.status}`, 'Work order'])
-            : expenses.slice(0, 5).map((item) => [item.category || 'Operating cost', `₹${Number(item.amount_paise || item.amount || 0).toLocaleString('en-IN')}`, 'Ledger'])
-  return <main className={`command-centre command-centre-${role}`}>
-    <header className="command-hero">
-      <div><span>{roleConfig.eyebrow}</span><h1>{roleConfig.title}<em>.</em></h1><p>{roleConfig.description}</p><div className="command-actions">{roleConfig.actions.map(([destination, label]) => <button key={label} className="primary-button" onClick={() => onNavigate(destination)}>{label}<span>→</span></button>)}</div></div>
-      <div className="command-hero-stat"><strong>{roleConfig.heroValue}</strong><small>{roleConfig.heroLabel}</small><i>{role === 'owner' ? 'Protected' : 'Live workspace'}</i></div>
-    </header>
-    <section className="command-signals">
-      <article><span>{role === 'owner' ? 'Members' : role === 'fleet_manager' ? 'Active assets' : role === 'inventory_manager' ? 'Stock records' : role === 'driver' ? 'Readiness' : role === 'technician' ? 'Repair queue' : 'Ledger records'}</span><strong>{role === 'owner' ? '∞' : role === 'fleet_manager' ? vehicles.length : role === 'inventory_manager' ? parts.length : role === 'driver' ? 'Check' : role === 'technician' ? openOrders.length : expenses.length}</strong><small>{role === 'owner' ? 'unlimited onboarding' : 'visible to your role'}</small></article>
-      <article><span>{role === 'owner' ? 'Trial state' : role === 'fleet_manager' ? 'Open work' : role === 'inventory_manager' ? 'Low stock' : role === 'driver' ? 'Vehicle' : role === 'technician' ? 'In progress' : 'Operating cost'}</span><strong>{role === 'owner' ? (subscription?.status || 'Trial') : role === 'fleet_manager' ? openOrders.length : role === 'inventory_manager' ? lowStock.length : role === 'driver' ? (vehicles[0]?.reg || '—') : role === 'technician' ? openOrders.filter((item) => ['In Progress', 'IN_PROGRESS'].includes(item.status)).length : `₹${(expenses.reduce((sum, item) => sum + Number(item.amount_paise || item.amount || 0), 0) / 100000).toFixed(1)}L`}</strong><small>{role === 'owner' ? 'billing control' : 'needs attention'}</small></article>
-      <article><span>{role === 'owner' ? 'Operational access' : role === 'fleet_manager' ? 'Compliance' : role === 'inventory_manager' ? 'Purchase orders' : role === 'driver' ? 'Daily action' : role === 'technician' ? 'Ready for review' : 'Exports'}</span><strong>{role === 'owner' ? 'Delegated' : role === 'fleet_manager' ? documents.length : role === 'inventory_manager' ? purchaseOrders.length : role === 'driver' ? 'DVIR' : role === 'technician' ? workOrders.filter((item) => ['Ready for review', 'READY_FOR_REVIEW'].includes(item.status)).length : 'CSV / PDF'}</strong><small>{role === 'owner' ? 'role-scoped workspaces' : 'connected records'}</small></article>
-      <article className="is-safe"><span>Workspace health</span><strong>Ready</strong><small>session and API connected</small></article>
-    </section>
-    {operationsSummary && (role === 'owner' || role === 'fleet_manager') && <section className="command-signals command-signals-secondary">
-      <article><span>Open work</span><strong>{operationsSummary.open_work_orders}</strong><small>{operationsSummary.overdue_work_orders} overdue</small></article>
-      <article><span>Component attention</span><strong>{operationsSummary.due_components}</strong><small>service thresholds reached</small></article>
-      <article><span>Compliance horizon</span><strong>{operationsSummary.compliance_due}</strong><small>due within 30 days</small></article>
-      <article><span>Unassigned assets</span><strong>{operationsSummary.unassigned_vehicles}</strong><small>need driver coverage</small></article>
-    </section>}
-    <section className="command-grid">
-      <article className="command-panel command-panel-primary"><header><div><span>01 · your operating queue</span><h2>{role === 'owner' ? 'Governance boundaries' : role === 'fleet_manager' ? 'Fleet attention board' : role === 'inventory_manager' ? 'Replenishment watch' : role === 'driver' ? 'Shift checklist' : role === 'technician' ? 'Assigned work orders' : 'Finance activity'}</h2></div>{status(role === 'owner' ? 'Read only' : role === 'driver' ? 'Action required' : 'Live queue', role === 'driver' ? 'alert' : 'safe')}</header><div className="command-list">{activity.length ? activity.map(([title, detail, tag]) => <div className="command-list-row" key={`${title}-${detail}`}><div><strong>{title}</strong><p>{detail}</p></div><span>{tag}</span></div>) : <EmptyState title="Nothing queued yet" detail="New records will appear here when your organisation starts operating." />}</div></article>
-      <article className="command-panel command-panel-secondary"><header><div><span>02 · next best action</span><h2>Keep the workflow moving</h2></div>{status('Role scoped', 'neutral')}</header><div className="command-next"><div className="command-next-icon">{role === 'owner' ? '◈' : role === 'fleet_manager' ? '▱' : role === 'inventory_manager' ? '⌘' : role === 'driver' ? '✓' : role === 'technician' ? '⌁' : '₹'}</div><div><strong>{role === 'owner' ? 'Review people and billing' : role === 'fleet_manager' ? 'Open the fleet register' : role === 'inventory_manager' ? 'Select a part and record movement' : role === 'driver' ? 'Complete today’s inspection' : role === 'technician' ? 'Start or complete an assigned job' : 'Reconcile the latest transaction'}</strong><p>{role === 'owner' ? 'Keep governance controls separate from operational mutations.' : role === 'fleet_manager' ? 'The vehicle record is the source for odometer and component life.' : role === 'inventory_manager' ? 'Every receipt, issue, transfer, and adjustment should carry a reason.' : role === 'driver' ? 'A failed inspection immediately creates a visible fleet exception.' : role === 'technician' ? 'Checklist, parts, notes, and evidence create a reviewable handoff.' : 'Keep tax, vendor, payment, and vehicle context together.'}</p><button className="secondary-button" onClick={() => onNavigate(roleConfig.actions[0][0])}>{roleConfig.actions[0][1]} <span>→</span></button></div></div></article>
-    </section>
-    <section className="command-panel command-panel-wide"><header><div><span>03 · connected records</span><h2>{role === 'owner' ? 'Organisation oversight' : 'Recent activity in your workspace'}</h2></div><button className="filter-button" onClick={() => onNavigate(roleConfig.actions[0][0])}>Open workspace →</button></header><div className="command-record-grid">{(role === 'fleet_manager' ? expiringDocs : role === 'inventory_manager' ? purchaseOrders : role === 'technician' ? workOrders : role === 'accountant' ? expenses : activity).slice(0, 6).map((item, index) => { const values = Array.isArray(item) ? item : [item.name || item.title || item.category || item.reg || `Record ${index + 1}`, item.status || item.expires_on || item.amount || 'Connected record', roleConfig.heroLabel]; return <div className="command-record" key={`${values[0]}-${index}`}><i>{String(index + 1).padStart(2, '0')}</i><div><strong>{values[0]}</strong><p>{values[1]}</p></div><span>{values[2]}</span></div> })}</div></section>
-  </main>
-}
-
-function AuditWorkspace({ token, entries, summary, onEntriesChanged }) {
+function AuditPage({ token, entries, summary }) {
   const [filters, setFilters] = useState({ actor_role: '', entity_type: '', action: '', outcome: '' })
-  const [loading, setLoading] = useState(false)
-  const search = async (event) => {
-    event.preventDefault()
-    setLoading(true)
-    try { onEntriesChanged(await getAuditLog(token, filters)) } catch {} finally { setLoading(false) }
-  }
-  return <div className="workspace-page">
-    <PageHeader eyebrow="Governance · auditability" title="Audit trail" subtitle="Searchable evidence of every governance and operating handoff in this organisation." />
-    {summary && <section className="metric-grid">
-      <MetricCard label="Active vehicles" value={summary.active_vehicles} detail={`${summary.total_vehicles} total assets`} icon="▱" tone="blue" />
-      <MetricCard label="Open work orders" value={summary.open_work_orders} detail={`${summary.overdue_work_orders} overdue`} icon="⌁" tone="amber" />
-      <MetricCard label="Compliance horizon" value={summary.compliance_due} detail="due within 30 days" icon="▤" tone="red" />
-      <MetricCard label="Low stock parts" value={summary.low_stock_parts} detail="reorder attention" icon="⌘" tone="green" />
-    </section>}
-    <section className="panel table-panel">
-      <div className="table-header"><div><span className="eyebrow">Evidence stream</span><h2>Recent organisation activity</h2></div><span>{entries.length} events loaded</span></div>
-      <form className="form-grid audit-filters" onSubmit={search}>
-        <select value={filters.actor_role} onChange={(event) => setFilters({ ...filters, actor_role: event.target.value })}><option value="">All actor roles</option><option value="owner">Owner</option><option value="fleet_manager">Fleet Manager</option><option value="inventory_manager">Inventory Manager</option><option value="driver">Driver</option><option value="technician">Technician</option><option value="accountant">Accountant</option></select>
-        <input placeholder="Entity type" value={filters.entity_type} onChange={(event) => setFilters({ ...filters, entity_type: event.target.value })} />
-        <input placeholder="Action contains" value={filters.action} onChange={(event) => setFilters({ ...filters, action: event.target.value })} />
-        <input placeholder="Outcome contains" value={filters.outcome} onChange={(event) => setFilters({ ...filters, outcome: event.target.value })} />
-        <button className="secondary-button" type="submit">{loading ? 'Searching…' : 'Search audit'}</button>
-      </form>
-      <div className="data-table">
-        <div className="data-row data-head"><span>Action</span><span>Entity</span><span>Actor</span><span>Request</span><span>When</span></div>
-        {entries.length ? entries.map((entry) => <div className="data-row" key={entry.id}><span><strong>{entry.action}</strong><small>{entry.changes || 'No change payload'}</small></span><span>{entry.entity_type} #{entry.entity_id}</span><span>User #{entry.actor_user_id}</span><span>{entry.request_id || '—'}</span><span>{new Date(entry.created_at).toLocaleString('en-IN')}</span></div>) : <EmptyState title="No audit events yet" detail="Governance and workflow actions will appear here as your organisation operates." />}
-      </div>
-    </section>
-  </div>
+  const [rows, setRows] = useState(entries)
+  const [busy, setBusy] = useState(false)
+  async function search(event) { event.preventDefault(); setBusy(true); try { setRows(await getAuditLog(token, filters)) } finally { setBusy(false) } }
+  return <PageFrame eyebrow="03 · Governance" title="Audit trail" description="Search the organisation record by actor, entity, action, and outcome. This is the Owner's read-only operating evidence."><section className="stat-grid">{Object.entries(summary || {}).map(([label, value]) => <Metric key={label} label={label.replaceAll('_', ' ')} value={value} detail="organisation signal" />)}</section><DataPanel title="Search activity" eyebrow="Evidence filters"><form className="filter-row" onSubmit={search}><SelectField label="Actor role" compact value={filters.actor_role} onChange={(value) => setFilters({ ...filters, actor_role: value })} options={[['', 'All roles'], ...Object.keys(roleNames).map((role) => [role, roleNames[role]])]} /><Field label="Entity type" compact value={filters.entity_type} onChange={(value) => setFilters({ ...filters, entity_type: value })} /><Field label="Action contains" compact value={filters.action} onChange={(value) => setFilters({ ...filters, action: value })} /><Field label="Outcome contains" compact value={filters.outcome} onChange={(value) => setFilters({ ...filters, outcome: value })} /><button className="secondary-button">{busy ? 'Searching…' : 'Search'}</button></form></DataPanel><DataPanel title="Activity stream" eyebrow={`${rows.length} records`}><Table headers={['When', 'Actor', 'Action', 'Entity', 'Change']} rows={rows.map((entry) => [dateText(entry.created_at), `User #${entry.actor_user_id}`, entry.action, `${entry.entity_type} · ${entry.entity_id}`, entry.changes || 'No change payload'])} empty="No audit records match these filters." /></DataPanel></PageFrame>
 }
 
-function RoleOverview({ role, vehicles, workOrders, parts, purchaseOrders, onNavigate }) {
-  const cards = {
-    inventory_manager: [
-      ['Parts catalogue', parts.length, 'items available', 'workshop'],
-      ['Low stock signals', parts.filter((part) => part.quantity_on_hand <= part.reorder_level).length, 'replenishment actions', 'workshop'],
-      ['Purchase orders', purchaseOrders.length, 'procurement records', 'workshop'],
-      ['Next action', 'Stock', 'receive or issue parts', 'workshop'],
-    ],
-    driver: [
-      ['Assigned vehicles', vehicles.length, 'visible to your account', 'driver'],
-      ['Daily readiness', 'Start', 'submit today’s inspection', 'driver'],
-      ['Defect reporting', 'Open', 'report a vehicle issue', 'driver'],
-      ['Odometer', 'Required', 'keep readings current', 'driver'],
-    ],
-    technician: [
-      ['Assigned work orders', workOrders.length, 'jobs in your queue', 'maintenance'],
-      ['In progress', workOrders.filter((item) => item.status === 'In progress').length, 'active repairs', 'maintenance'],
-      ['Ready for review', workOrders.filter((item) => item.status === 'Ready for review').length, 'handoffs to fleet manager', 'maintenance'],
-      ['Next action', 'Execute', 'open the work-order queue', 'maintenance'],
-    ],
-  }[role] || []
-  const destination = role === 'inventory_manager' ? 'workshop' : role === 'driver' ? 'driver' : 'maintenance'
-
-  return <div className="role-overview">
-    <div className="metric-grid">
-      {cards.map(([label, value, detail, destination]) => <MetricCard key={label} label={label} value={value} change="role view" detail={detail} icon="•" tone="blue" />)}
-    </div>
-    <section className="panel role-next-step">
-      <div><span className="eyebrow">Your next step</span><h2>{role === 'inventory_manager' ? 'Keep the workshop supplied' : role === 'driver' ? 'Complete the daily vehicle check' : 'Move assigned repairs forward'}</h2><p>{role === 'inventory_manager' ? 'Review low-stock parts, receive deliveries, and keep purchase orders current.' : role === 'driver' ? 'Choose Driver checks to submit an inspection and report defects before dispatch.' : 'Open Maintenance to start a job, record completion, and hand it back for review.'}</p></div>
-      <button className="primary-button" onClick={() => onNavigate(destination)}>{role === 'inventory_manager' ? 'Open inventory' : role === 'driver' ? 'Open driver checks' : 'Open work orders'} <span>→</span></button>
-    </section>
-  </div>
+function VehiclesPage({ token, data, refresh, query }) {
+  const [showForm, setShowForm] = useState(false)
+  const [form, setForm] = useState({ registration_number: '', model: '', vehicle_type: 'Bus', depot: '', status: 'Idle / parked', health: 100, odometer_km: 0, driver_name: '' })
+  const rows = data.vehicles.filter((vehicle) => JSON.stringify(vehicle).toLowerCase().includes(query))
+  async function submit(event) { event.preventDefault(); try { await createVehicle(token, { ...form, health: Number(form.health), odometer_km: Number(form.odometer_km), assigned_driver_id: null }); setShowForm(false); refresh('Vehicle added to the register.') } catch (error) { refresh(error.message) } }
+  async function update(id, status) { try { await updateVehicle(token, id, { status }); refresh('Vehicle status updated.') } catch (error) { refresh(error.message) } }
+  return <PageFrame eyebrow="01 · Fleet operations" title="Vehicle register" description="One identity record for registration, depot, current odometer, readiness, and driver context."><div className="page-toolbar"><div><strong>{data.vehicles.length} fleet assets</strong><span>{data.vehicles.filter((vehicle) => vehicle.status !== 'Out of service').length} available in operating picture</span></div><button className="primary-button" onClick={() => setShowForm(!showForm)}>{showForm ? 'Close form' : 'Add vehicle'}</button></div>{showForm && <FormCard title="Add a vehicle" description="Start the lifecycle record with the identifiers your operations team already uses."><form className="form-grid" onSubmit={submit}><Field label="Registration number" value={form.registration_number} onChange={(value) => setForm({ ...form, registration_number: value })} required /><Field label="Model" value={form.model} onChange={(value) => setForm({ ...form, model: value })} required /><SelectField label="Vehicle type" value={form.vehicle_type} onChange={(value) => setForm({ ...form, vehicle_type: value })} options={['Bus', 'Truck', 'LCV', 'Car', 'Other'].map((value) => [value, value])} /><Field label="Depot" value={form.depot} onChange={(value) => setForm({ ...form, depot: value })} required /><Field label="Opening odometer (km)" type="number" value={form.odometer_km} onChange={(value) => setForm({ ...form, odometer_km: value })} required /><button className="primary-button">Create vehicle</button></form></FormCard>}<div className="vehicle-grid">{rows.map((vehicle) => <article className="vehicle-card" key={vehicle.id}><div className="card-top"><span className={`status ${vehicle.status === 'Out of service' ? 'bad' : vehicle.status === 'In workshop' ? 'warn' : 'good'}`}>{vehicle.status}</span><span className="vehicle-id">#{vehicle.id}</span></div><h3>{vehicle.registration_number}</h3><p>{vehicle.model} · {vehicle.vehicle_type}</p><div className="vehicle-data"><span><small>Depot</small><b>{vehicle.depot}</b></span><span><small>Odometer</small><b>{Number(vehicle.odometer_km).toLocaleString('en-IN')} km</b></span><span><small>Health</small><b>{vehicle.health}%</b></span></div><div className="card-actions"><SelectInline value={vehicle.status} onChange={(value) => update(vehicle.id, value)} options={['Idle / parked', 'On route', 'In workshop', 'Out of service']} /></div></article>)}</div><EmptyState visible={!rows.length} title="No vehicle records found" text={query ? 'Try a different search term.' : 'Add the first vehicle to start the operating picture.'} /></PageFrame>
 }
 
-function Overview({ role, subscription, vehicles: fleet, workOrders, parts, purchaseOrders, documents, expenses, operationsSummary, onAdd, onNotify, onNavigate }) {
-  const notify = onNotify
-  onNotify = (message) => {
-    const destinations = {
-      'Fleet view selected from the overview.': 'fleet',
-      'Maintenance planner opened.': 'maintenance',
-      'New service request started.': 'maintenance',
-      'Cost report is ready to review.': 'costs',
-      'Document vault opened.': 'documents',
-    }
-    if (destinations[message] && onNavigate) onNavigate(destinations[message])
-    else notify(message)
-  }
-  const workspace = {
-    owner: ['Owner command centre', 'Control people, policy, billing, and every operational area.'],
-    fleet_manager: ['Fleet manager workspace', 'Monitor availability, vehicle health, assignments, and compliance risk.'],
-    inventory_manager: ['Inventory manager workspace', 'Keep every workshop supplied with the right part at the right time.'],
-    driver: ['Driver workspace', 'See your assigned vehicle, open defects, inspections, and route readiness.'],
-    technician: ['Technician workspace', 'Work through assigned jobs, parts, checklists, and completion updates.'],
-    accountant: ['Finance workspace', 'Keep expenses, GST, vendors, and reconciliations accurate.'],
-  }[role] || ['Operations workspace', 'Here’s what’s happening across your fleet today.']
-    return <RoleCommandCentre role={role} subscription={subscription} vehicles={fleet} workOrders={workOrders} parts={parts} purchaseOrders={purchaseOrders} documents={documents} expenses={expenses} operationsSummary={operationsSummary} onNavigate={onNavigate} />
-  const canSeeFleet = role === 'fleet_manager'
-  const canSeeMaintenance = ['fleet_manager', 'technician'].includes(role)
-  const canSeeFinance = role === 'accountant'
-  const fleetHealth = fleet.length
-    ? Math.round(fleet.reduce((sum, vehicle) => sum + vehicle.health, 0) / fleet.length)
-    : 0
-  const statusCount = (status) => fleet.filter((vehicle) => vehicle.status === status).length
-  if (['inventory_manager', 'driver', 'technician'].includes(role)) {
-    return <div><PageHeader eyebrow={workspace[0]} title={workspace[1]} subtitle="Your workspace is focused on the work assigned to your role." /><RoleOverview role={role} vehicles={fleet} workOrders={workOrders} parts={parts} purchaseOrders={purchaseOrders} onNavigate={onNavigate} /></div>
-  }
-  return <div>
-    <PageHeader eyebrow={workspace[0]} title={workspace[1]} subtitle="VahanSync shows the work relevant to your role, with organisation-wide controls behind it." />
-    {role === 'owner' ? <div className="metric-grid">
-      <MetricCard label="Organisation access" value="Governance" change="owner" detail="members, roles, and policy" icon="◈" tone="navy" />
-      <MetricCard label="Billing state" value={subscription?.status || 'Loading'} change={subscription?.trial_ends_on ? `ends ${subscription.trial_ends_on}` : 'subscription'} detail="organisation billing" icon="₹" tone="blue" />
-      <MetricCard label="Member policy" value="Unlimited" change="all plans" detail="no seat cap for operators" icon="◎" tone="green" />
-      <MetricCard label="Operational ownership" value="Delegated" change="role-based" detail="fleet teams run daily work" icon="⌁" tone="purple" />
-    </div> : <div className="metric-grid">
-      <MetricCard label="Fleet health" value={`${fleetHealth}%`} change="live" detail="average vehicle health" icon="◒" tone="navy" />
-      <MetricCard label="Active vehicles" value={`${statusCount('On route')} / ${fleet.length}`} change="live" detail="currently on route" icon="▱" tone="blue" />
-      <MetricCard label="Open work orders" value={workOrders.length} change="live" detail="from maintenance planner" icon="⌁" tone="orange" />
-      <MetricCard label="Recorded cost" value={`₹${(expenses.reduce((sum, expense) => sum + expense.amount_paise, 0) / 100000).toFixed(1)}L`} change="live" detail="from expense ledger" icon="₹" tone="purple" />
-    </div>}
-    <div className="content-grid">
-      {canSeeFleet && <section className="panel fleet-panel">
-        <PanelHeading title="Fleet overview" meta={`${fleet.length} vehicles`} action="View all" onAction={() => onNotify('Fleet view selected from the overview.')} />
-        <div className="fleet-summary">
-          <div className="donut-wrap"><div className="donut"><strong>{fleetHealth}%</strong><span>healthy</span></div></div>
-          <div className="legend-list">
-            <Legend color="green" label="On route" value={statusCount('On route')} sub={fleet.length ? `${Math.round(statusCount('On route') / fleet.length * 100)}%` : '0%'} />
-            <Legend color="orange" label="In workshop" value={statusCount('In workshop')} sub={fleet.length ? `${Math.round(statusCount('In workshop') / fleet.length * 100)}%` : '0%'} />
-            <Legend color="blue" label="Idle / parked" value={statusCount('Idle / parked')} sub={fleet.length ? `${Math.round(statusCount('Idle / parked') / fleet.length * 100)}%` : '0%'} />
-          </div>
-        </div>
-        <div className="mini-table">
-          <div className="mini-row mini-head"><span>Vehicle</span><span>Status</span><span>Health</span></div>
-          {fleet.slice(0, 3).map((vehicle) => <div className="mini-row" key={vehicle.reg}><div className="vehicle-cell"><div className={`vehicle-dot ${vehicle.accent}`}></div><div><strong>{vehicle.reg}</strong><small>{vehicle.model}</small></div></div><Status status={vehicle.status} /><div className="health-cell"><span>{vehicle.health}%</span><div className="health-bar"><i style={{ width: `${vehicle.health}%` }}></i></div></div></div>)}
-        </div>
-      </section>}
-      {canSeeMaintenance && <section className="panel">
-        <PanelHeading title="Maintenance queue" meta={`${workOrders.length} open work orders`} action="Open planner" onAction={() => onNotify('Maintenance planner opened.')} />
-        <div className="maintenance-list">{workOrders.slice(0, 3).map((item) => <div className="maintenance-item" key={item.id}><div className={`maintenance-icon ${item.priority === 'High' ? 'red' : item.priority === 'Low' ? 'green' : 'amber'}`}>⌁</div><div className="maintenance-copy"><strong>{item.title}</strong><span>{fleet.find((vehicle) => vehicle.id === item.vehicle_id)?.reg || 'Vehicle linked'}</span></div><div className="maintenance-due"><span>{item.due_date || 'Unscheduled'}</span><small className={`priority ${item.priority === 'High' ? 'red' : item.priority === 'Low' ? 'green' : 'amber'}`}>{item.priority}</small></div></div>)}</div>
-        <button className="full-width-button" onClick={() => onNotify('New service request started.')}>+ Create service request</button>
-      </section>}
-    </div>
-    <div className="content-grid bottom-grid">
-      {canSeeFinance && <section className="panel cost-panel"><PanelHeading title="Operating cost" meta={`${expenses.length} recorded expenses`} action="Detailed report" onAction={() => onNotify('Cost report is ready to review.')} /><div className="chart-wrap"><div className="y-labels"><span>₹18L</span><span>₹12L</span><span>₹6L</span><span>₹0</span></div><div className="chart"><div className="grid-lines"><i></i><i></i><i></i><i></i></div><svg viewBox="0 0 650 180" preserveAspectRatio="none" aria-label="Operating cost chart"><defs><linearGradient id="chartFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#2a8a82" stopOpacity=".2" /><stop offset="100%" stopColor="#2a8a82" stopOpacity="0" /></linearGradient></defs><path d="M0 128 C40 116 58 124 90 101 S145 115 172 88 S230 74 260 92 S302 84 335 96 S380 57 420 72 S464 83 500 48 S551 68 575 36 S617 47 650 18 L650 180 L0 180Z" fill="url(#chartFill)" /><path d="M0 128 C40 116 58 124 90 101 S145 115 172 88 S230 74 260 92 S302 84 335 96 S380 57 420 72 S464 83 500 48 S551 68 575 36 S617 47 650 18" fill="none" stroke="#2a8a82" strokeWidth="3" strokeLinecap="round" /></svg><div className="x-labels"><span>Jan</span><span>Feb</span><span>Mar</span><span>Apr</span><span>May</span><span>Jun</span></div></div></div></section>}
-      {canSeeFleet && <section className="panel"><PanelHeading title="Documents expiring soon" meta={`${documents.length} documents in vault`} action="View vault" onAction={() => onNotify('Document vault opened.')} /><div className="document-list">{documents.slice(0, 3).map((doc) => <div className="document-item" key={doc.id}><div className="doc-icon warning">▤</div><div className="document-copy"><strong>{doc.name}</strong><span>{fleet.find((vehicle) => vehicle.id === doc.vehicle_id)?.reg || 'Organization document'} · {doc.expires_on}</span></div><span className="days-pill warning">{doc.status}</span></div>)}</div></section>}
-    </div>
-  </div>
+function MaintenancePage({ token, data, refresh, query }) {
+  const [tab, setTab] = useState('work')
+  const [form, setForm] = useState({ vehicle_id: '', title: '', description: '', priority: 'Medium', due_date: today(), assigned_to: '' })
+  const [plan, setPlan] = useState({ vehicle_id: '', name: '', interval_km: '', interval_days: '', next_due_km: '', next_due_on: today() })
+  const [component, setComponent] = useState({ vehicle_id: '', name: '', component_type: '', installed_at_km: 0, service_interval_km: '' })
+  async function createWork(event) { event.preventDefault(); try { await createWorkOrder(token, { ...form, vehicle_id: Number(form.vehicle_id), assigned_user_id: null }); refresh('Work order dispatched.'); setForm({ ...form, title: '', description: '' }) } catch (error) { refresh(error.message) } }
+  async function createPlan(event) { event.preventDefault(); try { await createMaintenancePlan(token, { ...plan, vehicle_id: Number(plan.vehicle_id), interval_km: plan.interval_km ? Number(plan.interval_km) : null, interval_days: plan.interval_days ? Number(plan.interval_days) : null, next_due_km: plan.next_due_km ? Number(plan.next_due_km) : null }); refresh('Maintenance plan created.') } catch (error) { refresh(error.message) } }
+  async function createComp(event) { event.preventDefault(); try { await createComponent(token, { ...component, vehicle_id: Number(component.vehicle_id), installed_at_km: Number(component.installed_at_km), service_interval_km: component.service_interval_km ? Number(component.service_interval_km) : null, next_service_km: component.service_interval_km ? Number(component.installed_at_km) + Number(component.service_interval_km) : null }); refresh('Component lifecycle record created.') } catch (error) { refresh(error.message) } }
+  async function transition(order, action) { try { if (action === 'start') await startWorkOrder(token, order.id); if (action === 'complete') await completeWorkOrder(token, order.id); if (action === 'approve') await approveWorkOrder(token, order.id); refresh('Work order updated.') } catch (error) { refresh(error.message) } }
+  const work = data.workOrders.filter((order) => JSON.stringify(order).toLowerCase().includes(query))
+  return <PageFrame eyebrow="02 · Fleet operations" title="Maintenance command" description="Plan preventive work, dispatch a repair, track execution evidence, and close the lifecycle record."><div className="tabs">{[['work', 'Work orders'], ['plans', 'Preventive plans'], ['components', 'Components']].map(([id, label]) => <button className={tab === id ? 'tab active' : 'tab'} key={id} onClick={() => setTab(id)}>{label}</button>)}</div>{tab === 'work' && <><FormCard title="Dispatch work" description="A work order carries the vehicle, priority, due date, and accountable handoff."><form className="form-grid" onSubmit={createWork}><SelectField label="Vehicle" value={form.vehicle_id} onChange={(value) => setForm({ ...form, vehicle_id: value })} options={[['', 'Select vehicle'], ...data.vehicles.map((vehicle) => [String(vehicle.id), `${vehicle.registration_number} · ${vehicle.model}`])]} required /><Field label="Work title" value={form.title} onChange={(value) => setForm({ ...form, title: value })} required /><SelectField label="Priority" value={form.priority} onChange={(value) => setForm({ ...form, priority: value })} options={['Low', 'Medium', 'High', 'Critical'].map((value) => [value, value])} /><Field label="Due date" type="date" value={form.due_date} onChange={(value) => setForm({ ...form, due_date: value })} /><Field label="Assigned technician" value={form.assigned_to} onChange={(value) => setForm({ ...form, assigned_to: value })} /><TextField label="Scope and instructions" value={form.description} onChange={(value) => setForm({ ...form, description: value })} /><button className="primary-button">Create work order</button></form></FormCard><DataPanel title="Dispatch board" eyebrow={`${work.length} work orders`}><Table headers={['Work', 'Vehicle', 'Priority', 'Due', 'Status', 'Action']} rows={work.map((order) => [<span><strong>{order.title}</strong><small>{order.description || 'No extra instructions'}</small></span>, data.vehicles.find((vehicle) => vehicle.id === order.vehicle_id)?.registration_number || `Vehicle #${order.vehicle_id}`, order.priority, dateText(order.due_date), <span className={`status ${order.status === 'Completed' ? 'good' : order.status === 'Cancelled' ? 'bad' : 'warn'}`}>{order.status}</span>, <div className="row-actions">{order.status === 'Open' && <button className="table-action" onClick={() => transition(order, 'start')}>Start</button>}{['In progress', 'REWORK'].includes(order.status) && <button className="table-action" onClick={() => transition(order, 'complete')}>Submit review</button>}{['Ready for review', 'READY_FOR_REVIEW'].includes(order.status) && <button className="table-action" onClick={() => transition(order, 'approve')}>Approve</button>}</div>])} empty="No work orders have been dispatched." /></DataPanel></>}{tab === 'plans' && <><FormCard title="Preventive maintenance plan" description="Create a service horizon from kilometres, days, or both."><form className="form-grid" onSubmit={createPlan}><SelectField label="Vehicle" value={plan.vehicle_id} onChange={(value) => setPlan({ ...plan, vehicle_id: value })} options={[['', 'Select vehicle'], ...data.vehicles.map((vehicle) => [String(vehicle.id), vehicle.registration_number])]} required /><Field label="Plan name" value={plan.name} onChange={(value) => setPlan({ ...plan, name: value })} required /><Field label="Interval kilometres" type="number" value={plan.interval_km} onChange={(value) => setPlan({ ...plan, interval_km: value })} /><Field label="Interval days" type="number" value={plan.interval_days} onChange={(value) => setPlan({ ...plan, interval_days: value })} /><Field label="Next due kilometres" type="number" value={plan.next_due_km} onChange={(value) => setPlan({ ...plan, next_due_km: value })} /><Field label="Next due date" type="date" value={plan.next_due_on} onChange={(value) => setPlan({ ...plan, next_due_on: value })} /><button className="primary-button">Save maintenance plan</button></form></FormCard><DataPanel title="Preventive plan register" eyebrow={`${data.plans.length} plans`}><Table headers={['Plan', 'Vehicle', 'Next due', 'Active']} rows={data.plans.map((item) => [item.name, data.vehicles.find((vehicle) => vehicle.id === item.vehicle_id)?.registration_number || `#${item.vehicle_id}`, item.next_due_on || `${item.next_due_km || '—'} km`, item.active ? <span className="status good">Active</span> : <span className="status bad">Inactive</span>])} empty="No preventive plans have been created." /></DataPanel></>}{tab === 'components' && <><FormCard title="Component lifecycle" description="Track installation, service interval, and the next threshold for every critical component."><form className="form-grid" onSubmit={createComp}><SelectField label="Vehicle" value={component.vehicle_id} onChange={(value) => setComponent({ ...component, vehicle_id: value })} options={[['', 'Select vehicle'], ...data.vehicles.map((vehicle) => [String(vehicle.id), vehicle.registration_number])]} required /><Field label="Component name" value={component.name} onChange={(value) => setComponent({ ...component, name: value })} required /><Field label="Component type" value={component.component_type} onChange={(value) => setComponent({ ...component, component_type: value })} required /><Field label="Installed at km" type="number" value={component.installed_at_km} onChange={(value) => setComponent({ ...component, installed_at_km: value })} /><Field label="Service interval km" type="number" value={component.service_interval_km} onChange={(value) => setComponent({ ...component, service_interval_km: value })} /><button className="primary-button">Add component</button></form></FormCard><DataPanel title="Component register" eyebrow={`${data.components.length} tracked components`}><Table headers={['Component', 'Vehicle', 'Next service', 'Status', 'Action']} rows={data.components.map((item) => [<span><strong>{item.name}</strong><small>{item.component_type}</small></span>, data.vehicles.find((vehicle) => vehicle.id === item.vehicle_id)?.registration_number || `#${item.vehicle_id}`, `${item.next_service_km || '—'} km`, item.status, <button className="table-action" onClick={async () => { try { await completeComponentService(token, item.id, data.vehicles.find((vehicle) => vehicle.id === item.vehicle_id)?.odometer_km || 0); refresh('Component service completed.') } catch (error) { refresh(error.message) } }}>Complete service</button>])} empty="No component lifecycle records exist." /></DataPanel></>}</PageFrame>
 }
 
-function MetricCard({ label, value, change, detail, icon, tone }) {
-  return <div className="metric-card"><div className={`metric-icon ${tone}`}>{icon}</div><div className="metric-label">{label}</div><div className="metric-value">{value}</div><div className="metric-change"><span className={change.startsWith('-') ? 'down' : ''}>{change}</span> {detail}</div></div>
-}
-function EmptyState({ title, detail, action, onAction }) {
-  return <div className="empty-state"><strong>{title}</strong><span>{detail}</span>{action && <button className="secondary-button" onClick={onAction}>{action}</button>}</div>
-}
-function PanelHeading({ title, meta, action, onAction }) { return <div className="panel-heading"><div><h2>{title}</h2><span>{meta}</span></div><button onClick={onAction}>{action} <span>→</span></button></div> }
-function Legend({ color, label, value, sub }) { return <div className="legend-item"><i className={color}></i><span>{label}</span><strong>{value}</strong><small>{sub}</small></div> }
-function Status({ status }) { return <span className={`status ${status === 'On route' ? 'on-route' : status === 'In workshop' ? 'in-workshop' : 'due'}`}><i></i>{status}</span> }
-
-function Fleet({ role, vehicles: rows, components, token, onAdd, onNotify, onVehicleUpdated, onComponentCreated, onComponentUpdated }) {
-  const [componentForm, setComponentForm] = useState({ vehicle_id: rows[0]?.id || '', name: '', component_type: '', installed_at_km: '', service_interval_km: '' })
-  const [editingVehicle, setEditingVehicle] = useState(null)
-  const [editingComponent, setEditingComponent] = useState(null)
-  const [integrations, setIntegrations] = useState([])
-  const [integrationForm, setIntegrationForm] = useState({ provider: 'Intangles', base_url: '', sync_path: '/readings', credential_ref: '', sync_interval_minutes: 1440 })
-  const [deviceForm, setDeviceForm] = useState({ vehicle_id: rows[0]?.id || '', provider: 'Intangles', device_identifier: '' })
-  const [syncing, setSyncing] = useState(false)
-  useEffect(() => {
-    if (role !== 'fleet_manager' && role !== 'owner') return
-    getTelematicsIntegrations(token).then(setIntegrations).catch(() => setIntegrations([]))
-  }, [role, token])
-  const syncOdometers = async () => {
-    setSyncing(true)
-    try {
-      const results = await syncDueTelematics(token)
-      onNotify(results.length ? `GPS sync completed for ${results.length} integration(s). Refreshing fleet readings.` : 'No GPS integration is due for sync.')
-      window.location.reload()
-    } catch (error) {
-      onNotify(error.message)
-    } finally {
-      setSyncing(false)
-    }
-  }
-  const downloadExport = async () => {
-    try {
-      const blob = await exportResource(token, 'vehicles')
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = 'vehicles.csv'
-      link.click()
-      URL.revokeObjectURL(url)
-    } catch (error) { onNotify(error.message) }
-  }
-  const addComponent = async (event) => {
-    event.preventDefault()
-    try {
-      const component = await createComponent(token, { ...componentForm, vehicle_id: Number(componentForm.vehicle_id), installed_at_km: Number(componentForm.installed_at_km || 0), service_interval_km: componentForm.service_interval_km ? Number(componentForm.service_interval_km) : null })
-      onComponentCreated(component)
-      setComponentForm({ vehicle_id: rows[0]?.id || '', name: '', component_type: '', installed_at_km: '', service_interval_km: '' })
-      onNotify('Component attached to vehicle.')
-    } catch (error) { onNotify(error.message) }
-  }
-  const addIntegration = async (event) => { event.preventDefault(); try { const created = await createTelematicsIntegration(token, { ...integrationForm, sync_interval_minutes: Number(integrationForm.sync_interval_minutes) }); setIntegrations((current) => [created, ...current]); onNotify('GPS provider integration saved. Credentials can be added later.') } catch (error) { onNotify(error.message) } }
-  const addDevice = async (event) => { event.preventDefault(); try { await createTelematicsDevice(token, { ...deviceForm, vehicle_id: Number(deviceForm.vehicle_id) }); onNotify('GPS device assigned to vehicle.') } catch (error) { onNotify(error.message) } }
-  const importVehicles = async (event) => { const file = event.target.files?.[0]; if (!file) return; try { const result = await importResource(token, 'vehicles', file); onNotify(`${result.imported} vehicles imported. Reload to view them.`) } catch (error) { onNotify(error.message) } }
-  return <div><PageHeader eyebrow="Operations" title="Fleet" subtitle="Every vehicle, every component, one source of truth." action={role === 'fleet_manager' ? 'Add vehicle' : undefined} onAction={onAdd} /><div className="toolbar"><div className="filter-tabs"><button className="selected">Live vehicles <span>{rows.length}</span></button></div><button className="secondary-button" onClick={downloadExport}>Export vehicles ↗</button><label className="secondary-button">Import vehicles<input hidden type="file" accept=".csv" onChange={importVehicles} /></label>{(role === 'fleet_manager' || role === 'owner') && <button className="secondary-button" onClick={syncOdometers} disabled={syncing}>{syncing ? 'Syncing GPS…' : 'Refresh GPS odometers'}</button>}</div>{(role === 'fleet_manager' || role === 'owner') && <section className="panel table-panel"><div className="table-header"><div><h2>Connected GPS providers</h2><span>{integrations.length ? `${integrations.length} integration(s) configured · daily sync when due` : 'Connect Intangles or another provider through the integration API'}</span></div></div><form className="form-grid" onSubmit={addIntegration}><input required placeholder="Provider name" value={integrationForm.provider} onChange={(event) => setIntegrationForm({ ...integrationForm, provider: event.target.value })} /><input required type="url" placeholder="Provider base URL" value={integrationForm.base_url} onChange={(event) => setIntegrationForm({ ...integrationForm, base_url: event.target.value })} /><input placeholder="Sync path" value={integrationForm.sync_path} onChange={(event) => setIntegrationForm({ ...integrationForm, sync_path: event.target.value })} /><input placeholder="Backend credential reference" value={integrationForm.credential_ref} onChange={(event) => setIntegrationForm({ ...integrationForm, credential_ref: event.target.value })} /><button className="primary-button" type="submit">Connect provider</button></form><form className="form-grid" onSubmit={addDevice}><select required value={deviceForm.vehicle_id} onChange={(event) => setDeviceForm({ ...deviceForm, vehicle_id: event.target.value })}>{rows.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.reg}</option>)}</select><input required placeholder="Device provider" value={deviceForm.provider} onChange={(event) => setDeviceForm({ ...deviceForm, provider: event.target.value })} /><input required placeholder="IMEI / device identifier" value={deviceForm.device_identifier} onChange={(event) => setDeviceForm({ ...deviceForm, device_identifier: event.target.value })} /><button className="primary-button" type="submit">Assign GPS device</button></form><div className="data-table">{integrations.map((integration) => <div className="data-row" key={integration.id}><span><strong>{integration.provider}</strong><small>{integration.base_url}</small></span><span>{integration.last_synced_at ? `Last sync ${new Date(integration.last_synced_at).toLocaleString()}` : 'Never synced'}</span><Status status={integration.last_sync_status === 'success' ? 'On route' : 'In workshop'} /><span>{integration.credential_ref ? 'Credential configured' : 'Credential missing'}</span></div>)}</div></section>}<section className="panel table-panel"><div className="table-header"><div><h2>Vehicle register</h2><span>Live organization records</span></div></div><div className="data-table"><div className="data-row data-head"><span>Vehicle</span><span>Depot</span><span>Driver</span><span>Status</span><span>Health</span><span></span></div>{rows.map((v) => <div className="data-row" key={v.reg}><div className="vehicle-cell"><div className={`vehicle-dot ${v.accent}`}></div><div><strong>{v.reg}</strong><small>{v.model} · {v.km}</small></div></div><span>{v.depot}</span><span>{v.driver}</span><Status status={v.status} /><div className="health-cell"><span>{v.health}%</span><div className="health-bar"><i style={{ width: `${v.health}%` }}></i></div>{role === 'fleet_manager' ? <button className="row-more" onClick={() => setEditingVehicle(v)}>Edit</button> : <span />}</div></div>)}</div></section>
-    {role === 'fleet_manager' && <section className="panel table-panel"><div className="table-header"><div><h2>Component lifecycle</h2><span>Attach components, monitor odometer service thresholds, and close the maintenance cycle.</span></div></div><form className="form-grid" onSubmit={addComponent}><select value={componentForm.vehicle_id} onChange={(event) => setComponentForm({ ...componentForm, vehicle_id: event.target.value })} required>{rows.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.reg}</option>)}</select><input placeholder="Component name" value={componentForm.name} onChange={(event) => setComponentForm({ ...componentForm, name: event.target.value })} required /><input placeholder="Type (brakes, tyre...)" value={componentForm.component_type} onChange={(event) => setComponentForm({ ...componentForm, component_type: event.target.value })} required /><input type="number" placeholder="Installed odometer km" value={componentForm.installed_at_km} onChange={(event) => setComponentForm({ ...componentForm, installed_at_km: event.target.value })} /><input type="number" placeholder="Service interval km" value={componentForm.service_interval_km} onChange={(event) => setComponentForm({ ...componentForm, service_interval_km: event.target.value })} /><button className="primary-button" type="submit">Attach component</button></form><div className="data-table">{components.map((component) => { const vehicle = rows.find((item) => item.id === component.vehicle_id); const currentKm = vehicle?.odometer_km || 0; const due = component.next_service_km && currentKm >= component.next_service_km; return <div className="data-row" key={component.id}><span>{component.name}<small>{component.component_type}</small></span><span>{vehicle?.reg || 'Vehicle'}</span><span>{currentKm.toLocaleString()} / next {component.next_service_km || '—'} km</span><Status status={due ? 'In workshop' : component.status} /><button className="row-more" onClick={() => setEditingComponent(component)}>Edit</button></div> })}</div></section>}
-    {editingVehicle && <EditVehicleModal vehicle={editingVehicle} onClose={() => setEditingVehicle(null)} onSave={async (payload) => { const updated = await updateVehicle(token, editingVehicle.id, payload); onVehicleUpdated(updated); setEditingVehicle(null); onNotify('Vehicle updated.') }} />}
-    {editingComponent && <EditComponentModal component={editingComponent} vehicle={rows.find((vehicle) => vehicle.id === editingComponent.vehicle_id)} token={token} onClose={() => setEditingComponent(null)} onSave={async (payload) => { const updated = await updateComponent(token, editingComponent.id, payload); onComponentUpdated(updated); setEditingComponent(null); onNotify('Component lifecycle updated.') }} onServiceComplete={async (odometerKm) => { const updated = await completeComponentService(token, editingComponent.id, odometerKm); onComponentUpdated(updated); setEditingComponent(null); onNotify('Component service completed and next threshold recalculated.') }} />}
-  </div>
+function CompliancePage({ token, data, refresh, query }) {
+  const [form, setForm] = useState({ vehicle_id: '', name: '', document_type: 'Fitness', issued_by: '', expires_on: today(), status: 'Valid' })
+  async function submit(event) { event.preventDefault(); try { await createDocument(token, { ...form, vehicle_id: form.vehicle_id ? Number(form.vehicle_id) : null }); setForm({ ...form, name: '', issued_by: '' }); refresh('Compliance document added.') } catch (error) { refresh(error.message) } }
+  const docs = data.documents.filter((item) => JSON.stringify(item).toLowerCase().includes(query))
+  return <PageFrame eyebrow="03 · Fleet operations" title="Compliance vault" description="Keep fitness, insurance, PUC, permits, and other expiry-bound evidence attached to the correct vehicle."><FormCard title="Add compliance record" description="Create metadata first, then attach a file from the document row when storage is configured."><form className="form-grid" onSubmit={submit}><SelectField label="Vehicle" value={form.vehicle_id} onChange={(value) => setForm({ ...form, vehicle_id: value })} options={[['', 'Organisation-level'], ...data.vehicles.map((vehicle) => [String(vehicle.id), vehicle.registration_number])]} /><Field label="Document name" value={form.name} onChange={(value) => setForm({ ...form, name: value })} required /><SelectField label="Type" value={form.document_type} onChange={(value) => setForm({ ...form, document_type: value })} options={['Fitness', 'Insurance', 'PUC', 'Permit', 'Tax', 'Other'].map((value) => [value, value])} /><Field label="Issued by" value={form.issued_by} onChange={(value) => setForm({ ...form, issued_by: value })} /><Field label="Expires on" type="date" value={form.expires_on} onChange={(value) => setForm({ ...form, expires_on: value })} required /><button className="primary-button">Save document</button></form></FormCard><DataPanel title="Document vault" eyebrow={`${docs.length} records`}><Table headers={['Document', 'Vehicle', 'Expires', 'Status', 'Action']} rows={docs.map((item) => [<span><strong>{item.name}</strong><small>{item.document_type} · {item.issued_by || 'Issuer not recorded'}</small></span>, item.vehicle_id ? data.vehicles.find((vehicle) => vehicle.id === item.vehicle_id)?.registration_number || `#${item.vehicle_id}` : 'Organisation', dateText(item.expires_on), <span className={`status ${item.status === 'Valid' ? 'good' : 'warn'}`}>{item.status}</span>, <button className="table-action" onClick={async () => { try { await updateDocument(token, item.id, { status: item.status === 'Valid' ? 'Archived' : 'Valid' }); refresh('Document status updated.') } catch (error) { refresh(error.message) } }}>Toggle status</button>])} empty="No compliance documents have been entered." /></DataPanel></PageFrame>
 }
 
-function DriverWorkspace({ token, vehicles, onNotify }) {
-  const [inspections, setInspections] = useState([])
-  const [issues, setIssues] = useState([])
-  const [inspection, setInspection] = useState({ vehicle_id: '', inspection_type: 'pre_trip', status: 'SAFE', odometer_km: '', notes: '' })
-  const [issue, setIssue] = useState({ vehicle_id: '', title: '', detail: '', priority: 'Medium' })
-
-  useEffect(() => {
-    Promise.all([getDriverInspections(token), getDriverIssues(token)]).then(([loadedInspections, loadedIssues]) => {
-      setInspections(loadedInspections)
-      setIssues(loadedIssues)
-    }).catch((error) => onNotify(error.message))
-  }, [token])
-
-  const submitInspection = async (event) => {
-    event.preventDefault()
-    try {
-      const created = await createDriverInspection(token, { ...inspection, vehicle_id: Number(inspection.vehicle_id), odometer_km: Number(inspection.odometer_km) })
-      setInspections((current) => [created, ...current])
-      setInspection({ ...inspection, status: 'SAFE', odometer_km: '', notes: '' })
-      onNotify('Vehicle inspection submitted.')
-    } catch (error) { onNotify(error.message) }
-  }
-
-  const submitIssue = async (event) => {
-    event.preventDefault()
-    try {
-      const created = await createDriverIssue(token, { ...issue, vehicle_id: Number(issue.vehicle_id) })
-      setIssues((current) => [created, ...current])
-      setIssue({ ...issue, title: '', detail: '' })
-      onNotify('Vehicle issue reported to the fleet manager.')
-    } catch (error) { onNotify(error.message) }
-  }
-
-  return <div>
-    <PageHeader eyebrow="Driver workspace" title="Daily vehicle checks" subtitle="Inspect your assigned vehicle, keep its odometer current, and report defects before they become breakdowns." />
-    <section className="panel table-panel">
-      <div className="table-header"><div><h2>Submit inspection</h2><span>Unsafe checks immediately mark the vehicle out of service.</span></div></div>
-      <form className="form-grid" onSubmit={submitInspection}>
-        <select required value={inspection.vehicle_id} onChange={(event) => setInspection({ ...inspection, vehicle_id: event.target.value })}><option value="">Assigned vehicle</option>{vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.reg} · {vehicle.odometer_km || 0} km</option>)}</select>
-        <select value={inspection.inspection_type} onChange={(event) => setInspection({ ...inspection, inspection_type: event.target.value })}><option value="pre_trip">Pre-trip</option><option value="post_trip">Post-trip</option></select>
-        <select value={inspection.status} onChange={(event) => setInspection({ ...inspection, status: event.target.value })}><option value="SAFE">Safe</option><option value="REVIEW">Needs review</option><option value="UNSAFE">Unsafe</option></select>
-        <input required type="number" min="0" placeholder="Current odometer km" value={inspection.odometer_km} onChange={(event) => setInspection({ ...inspection, odometer_km: event.target.value })} />
-        <input placeholder="Notes" value={inspection.notes} onChange={(event) => setInspection({ ...inspection, notes: event.target.value })} />
-        <button className="primary-button" type="submit">Submit check</button>
-      </form>
-    </section>
-    <section className="panel table-panel">
-      <div className="table-header"><div><h2>Report a vehicle issue</h2><span>Issues become traceable maintenance work for the fleet team.</span></div></div>
-      <form className="form-grid" onSubmit={submitIssue}>
-        <select required value={issue.vehicle_id} onChange={(event) => setIssue({ ...issue, vehicle_id: event.target.value })}><option value="">Assigned vehicle</option>{vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.reg}</option>)}</select>
-        <input required placeholder="Issue title" value={issue.title} onChange={(event) => setIssue({ ...issue, title: event.target.value })} />
-        <input required placeholder="Describe the defect" value={issue.detail} onChange={(event) => setIssue({ ...issue, detail: event.target.value })} />
-        <select value={issue.priority} onChange={(event) => setIssue({ ...issue, priority: event.target.value })}><option>Low</option><option>Medium</option><option>High</option><option>Critical</option></select>
-        <button className="primary-button" type="submit">Report issue</button>
-      </form>
-    </section>
-    <div className="metric-grid compact">
-      <MetricCard label="Assigned vehicles" value={vehicles.length} change="live" detail="visible to you" icon="▱" tone="blue" />
-      <MetricCard label="Checks submitted" value={inspections.length} change="history" detail="pre-trip and post-trip" icon="✓" tone="green" />
-      <MetricCard label="Open issues" value={issues.filter((item) => item.status === 'OPEN').length} change="attention" detail="reported defects" icon="!" tone="orange" />
-    </div>
-    <section className="panel table-panel">
-      <div className="table-header"><div><h2>Recent checks and issues</h2><span>Only records created by your driver account are shown.</span></div></div>
-      <div className="data-table">
-        {[...inspections.map((item) => ({ ...item, kind: 'Inspection', label: item.inspection_type, status: item.status })), ...issues.map((item) => ({ ...item, kind: 'Issue', label: item.title }))].slice(0, 20).map((item) => <div className="data-row" key={`${item.kind}-${item.id}`}><span><strong>{item.kind}</strong><small>{item.label}</small></span><span>{vehicles.find((vehicle) => vehicle.id === item.vehicle_id)?.reg || 'Vehicle'}</span><span>{item.odometer_km ? `${item.odometer_km.toLocaleString()} km` : item.priority}</span><Status status={item.status} /><span>{new Date(item.created_at).toLocaleString()}</span></div>)}
-      </div>
-    </section>
-  </div>
+function TelematicsPage({ token, data, refresh }) {
+  const [integration, setIntegration] = useState({ provider: 'Intangles', base_url: '', sync_path: '/readings', credential_ref: '', sync_interval_minutes: 1440 })
+  const [device, setDevice] = useState({ vehicle_id: '', provider: 'Intangles', device_identifier: '' })
+  async function addIntegration(event) { event.preventDefault(); try { await createTelematicsIntegration(token, { ...integration, sync_interval_minutes: Number(integration.sync_interval_minutes) }); refresh('Telematics provider connected.') } catch (error) { refresh(error.message) } }
+  async function addDevice(event) { event.preventDefault(); try { await createTelematicsDevice(token, { ...device, vehicle_id: Number(device.vehicle_id), active: true }); refresh('GPS device registered.') } catch (error) { refresh(error.message) } }
+  async function sync() { try { await syncDueTelematics(token); refresh('Due odometer sync requested.') } catch (error) { refresh(error.message) } }
+  return <PageFrame eyebrow="04 · Fleet operations" title="GPS & odometer" description="Connect Intangles or another provider, register devices, and keep the fleet manager's daily odometer picture current."><div className="telematics-callout"><div><span className="overline">Provider-neutral boundary</span><h3>Credentials stay server-side.</h3><p>VahanSync stores the provider reference and sync state without exposing secrets in the browser.</p></div><button className="primary-button" onClick={sync}>Run due sync</button></div><div className="split-grid"><FormCard title="Connect provider" description="Use the provider's API base URL and a server-side credential reference."><form className="stack-form" onSubmit={addIntegration}><Field label="Provider" value={integration.provider} onChange={(value) => setIntegration({ ...integration, provider: value })} required /><Field label="Base URL" type="url" value={integration.base_url} onChange={(value) => setIntegration({ ...integration, base_url: value })} placeholder="https://api.provider.com" required /><Field label="Readings path" value={integration.sync_path} onChange={(value) => setIntegration({ ...integration, sync_path: value })} required /><Field label="Credential reference" value={integration.credential_ref} onChange={(value) => setIntegration({ ...integration, credential_ref: value })} /><Field label="Sync interval (minutes)" type="number" value={integration.sync_interval_minutes} onChange={(value) => setIntegration({ ...integration, sync_interval_minutes: value })} /><button className="primary-button">Save integration</button></form></FormCard><FormCard title="Register device" description="Attach a provider device to a vehicle so readings can advance the odometer monotonically."><form className="stack-form" onSubmit={addDevice}><SelectField label="Vehicle" value={device.vehicle_id} onChange={(value) => setDevice({ ...device, vehicle_id: value })} options={[['', 'Select vehicle'], ...data.vehicles.map((vehicle) => [String(vehicle.id), vehicle.registration_number])]} required /><Field label="Provider" value={device.provider} onChange={(value) => setDevice({ ...device, provider: value })} required /><Field label="Device identifier" value={device.device_identifier} onChange={(value) => setDevice({ ...device, device_identifier: value })} required /><button className="primary-button">Register device</button></form></FormCard></div><div className="split-grid"><DataPanel title="Connected providers" eyebrow={`${data.integrations.length} integrations`}><Table headers={['Provider', 'Endpoint', 'Last sync', 'Status']} rows={data.integrations.map((item) => [item.provider, item.base_url, dateText(item.last_synced_at), item.last_sync_status || 'Not synced'])} empty="No GPS providers connected." /></DataPanel><DataPanel title="Device registry" eyebrow={`${data.devices.length} devices`}><Table headers={['Vehicle', 'Provider', 'Device', 'Last seen']} rows={data.devices.map((item) => [data.vehicles.find((vehicle) => vehicle.id === item.vehicle_id)?.registration_number || `#${item.vehicle_id}`, item.provider, item.device_identifier, dateText(item.last_seen_at)])} empty="No devices registered." /></DataPanel></div></PageFrame>
 }
 
-function TechnicianMaintenance({ workOrders, vehicles: fleet, token, onUpdated, onNotify }) {
-  const [selectedOrder, setSelectedOrder] = useState(null)
+function InventoryPage({ token, data, refresh, query }) {
+  const [tab, setTab] = useState('parts')
+  const [part, setPart] = useState({ sku: '', name: '', category: '', quantity_on_hand: 0, reorder_level: 0, unit_cost_paise: 0, supplier: '' })
+  const [location, setLocation] = useState({ name: '', code: '', address: '' })
+  const [movement, setMovement] = useState({ part_id: '', location_id: '', transaction_type: 'receipt', quantity: 1, reference: '' })
+  async function addPart(event) { event.preventDefault(); try { await createPart(token, { ...part, quantity_on_hand: Number(part.quantity_on_hand), reorder_level: Number(part.reorder_level), unit_cost_paise: Number(part.unit_cost_paise) }); refresh('Part added to catalogue.') } catch (error) { refresh(error.message) } }
+  async function addLocation(event) { event.preventDefault(); try { await createStockLocation(token, location); refresh('Stock location added.') } catch (error) { refresh(error.message) } }
+  async function move(event) { event.preventDefault(); try { await createInventoryMovement(token, { ...movement, part_id: Number(movement.part_id), location_id: Number(movement.location_id), quantity: Number(movement.quantity) }); refresh('Inventory movement recorded.') } catch (error) { refresh(error.message) } }
+  const parts = data.parts.filter((item) => JSON.stringify(item).toLowerCase().includes(query))
+  return <PageFrame eyebrow="01 · Workshop control" title="Parts & stock" description="Know what is available, where it lives, why it moved, and which part needs a reorder decision."><div className="tabs">{[['parts', 'Catalogue'], ['locations', 'Locations'], ['movement', 'Movement']].map(([id, label]) => <button className={tab === id ? 'tab active' : 'tab'} key={id} onClick={() => setTab(id)}>{label}</button>)}</div>{tab === 'parts' && <><FormCard title="Add catalogue item" description="Unit cost is stored in paise for precise finance handoff."><form className="form-grid" onSubmit={addPart}><Field label="SKU" value={part.sku} onChange={(value) => setPart({ ...part, sku: value })} required /><Field label="Part name" value={part.name} onChange={(value) => setPart({ ...part, name: value })} required /><Field label="Category" value={part.category} onChange={(value) => setPart({ ...part, category: value })} required /><Field label="Opening quantity" type="number" value={part.quantity_on_hand} onChange={(value) => setPart({ ...part, quantity_on_hand: value })} /><Field label="Reorder level" type="number" value={part.reorder_level} onChange={(value) => setPart({ ...part, reorder_level: value })} /><Field label="Unit cost (paise)" type="number" value={part.unit_cost_paise} onChange={(value) => setPart({ ...part, unit_cost_paise: value })} /><Field label="Supplier" value={part.supplier} onChange={(value) => setPart({ ...part, supplier: value })} /><button className="primary-button">Create part</button></form></FormCard><DataPanel title="Parts catalogue" eyebrow={`${parts.length} items`}><Table headers={['Part', 'Category', 'On hand', 'Reorder at', 'Unit cost', 'Supplier']} rows={parts.map((item) => [<span><strong>{item.name}</strong><small>{item.sku}</small></span>, item.category, <span className={item.quantity_on_hand <= item.reorder_level ? 'number bad' : 'number'}>{item.quantity_on_hand}</span>, item.reorder_level, money(item.unit_cost_paise), item.supplier || '—'])} empty="No parts have been catalogued." /></DataPanel></>}{tab === 'locations' && <><FormCard title="Add stock location" description="Make bins, depots, and workshop stores explicit."><form className="form-grid" onSubmit={addLocation}><Field label="Location name" value={location.name} onChange={(value) => setLocation({ ...location, name: value })} required /><Field label="Code" value={location.code} onChange={(value) => setLocation({ ...location, code: value })} required /><Field label="Address" value={location.address} onChange={(value) => setLocation({ ...location, address: value })} /><button className="primary-button">Create location</button></form></FormCard><DataPanel title="Location register" eyebrow={`${data.locations.length} locations`}><Table headers={['Name', 'Code', 'Address', 'Status']} rows={data.locations.map((item) => [item.name, item.code, item.address || '—', item.active ? <span className="status good">Active</span> : <span className="status bad">Inactive</span>])} empty="No stock locations have been defined." /></DataPanel></>}{tab === 'movement' && <><FormCard title="Record movement" description="Every receipt, issue, or adjustment keeps a reason and location reference."><form className="form-grid" onSubmit={move}><SelectField label="Part" value={movement.part_id} onChange={(value) => setMovement({ ...movement, part_id: value })} options={[['', 'Select part'], ...data.parts.map((item) => [String(item.id), `${item.sku} · ${item.name}`])]} required /><SelectField label="Location" value={movement.location_id} onChange={(value) => setMovement({ ...movement, location_id: value })} options={[['', 'Select location'], ...data.locations.map((item) => [String(item.id), item.name])]} required /><SelectField label="Movement type" value={movement.transaction_type} onChange={(value) => setMovement({ ...movement, transaction_type: value })} options={['receipt', 'issue', 'adjustment'].map((value) => [value, value])} /><Field label="Quantity" type="number" value={movement.quantity} onChange={(value) => setMovement({ ...movement, quantity: value })} /><Field label="Reference / reason" value={movement.reference} onChange={(value) => setMovement({ ...movement, reference: value })} /><button className="primary-button">Record movement</button></form></FormCard><DataPanel title="Movement history" eyebrow="Latest stock events"><p className="empty-copy">Movement history is available from the API and will appear here after the first recorded receipt, issue, or adjustment.</p></DataPanel></>}</PageFrame>
+}
+
+function ProcurementPage({ token, data, refresh }) {
+  const [vendor, setVendor] = useState({ name: '', vendor_type: 'Parts supplier', gstin: '', contact_name: '', phone: '', email: '', address: '' })
+  const [order, setOrder] = useState({ vendor_id: '', part_id: '', quantity: 1, unit_cost_paise: 0, expected_on: today(), notes: '' })
+  async function addVendor(event) { event.preventDefault(); try { await createVendor(token, vendor); refresh('Vendor added.') } catch (error) { refresh(error.message) } }
+  async function addOrder(event) { event.preventDefault(); try { await createPurchaseOrder(token, { vendor_id: Number(order.vendor_id), expected_on: order.expected_on, notes: order.notes, lines: [{ part_id: Number(order.part_id), quantity: Number(order.quantity), unit_cost_paise: Number(order.unit_cost_paise) }] }); refresh('Purchase order created.') } catch (error) { refresh(error.message) } }
+  async function changeStatus(id, status) { try { await updatePurchaseOrder(token, id, status); refresh('Purchase order status updated.') } catch (error) { refresh(error.message) } }
+  return <PageFrame eyebrow="02 · Workshop control" title="Procurement" description="Maintain supplier context, create purchase orders, and keep receiving decisions visible to inventory and finance."><div className="split-grid"><FormCard title="Vendor register" description="Store GST and contact context for every supplier relationship."><form className="stack-form" onSubmit={addVendor}><Field label="Vendor name" value={vendor.name} onChange={(value) => setVendor({ ...vendor, name: value })} required /><Field label="Vendor type" value={vendor.vendor_type} onChange={(value) => setVendor({ ...vendor, vendor_type: value })} required /><Field label="GSTIN" value={vendor.gstin} onChange={(value) => setVendor({ ...vendor, gstin: value })} /><Field label="Contact person" value={vendor.contact_name} onChange={(value) => setVendor({ ...vendor, contact_name: value })} /><Field label="Phone" value={vendor.phone} onChange={(value) => setVendor({ ...vendor, phone: value })} /><Field label="Email" type="email" value={vendor.email} onChange={(value) => setVendor({ ...vendor, email: value })} /><button className="primary-button">Add vendor</button></form></FormCard><FormCard title="Create purchase order" description="Start with one line; additional lines remain available through the backend API."><form className="stack-form" onSubmit={addOrder}><SelectField label="Vendor" value={order.vendor_id} onChange={(value) => setOrder({ ...order, vendor_id: value })} options={[['', 'Select vendor'], ...data.vendors.map((item) => [String(item.id), item.name])]} required /><SelectField label="Part" value={order.part_id} onChange={(value) => setOrder({ ...order, part_id: value })} options={[['', 'Select part'], ...data.parts.map((item) => [String(item.id), `${item.sku} · ${item.name}`])]} required /><Field label="Quantity" type="number" value={order.quantity} onChange={(value) => setOrder({ ...order, quantity: value })} /><Field label="Unit cost (paise)" type="number" value={order.unit_cost_paise} onChange={(value) => setOrder({ ...order, unit_cost_paise: value })} /><Field label="Expected on" type="date" value={order.expected_on} onChange={(value) => setOrder({ ...order, expected_on: value })} /><TextField label="Notes" value={order.notes} onChange={(value) => setOrder({ ...order, notes: value })} /><button className="primary-button">Create PO</button></form></FormCard></div><DataPanel title="Purchase orders" eyebrow={`${data.purchaseOrders.length} orders`}><Table headers={['Order', 'Vendor', 'Expected', 'Total', 'Status', 'Next action']} rows={data.purchaseOrders.map((item) => [item.order_number, data.vendors.find((vendor) => vendor.id === item.vendor_id)?.name || `Vendor #${item.vendor_id}`, dateText(item.expected_on), money(item.total_paise), <span className="status warn">{item.status}</span>, item.status === 'Draft' ? <button className="table-action" onClick={() => changeStatus(item.id, 'Submitted')}>Submit</button> : item.status === 'Submitted' ? <button className="table-action" onClick={() => changeStatus(item.id, 'Approved')}>Approve</button> : '—'])} empty="No purchase orders have been created." /></DataPanel></PageFrame>
+}
+
+function TechnicianPage({ token, data, refresh, query }) {
+  const [selected, setSelected] = useState(null)
   const [checklist, setChecklist] = useState([])
-  const [savingChecklist, setSavingChecklist] = useState(false)
-  useEffect(() => {
-    if (!selectedOrder) return
-    getWorkOrderChecklist(token, selectedOrder.id)
-      .then((items) => setChecklist(items.length ? items : [
-        { title: 'Confirm repair scope and safety isolation', completed: false, sort_order: 0 },
-        { title: 'Record parts and consumables used', completed: false, sort_order: 1 },
-        { title: 'Verify repair and return-to-service condition', completed: false, sort_order: 2 },
-      ]))
-      .catch((error) => onNotify(error.message))
-  }, [selectedOrder, token, onNotify])
-  const transition = async (item) => {
-    try {
-      const action = item.status === 'Open' || item.status === 'Assigned' ? startWorkOrder : completeWorkOrder
-      const updated = await action(token, item.id)
-      onUpdated(updated)
-      onNotify(`Work order ${updated.status.toLowerCase()}.`)
-    } catch (error) { onNotify(error.message) }
-  }
-  const toggleChecklist = (index) => setChecklist((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, completed: !item.completed } : item))
-  const saveChecklist = async () => {
-    if (!selectedOrder) return
-    setSavingChecklist(true)
-    try {
-      const updated = await updateWorkOrderChecklist(token, selectedOrder.id, checklist.map((item, index) => ({ title: item.title, completed: item.completed, sort_order: index })))
-      setChecklist(updated)
-      onNotify('Execution checklist saved.')
-    } catch (error) { onNotify(error.message) } finally { setSavingChecklist(false) }
-  }
-  const uploadEvidence = async (event) => {
-    const file = event.target.files?.[0]
-    if (!file || !selectedOrder) return
-    try { await uploadWorkOrderEvidence(token, selectedOrder.id, file); onNotify('Repair evidence uploaded.') } catch (error) { onNotify(error.message) } finally { event.target.value = '' }
-  }
-  return <div>
-    <PageHeader eyebrow="Technician workspace" title="Assigned work orders" subtitle="Execute repairs, record the handoff, and keep every job auditable." />
-    <div className="metric-grid compact">
-      <MetricCard label="Assigned jobs" value={workOrders.length} change="live" detail="your queue" icon="⌁" tone="blue" />
-      <MetricCard label="Ready to start" value={workOrders.filter((item) => ['Open', 'Assigned'].includes(item.status)).length} change="action" detail="jobs waiting for execution" icon="▶" tone="orange" />
-      <MetricCard label="Completed" value={workOrders.filter((item) => item.status === 'Ready for review').length} change="handoff" detail="awaiting fleet review" icon="✓" tone="green" />
-    </div>
-    <section className="panel table-panel">
-      <div className="table-header"><div><h2>Repair queue</h2><span>Start and complete only the work assigned to you.</span></div></div>
-      <div className="data-table">
-        <div className="data-row data-head"><span>Work order</span><span>Vehicle</span><span>Due</span><span>Priority</span><span>Status</span><span></span></div>
-        {workOrders.length ? workOrders.map((item) => <div className="data-row" key={item.id}><span><strong>{item.title}</strong><small>WO-{item.id}</small></span><span>{fleet.find((vehicle) => vehicle.id === item.vehicle_id)?.reg || 'Vehicle linked'}</span><span>{item.due_date || 'Unscheduled'}</span><span>{item.priority}</span><Status status={item.status} />{['Open', 'Assigned', 'In progress'].includes(item.status) ? <button className="row-more" onClick={() => transition(item)}>{item.status === 'In progress' ? 'Complete repair' : 'Start repair'}</button> : <span>Awaiting review</span>}<button className="row-more" onClick={() => setSelectedOrder(item)}>Execute</button><button className="row-more" onClick={() => downloadFile(token, `/api/v1/work-orders/${item.id}/download`, `WO-${item.id}.html`).catch((error) => onNotify(error.message))}>Download</button></div>) : <EmptyState title="No assigned work orders" detail="New jobs assigned by the Fleet Manager will appear here." />}
-      </div>
-    </section>
-    {selectedOrder && <section className="panel execution-panel">
-      <div className="table-header"><div><span className="eyebrow">Execution handoff · WO-{selectedOrder.id}</span><h2>{selectedOrder.title}</h2><span>Checklist-gated completion keeps the technician handoff reviewable.</span></div><button className="filter-button" onClick={() => setSelectedOrder(null)}>Close</button></div>
-      <div className="checklist-list">{checklist.map((item, index) => <label className="checklist-item" key={`${item.title}-${index}`}><input type="checkbox" checked={Boolean(item.completed)} onChange={() => toggleChecklist(index)} /><span>{item.title}</span></label>)}</div>
-      <div className="table-actions"><button className="secondary-button" onClick={saveChecklist} disabled={savingChecklist}>{savingChecklist ? 'Saving…' : 'Save checklist'}</button><label className="filter-button">Add evidence<input hidden type="file" accept="image/*,.pdf" onChange={uploadEvidence} /></label></div>
-    </section>}
-  </div>
-}
-
-function Maintenance({ role, workOrders, components, plans, vehicles: fleet, token, onCreated, onUpdated, onPlanCreated, onNotify }) {
-  const [order, setOrder] = useState({ vehicle_id: '', title: '', description: '', priority: 'Medium', status: 'Open', due_date: '', assigned_to: '' })
-  const [plan, setPlan] = useState({ vehicle_id: '', name: '', interval_km: '', interval_days: '', next_due_km: '', next_due_on: '' })
-  if (role === 'technician') {
-    return <TechnicianMaintenance workOrders={workOrders} vehicles={fleet} token={token} onUpdated={onUpdated} onNotify={onNotify} />
-  }
-  const submitOrder = async (event) => { event.preventDefault(); try { const created = await createWorkOrder(token, { ...order, vehicle_id: Number(order.vehicle_id), description: order.description || null, due_date: order.due_date || null, assigned_to: order.assigned_to || null }); onCreated(created); setOrder({ ...order, title: '', description: '' }); onNotify('Work order created.') } catch (error) { onNotify(error.message) } }
-  const submitPlan = async (event) => { event.preventDefault(); try { const created = await createMaintenancePlan(token, { ...plan, vehicle_id: Number(plan.vehicle_id), interval_km: plan.interval_km ? Number(plan.interval_km) : null, interval_days: plan.interval_days ? Number(plan.interval_days) : null, next_due_km: plan.next_due_km ? Number(plan.next_due_km) : null, next_due_on: plan.next_due_on || null }); onPlanCreated(created); onNotify('Maintenance plan created.') } catch (error) { onNotify(error.message) } }
-  const download = (id) => { downloadFile(token, `/api/v1/work-orders/${id}/download`, `WO-${id}.html`).catch((error) => onNotify(error.message)) }
-  const transition = async (item) => {
-    try {
-      const action = item.status === 'Open' || item.status === 'Assigned' ? startWorkOrder : item.status === 'In progress' ? completeWorkOrder : approveWorkOrder
-      const updated = await action(token, item.id)
-      onUpdated(updated)
-      onNotify(`Work order ${updated.status.toLowerCase()}.`)
-    } catch (error) { onNotify(error.message) }
-  }
-  return <div>
-    <PageHeader eyebrow="Workshop control" title="Maintenance" subtitle="Plan preventive care and close every work order on time." />
-    <section className="panel table-panel"><div className="table-header"><div><h2>Create work order</h2><span>Driver defects and fleet priorities enter the planner here.</span></div></div><form className="form-grid" onSubmit={submitOrder}><select required value={order.vehicle_id} onChange={(event) => setOrder({ ...order, vehicle_id: event.target.value })}><option value="">Vehicle</option>{fleet.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.reg}</option>)}</select><input required placeholder="Title" value={order.title} onChange={(event) => setOrder({ ...order, title: event.target.value })} /><input placeholder="Description" value={order.description} onChange={(event) => setOrder({ ...order, description: event.target.value })} /><select value={order.priority} onChange={(event) => setOrder({ ...order, priority: event.target.value })}><option>Low</option><option>Medium</option><option>High</option></select><input type="date" value={order.due_date} onChange={(event) => setOrder({ ...order, due_date: event.target.value })} /><input placeholder="Assigned technician" value={order.assigned_to} onChange={(event) => setOrder({ ...order, assigned_to: event.target.value })} /><button className="primary-button" type="submit">Create work order</button></form></section>
-    <section className="panel table-panel"><div className="table-header"><div><h2>Preventive maintenance plan</h2><span>Use odometer or calendar thresholds.</span></div></div><form className="form-grid" onSubmit={submitPlan}><select required value={plan.vehicle_id} onChange={(event) => setPlan({ ...plan, vehicle_id: event.target.value })}><option value="">Vehicle</option>{fleet.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.reg}</option>)}</select><input required placeholder="Plan name" value={plan.name} onChange={(event) => setPlan({ ...plan, name: event.target.value })} /><input type="number" placeholder="Interval km" value={plan.interval_km} onChange={(event) => setPlan({ ...plan, interval_km: event.target.value })} /><input type="number" placeholder="Interval days" value={plan.interval_days} onChange={(event) => setPlan({ ...plan, interval_days: event.target.value })} /><input type="number" placeholder="Next due km" value={plan.next_due_km} onChange={(event) => setPlan({ ...plan, next_due_km: event.target.value })} /><input type="date" value={plan.next_due_on} onChange={(event) => setPlan({ ...plan, next_due_on: event.target.value })} /><button className="primary-button" type="submit">Create plan</button></form></section>
-    <div className="metric-grid compact"><MetricCard label="Open work orders" value={workOrders.length} change="live" detail="assigned records" icon="◷" tone="orange" /><MetricCard label="In progress" value={workOrders.filter((item) => item.status === 'In progress').length} change="live" detail="active jobs" icon="⌁" tone="blue" /><MetricCard label="Tracked components" value={components.length} change="live" detail={`${plans.length} service plans`} icon="◒" tone="green" /><MetricCard label="Preventive compliance" value="Live" change="odometer" detail="component thresholds" icon="✓" tone="purple" /></div>
-    <section className="panel table-panel"><div className="table-header"><div><h2>Work order planner</h2><span>{role === 'technician' ? 'Your assigned jobs' : 'All active and scheduled jobs'}</span></div></div><div className="data-table"><div className="data-row data-head"><span>Work order</span><span>Vehicle</span><span>Assigned to</span><span>Due</span><span>Priority</span><span>Status</span><span></span></div>{workOrders.map((item) => <div className="data-row" key={item.id}><div className="workorder-cell"><div className="maintenance-icon small amber">⌁</div><div><strong>{item.title}</strong><small>WO-{item.id}</small></div></div><span>{fleet.find((vehicle) => vehicle.id === item.vehicle_id)?.reg || 'Vehicle linked'}</span><span>{item.assigned_to || 'Assigned technician'}</span><span>{item.due_date || 'Unscheduled'}</span><span className={`priority ${item.priority === 'High' ? 'red' : item.priority === 'Low' ? 'green' : 'amber'}`}>{item.priority}</span><Status status={item.status} />{['Open', 'Assigned', 'In progress', 'Ready for review'].includes(item.status) && <button className="row-more" onClick={() => transition(item)}>{item.status === 'Open' || item.status === 'Assigned' ? 'Start' : item.status === 'In progress' ? 'Complete' : 'Approve'}</button>}<button className="row-more" onClick={() => download(item.id)}>Download</button></div>)}</div></section>
-  </div>
-}
-
-function Workshop({ token, parts, vendors, purchaseOrders, onVendorCreated, onPartCreated, onNotify }) {
-  const submittedOrders = purchaseOrders.filter((order) => ['Submitted', 'Approved', 'Partially received'].includes(order.status))
-  const [vendorForm, setVendorForm] = useState({ name: '', vendor_type: 'Parts supplier', gstin: '', phone: '', email: '' })
-  const [partForm, setPartForm] = useState({ sku: '', name: '', category: 'General', quantity_on_hand: 0, reorder_level: 0, unit_cost_paise: 0, supplier: '' })
-  const [stockForm, setStockForm] = useState({ part_id: '', transaction_type: 'receipt', quantity: '', reference: '' })
-  const [locationForm, setLocationForm] = useState({ name: '', code: '', address: '' })
-  const [orderForm, setOrderForm] = useState({ vendor_id: '', part_id: '', quantity: '', unit_cost_paise: '', expected_on: '', notes: '' })
-  const addVendor = async (event) => {
-    event.preventDefault()
-    try {
-      const vendor = await createVendor(token, vendorForm)
-      onVendorCreated(vendor)
-      setVendorForm({ name: '', vendor_type: 'Parts supplier', gstin: '', phone: '', email: '' })
-      onNotify('Vendor added.')
-    } catch (error) { onNotify(error.message) }
-  }
-  const addPart = async (event) => { event.preventDefault(); try { const part = await createPart(token, { ...partForm, quantity_on_hand: Number(partForm.quantity_on_hand), reorder_level: Number(partForm.reorder_level), unit_cost_paise: Number(partForm.unit_cost_paise) }); onPartCreated(part); onNotify('Part added to catalogue.') } catch (error) { onNotify(error.message) } }
-  const transact = async (event) => { event.preventDefault(); try { await createInventoryTransaction(token, { ...stockForm, part_id: Number(stockForm.part_id), quantity: Number(stockForm.quantity) }); onNotify('Stock transaction recorded.') } catch (error) { onNotify(error.message) } }
-  const addLocation = async (event) => { event.preventDefault(); try { await createStockLocation(token, locationForm); setLocationForm({ name: '', code: '', address: '' }); onNotify('Stock location created.') } catch (error) { onNotify(error.message) } }
-  const addOrder = async (event) => { event.preventDefault(); try { await createPurchaseOrder(token, { vendor_id: Number(orderForm.vendor_id), expected_on: orderForm.expected_on || null, notes: orderForm.notes, lines: [{ part_id: Number(orderForm.part_id), quantity: Number(orderForm.quantity), unit_cost_paise: Number(orderForm.unit_cost_paise) }] }); onNotify('Purchase order created.') } catch (error) { onNotify(error.message) } }
-  const importParts = async (event) => { const file = event.target.files?.[0]; if (!file) return; try { const result = await importResource(token, 'parts', file); onNotify(`${result.imported} parts imported.`) } catch (error) { onNotify(error.message) } }
-  return <div><PageHeader eyebrow="Workshop & inventory" title="Workshop inventory" subtitle="Know what is on the shelf, what is moving, and what needs ordering." /><div className="inventory-banner"><div className="inventory-stat"><span className="inventory-number">₹{(parts.reduce((total, part) => total + part.quantity_on_hand * part.unit_cost_paise, 0) / 100000).toFixed(1)}L</span><span>Total inventory value</span></div><div className="inventory-stat"><span className="inventory-number">{parts.reduce((total, part) => total + part.quantity_on_hand, 0)}</span><span>Parts in stock</span></div><div className="inventory-stat alert"><span className="inventory-number">{parts.filter((part) => part.quantity_on_hand <= part.reorder_level).length.toString().padStart(2, '0')}</span><span>Below reorder point</span></div><span>{submittedOrders.length} active purchase orders</span></div><section className="panel table-panel"><div className="table-header"><div><h2>Parts and stock</h2><span>{purchaseOrders.length} purchase orders · {vendors.length} vendors</span></div><div className="table-actions"><button className="filter-button" onClick={() => exportResource(token, 'parts').then((blob) => { const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = 'parts.csv'; link.click(); URL.revokeObjectURL(url) })}>Export parts</button><label className="filter-button">Import parts<input hidden type="file" accept=".csv" onChange={importParts} /></label></div></div><form className="form-grid" onSubmit={addPart}><input required placeholder="SKU" value={partForm.sku} onChange={(event) => setPartForm({ ...partForm, sku: event.target.value })} /><input required placeholder="Part name" value={partForm.name} onChange={(event) => setPartForm({ ...partForm, name: event.target.value })} /><input required placeholder="Category" value={partForm.category} onChange={(event) => setPartForm({ ...partForm, category: event.target.value })} /><input type="number" placeholder="Opening quantity" value={partForm.quantity_on_hand} onChange={(event) => setPartForm({ ...partForm, quantity_on_hand: event.target.value })} /><input type="number" placeholder="Reorder level" value={partForm.reorder_level} onChange={(event) => setPartForm({ ...partForm, reorder_level: event.target.value })} /><input type="number" placeholder="Unit cost paise" value={partForm.unit_cost_paise} onChange={(event) => setPartForm({ ...partForm, unit_cost_paise: event.target.value })} /><button className="primary-button" type="submit">Add part</button></form><form className="form-grid" onSubmit={transact}><select required value={stockForm.part_id} onChange={(event) => setStockForm({ ...stockForm, part_id: event.target.value })}><option value="">Part</option>{parts.map((part) => <option key={part.id} value={part.id}>{part.name}</option>)}</select><select value={stockForm.transaction_type} onChange={(event) => setStockForm({ ...stockForm, transaction_type: event.target.value })}><option value="receipt">Receipt</option><option value="issue">Issue</option><option value="adjustment">Adjustment</option></select><input required type="number" placeholder="Quantity" value={stockForm.quantity} onChange={(event) => setStockForm({ ...stockForm, quantity: event.target.value })} /><input placeholder="Reference / work order" value={stockForm.reference} onChange={(event) => setStockForm({ ...stockForm, reference: event.target.value })} /><button className="primary-button" type="submit">Post stock transaction</button></form><div className="data-table inventory-table"><div className="data-row data-head"><span>Part</span><span>Category</span><span>In stock</span><span>Unit cost</span><span>Supplier</span><span></span></div>{parts.map((part) => <div className="data-row" key={part.sku}><div className="part-cell"><div className="part-icon">▦</div><div><strong>{part.name}</strong><small>{part.sku}</small></div></div><span>{part.category}</span><span><strong className={part.quantity_on_hand <= part.reorder_level ? 'low-stock' : ''}>{part.quantity_on_hand}</strong> <small>/ min {part.reorder_level}</small></span><span>₹{(part.unit_cost_paise / 100).toLocaleString('en-IN')}</span><span>{part.supplier || 'Unassigned'}</span><span /></div>)}</div></section><section className="panel table-panel"><div className="table-header"><div><h2>Vendor management</h2><span>Active suppliers connected to procurement</span></div></div><form className="form-grid" onSubmit={addVendor}><input placeholder="Vendor name" value={vendorForm.name} onChange={(event) => setVendorForm({ ...vendorForm, name: event.target.value })} required /><input placeholder="Vendor type" value={vendorForm.vendor_type} onChange={(event) => setVendorForm({ ...vendorForm, vendor_type: event.target.value })} /><input placeholder="GSTIN" value={vendorForm.gstin} onChange={(event) => setVendorForm({ ...vendorForm, gstin: event.target.value })} /><input placeholder="Phone" value={vendorForm.phone} onChange={(event) => setVendorForm({ ...vendorForm, phone: event.target.value })} /><input placeholder="Email" value={vendorForm.email} onChange={(event) => setVendorForm({ ...vendorForm, email: event.target.value })} /><button className="primary-button" type="submit">Add vendor</button></form><div className="data-table">{vendors.map((vendor) => <div className="data-row" key={vendor.id}><span><strong>{vendor.name}</strong><small>{vendor.vendor_type}</small></span><span>{vendor.gstin || 'GSTIN pending'}</span><span>{vendor.phone || '—'}</span><span>{vendor.email || '—'}</span><span>{vendor.active === false ? 'Inactive' : 'Active'}</span></div>)}</div></section><section className="panel table-panel"><div className="table-header"><div><h2>Purchase orders</h2><span>Downloadable procurement records</span></div></div><form className="form-grid" onSubmit={addOrder}><select required value={orderForm.vendor_id} onChange={(event) => setOrderForm({ ...orderForm, vendor_id: event.target.value })}><option value="">Vendor</option>{vendors.map((vendor) => <option key={vendor.id} value={vendor.id}>{vendor.name}</option>)}</select><select required value={orderForm.part_id} onChange={(event) => setOrderForm({ ...orderForm, part_id: event.target.value })}><option value="">Part</option>{parts.map((part) => <option key={part.id} value={part.id}>{part.name}</option>)}</select><input required type="number" placeholder="Quantity" value={orderForm.quantity} onChange={(event) => setOrderForm({ ...orderForm, quantity: event.target.value })} /><input required type="number" placeholder="Unit cost paise" value={orderForm.unit_cost_paise} onChange={(event) => setOrderForm({ ...orderForm, unit_cost_paise: event.target.value })} /><input type="date" value={orderForm.expected_on} onChange={(event) => setOrderForm({ ...orderForm, expected_on: event.target.value })} /><button className="primary-button" type="submit">Create purchase order</button></form><div className="data-table">{purchaseOrders.map((order) => <div className="data-row" key={order.id}><span><strong>{order.order_number}</strong><small>{order.status}</small></span><span>{order.vendor_name || 'Vendor'}</span><span>{order.expected_on || 'Unscheduled'}</span><select value={order.status} onChange={async (event) => { try { await updatePurchaseOrder(token, order.id, event.target.value); onNotify('Purchase order status updated.') } catch (error) { onNotify(error.message) } }}><option>Draft</option><option>Submitted</option><option>Approved</option><option>Partially received</option><option>Received</option><option>Cancelled</option></select><button className="row-more" onClick={() => downloadFile(token, `/api/v1/purchase-orders/${order.id}/download`, `${order.order_number}.csv`).catch((error) => onNotify(error.message))}>Download</button></div>)}</div></section><section className="panel table-panel"><div className="table-header"><div><h2>Stock locations</h2><span>Track workshop and depot storage locations.</span></div></div><form className="form-grid" onSubmit={addLocation}><input required placeholder="Location name" value={locationForm.name} onChange={(event) => setLocationForm({ ...locationForm, name: event.target.value })} /><input required placeholder="Code" value={locationForm.code} onChange={(event) => setLocationForm({ ...locationForm, code: event.target.value })} /><input placeholder="Address" value={locationForm.address} onChange={(event) => setLocationForm({ ...locationForm, address: event.target.value })} /><button className="primary-button" type="submit">Add location</button></form></section></div>
-}
-
-function EditVehicleModal({ vehicle, onClose, onSave }) {
-  const [form, setForm] = useState({ model: vehicle.model, vehicle_type: vehicle.vehicle_type, depot: vehicle.depot, status: vehicle.status, health: vehicle.health, odometer_km: vehicle.odometer_km || 0 })
-  return <Modal title={`Edit ${vehicle.reg}`} onClose={onClose}><form className="form-grid" onSubmit={(event) => { event.preventDefault(); onSave({ ...form, health: Number(form.health), odometer_km: Number(form.odometer_km) }) }}><input value={form.model} onChange={(event) => setForm({ ...form, model: event.target.value })} placeholder="Model" /><input value={form.vehicle_type} onChange={(event) => setForm({ ...form, vehicle_type: event.target.value })} placeholder="Type" /><input value={form.depot} onChange={(event) => setForm({ ...form, depot: event.target.value })} placeholder="Depot" /><input value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })} placeholder="Status" /><input type="number" value={form.health} onChange={(event) => setForm({ ...form, health: event.target.value })} placeholder="Health" /><input type="number" value={form.odometer_km} onChange={(event) => setForm({ ...form, odometer_km: event.target.value })} placeholder="Odometer km" /><button className="primary-button" type="submit">Save vehicle</button></form></Modal>
-}
-
-function EditComponentModal({ component, vehicle, onClose, onSave, onServiceComplete }) {
-  const [form, setForm] = useState({ name: component.name, component_type: component.component_type, serial_number: component.serial_number || '', last_service_km: component.last_service_km || '', service_interval_km: component.service_interval_km || '', next_service_km: component.next_service_km || '', status: component.status })
-  return <Modal title={`Edit ${component.name}`} onClose={onClose}><form className="form-grid" onSubmit={(event) => { event.preventDefault(); onSave({ ...form, last_service_km: form.last_service_km ? Number(form.last_service_km) : null, service_interval_km: form.service_interval_km ? Number(form.service_interval_km) : null, next_service_km: form.next_service_km ? Number(form.next_service_km) : null }) }}><input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Name" /><input value={form.component_type} onChange={(event) => setForm({ ...form, component_type: event.target.value })} placeholder="Type" /><input value={form.serial_number} onChange={(event) => setForm({ ...form, serial_number: event.target.value })} placeholder="Serial number" /><input type="number" value={form.last_service_km} onChange={(event) => setForm({ ...form, last_service_km: event.target.value })} placeholder="Last service km" /><input type="number" value={form.service_interval_km} onChange={(event) => setForm({ ...form, service_interval_km: event.target.value })} placeholder="Service interval km" /><input type="number" value={form.next_service_km} onChange={(event) => setForm({ ...form, next_service_km: event.target.value })} placeholder="Next service km" /><select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}><option>Healthy</option><option>Due soon</option><option>In workshop</option><option>Retired</option></select><button className="primary-button" type="submit">Save component</button><button className="secondary-button" type="button" onClick={() => onServiceComplete(vehicle?.odometer_km || component.last_service_km || component.installed_at_km || 0)}>Complete service at current odometer</button></form></Modal>
-}
-
-function Modal({ title, onClose, children }) {
-  return <div className="modal-backdrop" role="presentation"><div className="modal-card"><div className="modal-header"><h2>{title}</h2><button onClick={onClose}>×</button></div>{children}</div></div>
-}
-
-function Documents({ token, documents, vehicles: fleet, onNotify, onDocumentCreated }) {
-  const [form, setForm] = useState({ name: '', document_type: 'Insurance', vehicle_id: '', issued_by: '', expires_on: '', status: 'Valid' })
+  const [notes, setNotes] = useState('')
   const [file, setFile] = useState(null)
-  const submit = async (event) => {
-    event.preventDefault()
-    try {
-      const created = await createDocument(token, { ...form, vehicle_id: form.vehicle_id ? Number(form.vehicle_id) : null })
-      if (file) await uploadDocumentFile(token, created.id, file)
-      onDocumentCreated(created)
-      setForm({ name: '', document_type: 'Insurance', vehicle_id: '', issued_by: '', expires_on: '', status: 'Valid' })
-      setFile(null)
-      onNotify('Document saved to the compliance vault.')
-    } catch (error) { onNotify(error.message) }
-  }
-  return <div><PageHeader eyebrow="Compliance vault" title="Documents" subtitle="Keep every permit, certificate, and policy ready for inspection." /><section className="panel table-panel"><div className="table-header"><div><h2>Add compliance document</h2><span>Metadata and private file upload are stored against the organization.</span></div></div><form className="form-grid" onSubmit={submit}><input required placeholder="Document name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /><input required placeholder="Document type" value={form.document_type} onChange={(event) => setForm({ ...form, document_type: event.target.value })} /><select value={form.vehicle_id} onChange={(event) => setForm({ ...form, vehicle_id: event.target.value })}><option value="">Organization document</option>{fleet.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.reg}</option>)}</select><input placeholder="Issued by" value={form.issued_by} onChange={(event) => setForm({ ...form, issued_by: event.target.value })} /><input required type="date" value={form.expires_on} onChange={(event) => setForm({ ...form, expires_on: event.target.value })} /><input type="file" onChange={(event) => setFile(event.target.files?.[0] || null)} /><button className="primary-button" type="submit">Save document</button></form></section><div className="document-kpis"><div><span className="kpi-icon green">✓</span><strong>{documents.filter((doc) => doc.status === 'Valid').length}</strong><span>Valid documents</span></div><div><span className="kpi-icon amber">◷</span><strong>{documents.filter((doc) => doc.status !== 'Valid' && doc.status !== 'Expired').length}</strong><span>Needs review</span></div><div><span className="kpi-icon red">!</span><strong>{documents.filter((doc) => doc.status === 'Expired').length}</strong><span>Expired documents</span></div></div><section className="panel table-panel"><div className="table-header"><div><h2>Document register</h2><span>Vehicle and company compliance records</span></div></div><div className="data-table"><div className="data-row data-head"><span>Document</span><span>Linked to</span><span>Issued by</span><span>Expiry</span><span>Status</span><span></span></div>{documents.map((doc) => <div className="data-row" key={doc.id}><div className="document-cell"><div className="doc-icon neutral">▤</div><div><strong>{doc.name}</strong><small>DOC-{doc.id} · metadata</small></div></div><span>{fleet.find((vehicle) => vehicle.id === doc.vehicle_id)?.reg || 'Organization'}</span><span>{doc.issued_by || 'Not specified'}</span><span>{doc.expires_on}</span><select value={doc.status} onChange={async (event) => { try { await updateDocument(token, doc.id, { status: event.target.value }); onNotify('Document status updated.') } catch (error) { onNotify(error.message) } }}><option>Valid</option><option>Needs review</option><option>Expired</option></select><button className="row-more" onClick={() => downloadFile(token, `/api/v1/documents/${doc.id}/file`, `${doc.name}.file`).catch((error) => onNotify(error.message))}>Download</button></div>)}</div></section></div>
+  async function choose(order) { setSelected(order); try { const loaded = await getWorkOrderChecklist(token, order.id); setChecklist(loaded.length ? loaded : [{ title: 'Confirm safety isolation', completed: false, sort_order: 0 }, { title: 'Record parts and consumables', completed: false, sort_order: 1 }, { title: 'Verify return-to-service condition', completed: false, sort_order: 2 }]) } catch { setChecklist([]) } }
+  async function save() { if (!selected) return; try { await updateWorkOrderChecklist(token, selected.id, checklist.map((item, index) => ({ title: item.title, completed: item.completed, sort_order: index }))); refresh('Checklist saved.') } catch (error) { refresh(error.message) } }
+  async function complete() { if (!selected) return; try { await completeWorkOrder(token, selected.id); refresh('Work order submitted for review.') } catch (error) { refresh(error.message) } }
+  async function upload() { if (!selected || !file) return; try { await uploadWorkOrderEvidence(token, selected.id, file); setFile(null); refresh('Repair evidence uploaded.') } catch (error) { refresh(error.message) } }
+  const orders = data.workOrders.filter((order) => JSON.stringify(order).toLowerCase().includes(query))
+  return <PageFrame eyebrow="01 · Field execution" title="Assigned work" description="Execute only the work assigned to you. Record checklist completion, repair notes, evidence, and a clean handoff to the Fleet Manager."><div className="execution-layout"><DataPanel title="My queue" eyebrow={`${orders.length} assigned records`}><div className="queue-list">{orders.map((order) => <button className={selected?.id === order.id ? 'queue-item active' : 'queue-item'} key={order.id} onClick={() => choose(order)}><span className="queue-marker">{order.priority?.[0] || 'M'}</span><span><strong>{order.title}</strong><small>Vehicle #{order.vehicle_id} · {order.priority} · {order.status}</small></span><b>→</b></button>)}{!orders.length && <EmptyState visible title="No assigned work" text="Your queue is clear. New work orders assigned to your role will appear here." />}</div></DataPanel><section className="execution-panel">{selected ? <><div className="panel-heading"><div><span className="overline">Execution record</span><h3>{selected.title}</h3><p>Vehicle #{selected.vehicle_id} · due {dateText(selected.due_date)}</p></div><span className="status warn">{selected.status}</span></div><div className="checklist"><strong>Checklist</strong>{checklist.map((item, index) => <label key={item.id || index}><input type="checkbox" checked={item.completed} onChange={(event) => setChecklist((items) => items.map((entry, itemIndex) => itemIndex === index ? { ...entry, completed: event.target.checked } : entry))} />{item.title}</label>)}<button className="secondary-button" onClick={save}>Save checklist</button></div><TextField label="Repair notes" value={notes} onChange={setNotes} /><div className="evidence-box"><strong>Evidence</strong><input type="file" accept="image/*,application/pdf" onChange={(event) => setFile(event.target.files?.[0] || null)} /><button className="secondary-button" disabled={!file} onClick={upload}>Upload evidence</button></div><button className="primary-button" onClick={complete}>Submit for review</button></> : <div className="empty-state"><strong>Select an assigned work order</strong><span>Execution details, checklist, evidence, and handoff controls will appear here.</span></div>}</section></div></PageFrame>
 }
 
-function WorkspaceControls({ token, user, subscription, notifications, onNotify, onSubscriptionChanged, onNotificationsChanged }) {
-  const [users, setUsers] = useState([])
-  const [invitations, setInvitations] = useState([])
-  const [deliveries, setDeliveries] = useState([])
-  const [preferences, setPreferences] = useState([])
-  const [plans, setPlans] = useState([])
-  const [mobile, setMobile] = useState(user?.mobile_phone || '')
-  const [invite, setInvite] = useState({ email: '', full_name: '', mobile_phone: '', role: 'fleet_manager', expires_in_days: 7 })
-  const [directUser, setDirectUser] = useState({ email: '', full_name: '', mobile_phone: '', password: '', role: 'fleet_manager' })
-
-  useEffect(() => {
-    const membershipRequests = user?.role === 'owner'
-      ? [getUsers(token), getInvitations(token)]
-      : [Promise.resolve([]), Promise.resolve([])]
-    Promise.all([...membershipRequests, getNotificationDeliveries(token), getNotificationPreferences(token), getSubscriptionPlans(token)])
-      .then(([loadedUsers, loadedInvitations, loadedDeliveries, loadedPreferences, loadedPlans]) => {
-        setUsers(loadedUsers)
-        setInvitations(loadedInvitations)
-        setDeliveries(loadedDeliveries)
-        setPreferences(loadedPreferences)
-        setPlans(loadedPlans)
-      })
-      .catch((error) => onNotify(error.message))
-  }, [token, onNotify])
-
-  const savePreference = async (preference) => {
-    try {
-      const saved = await updateNotificationPreference(token, preference)
-      setPreferences((current) => [...current.filter((item) => item.notification_type !== saved.notification_type), saved])
-      onNotify('Notification preference saved.')
-    } catch (error) { onNotify(error.message) }
-  }
-  const saveContact = async (event) => {
-    event.preventDefault()
-    try {
-      await updateMyContact(token, mobile || null)
-      onNotify('Mobile number updated.')
-    } catch (error) { onNotify(error.message) }
-  }
-  const sendInvite = async (event) => {
-    event.preventDefault()
-    try {
-      const created = await createInvitation(token, invite)
-      setInvitations((current) => [created, ...current])
-      setInvite({ email: '', full_name: '', mobile_phone: '', role: 'fleet_manager', expires_in_days: 7 })
-      onNotify(`Invitation created for ${created.email}.`)
-    } catch (error) { onNotify(error.message) }
-  }
-  const createMember = async (event) => {
-    event.preventDefault()
-    try {
-      const created = await createUser(token, { ...directUser })
-      setUsers((current) => [created, ...current])
-      setDirectUser({ email: '', full_name: '', mobile_phone: '', password: '', role: 'fleet_manager' })
-      onNotify(`User ${created.email} created.`)
-    } catch (error) { onNotify(error.message) }
-  }
-  const refreshDeliveries = async () => {
-    try {
-      const result = await dispatchQueuedSms(token)
-      setDeliveries(await getNotificationDeliveries(token))
-      onNotify(`${result.processed} queued SMS deliveries processed.`)
-    } catch (error) { onNotify(error.message) }
-  }
-
-  return <div>
-    <PageHeader eyebrow="Workspace controls" title="Governance & delivery" subtitle="Manage members, subscription, notification channels, and operational access." />
-    {user?.role === 'owner' && <section className="panel table-panel">
-      <div className="table-header"><div><h2>Team members</h2><span>{users.length} members in this organization</span></div></div>
-      <div className="data-table"><div className="data-row data-head"><span>Member</span><span>Role</span><span>Mobile</span><span></span></div>
-        {users.map((member) => <div className="data-row" key={member.id}><span><strong>{member.full_name}</strong><small>{member.email}</small></span><select value={member.role} disabled={member.role === 'owner'} onChange={async (event) => { try { const updated = await updateUserRole(token, member.id, event.target.value); setUsers((current) => current.map((item) => item.id === updated.id ? updated : item)); onNotify('Role updated.') } catch (error) { onNotify(error.message) } }}><option value="fleet_manager">Fleet manager</option><option value="inventory_manager">Inventory manager</option><option value="driver">Driver</option><option value="technician">Mechanic / technician</option><option value="accountant">Accountant</option>{member.role === 'owner' && <option value="owner">Owner</option>}</select><span>{member.mobile_phone || 'Not added'}</span><span /></div>)}
-      </div>
-    </section>}
-    {user?.role === 'owner' && <section className="panel table-panel">
-      <div className="table-header"><div><h2>Invite teammates</h2><span>Invite by role; access remains server-authorized.</span></div></div>
-      <form className="form-grid" onSubmit={sendInvite}><input required type="email" placeholder="Email" value={invite.email} onChange={(event) => setInvite({ ...invite, email: event.target.value })} /><input required placeholder="Full name" value={invite.full_name} onChange={(event) => setInvite({ ...invite, full_name: event.target.value })} /><input required type="tel" placeholder="+91 mobile phone" value={invite.mobile_phone} onChange={(event) => setInvite({ ...invite, mobile_phone: event.target.value })} /><select value={invite.role} onChange={(event) => setInvite({ ...invite, role: event.target.value })}><option value="fleet_manager">Fleet manager</option><option value="inventory_manager">Inventory manager</option><option value="driver">Driver</option><option value="technician">Mechanic / technician</option><option value="accountant">Accountant</option></select><button className="primary-button" type="submit">Create invitation</button></form>
-      <form className="form-grid" onSubmit={createMember}><input required type="email" placeholder="Create user email" value={directUser.email} onChange={(event) => setDirectUser({ ...directUser, email: event.target.value })} /><input required placeholder="Full name" value={directUser.full_name} onChange={(event) => setDirectUser({ ...directUser, full_name: event.target.value })} /><input required type="tel" placeholder="+91 mobile phone" value={directUser.mobile_phone} onChange={(event) => setDirectUser({ ...directUser, mobile_phone: event.target.value })} /><input required type="password" placeholder="Temporary password" value={directUser.password} onChange={(event) => setDirectUser({ ...directUser, password: event.target.value })} /><select value={directUser.role} onChange={(event) => setDirectUser({ ...directUser, role: event.target.value })}><option value="fleet_manager">Fleet manager</option><option value="inventory_manager">Inventory manager</option><option value="driver">Driver</option><option value="technician">Mechanic / technician</option><option value="accountant">Accountant</option></select><button className="secondary-button" type="submit">Create user directly</button></form>
-      <div className="data-table">{invitations.map((item) => <div className="data-row" key={item.id}><span><strong>{item.full_name}</strong><small>{item.email}</small></span><span>{item.role}</span><span>{item.revoked_at ? 'Revoked' : item.accepted_at ? 'Accepted' : `Expires ${item.expires_at}`}</span>{!item.revoked_at && !item.accepted_at ? <button className="row-more" onClick={async () => { try { await revokeInvitation(token, item.id); setInvitations((current) => current.map((entry) => entry.id === item.id ? { ...entry, revoked_at: new Date().toISOString() } : entry)); onNotify('Invitation revoked.') } catch (error) { onNotify(error.message) } }}>Revoke</button> : <span />}</div>)}</div>
-    </section>}
-    {user?.role === 'owner' && <section className="panel table-panel">
-      <div className="table-header"><div><h2>Subscription</h2><span>{subscription?.plan?.name} · {subscription?.status}</span></div></div>
-      <div className="form-grid">{plans.map((plan) => <button type="button" className={`secondary-button ${subscription?.plan?.code === plan.code ? 'selected' : ''}`} key={plan.code} disabled={user?.role !== 'owner'} onClick={async () => { try { const changed = await changeSubscription(token, plan.code); onSubscriptionChanged(changed); onNotify(`Subscription changed to ${plan.name}.`) } catch (error) { onNotify(error.message) } }}><strong>{plan.name}</strong> · {plan.monthly_price_paise ? `₹${(plan.monthly_price_paise / 100).toLocaleString('en-IN')}/month` : 'Custom'}<small>{plan.included_vehicles} vehicles included · ₹{(plan.overage_vehicle_fee_paise / 100).toLocaleString('en-IN')} per additional vehicle</small></button>)}<button type="button" className="primary-button" disabled={user?.role !== 'owner'} onClick={async () => { try { const checkout = await createSubscriptionCheckout(token, subscription?.plan?.code || 'starter'); if (checkout.short_url) window.open(checkout.short_url, '_blank', 'noopener,noreferrer'); else onNotify('Razorpay checkout is ready when credentials are configured.') } catch (error) { onNotify(error.message) } }}>Open Razorpay checkout</button></div>
-      {subscription && <div className="inline-note">{subscription.vehicle_count} active vehicles · {subscription.overage_vehicles} overage vehicles · unlimited members · estimated {subscription.estimated_subtotal_paise ? `₹${(subscription.estimated_subtotal_paise / 100).toLocaleString('en-IN')}/month` : 'custom quote'}{subscription.status === 'trialing' && subscription.trial_ends_on ? ` · trial ends ${subscription.trial_ends_on}` : ''}</div>}
-    </section>}
-    <section className="panel table-panel">
-      <div className="table-header"><div><h2>Mobile alerts</h2><span>SMS and WhatsApp stay queued until provider credentials are configured.</span></div><button className="secondary-button" onClick={refreshDeliveries}>Retry queued mobile alerts</button></div>
-      <form className="form-grid" onSubmit={saveContact}><input placeholder="+91 mobile number" value={mobile} onChange={(event) => setMobile(event.target.value)} /><button className="primary-button" type="submit">Save mobile</button></form>
-      <div className="form-grid">{['document_expiry', 'stock_reorder'].map((type) => { const current = preferences.find((item) => item.notification_type === type) || { notification_type: type, in_app: true, email: false, sms: false, whatsapp: false, push: false }; const channel = current.sms && current.whatsapp ? 'both' : current.whatsapp ? 'whatsapp' : current.sms ? 'sms' : 'in_app'; return <label key={type}>{type.replace('_', ' ')}<select value={channel} onChange={(event) => savePreference({ ...current, sms: event.target.value === 'sms' || event.target.value === 'both', whatsapp: event.target.value === 'whatsapp' || event.target.value === 'both' })}><option value="in_app">In-app only</option><option value="sms">In-app + SMS</option><option value="whatsapp">In-app + WhatsApp</option><option value="both">In-app + SMS + WhatsApp</option></select></label> })}</div>
-      <div className="data-table">{deliveries.slice(0, 12).map((item) => <div className="data-row" key={item.id}><span>Delivery #{item.id}</span><span>{item.channel}</span><span>{item.status}</span><span>{item.sent_at || 'Queued'}</span></div>)}</div>
-    </section>
-    <section className="panel table-panel"><div className="table-header"><div><h2>Notifications</h2><span>{notifications.filter((item) => item.status === 'unread').length} unread</span></div></div><div className="data-table">{notifications.slice(0, 12).map((item) => <div className="data-row" key={item.id}><span><strong>{item.title}</strong><small>{item.detail}</small></span><span>{item.severity}</span><span>{item.status}</span>{item.status === 'unread' && <button className="row-more" onClick={async () => { try { const updated = await updateNotification(token, item.id, 'read'); onNotificationsChanged((current) => current.map((entry) => entry.id === updated.id ? updated : entry)) } catch (error) { onNotify(error.message) } }}>Mark read</button>}{item.status !== 'resolved' && <button className="row-more" onClick={async () => { try { const updated = await resolveNotification(token, item.id); onNotificationsChanged((current) => current.map((entry) => entry.id === updated.id ? updated : entry)) } catch (error) { onNotify(error.message) } }}>Resolve</button>}</div>)}</div></section>
-  </div>
+function DriverPage({ token, data, refresh }) {
+  const [inspection, setInspection] = useState({ vehicle_id: '', inspection_type: 'pre_trip', status: 'SAFE', odometer_km: 0, notes: '' })
+  const [issue, setIssue] = useState({ vehicle_id: '', title: '', detail: '', priority: 'Medium' })
+  async function submitInspection(event) { event.preventDefault(); try { await createDriverInspection(token, { ...inspection, vehicle_id: Number(inspection.vehicle_id), odometer_km: Number(inspection.odometer_km) }); refresh('Inspection recorded.') } catch (error) { refresh(error.message) } }
+  async function submitIssue(event) { event.preventDefault(); try { await createDriverIssue(token, { ...issue, vehicle_id: Number(issue.vehicle_id) }); refresh('Vehicle issue escalated.') } catch (error) { refresh(error.message) } }
+  return <PageFrame eyebrow="01 · Driver safety" title="Daily checks" description="Start the day with a vehicle readiness record, an accurate odometer, and a clear escalation path for anything unsafe."><div className="driver-hero"><div><span className="overline">Assigned vehicle</span><h3>{data.vehicles[0]?.registration_number || 'No vehicle assigned'}</h3><p>{data.vehicles[0]?.model || 'Your Fleet Manager will assign a vehicle to this workspace.'}</p></div><div><span>Latest odometer</span><strong>{data.vehicles[0] ? `${Number(data.vehicles[0].odometer_km).toLocaleString('en-IN')} km` : '—'}</strong></div></div><div className="split-grid"><FormCard title="Record inspection" description="Pre-trip and post-trip checks remain part of the vehicle history."><form className="stack-form" onSubmit={submitInspection}><SelectField label="Vehicle" value={inspection.vehicle_id} onChange={(value) => setInspection({ ...inspection, vehicle_id: value })} options={[['', 'Select assigned vehicle'], ...data.vehicles.map((vehicle) => [String(vehicle.id), vehicle.registration_number])]} required /><SelectField label="Inspection type" value={inspection.inspection_type} onChange={(value) => setInspection({ ...inspection, inspection_type: value })} options={[['pre_trip', 'Pre-trip'], ['post_trip', 'Post-trip']]} /><SelectField label="Readiness" value={inspection.status} onChange={(value) => setInspection({ ...inspection, status: value })} options={['SAFE', 'REVIEW', 'UNSAFE'].map((value) => [value, value])} /><Field label="Odometer (km)" type="number" value={inspection.odometer_km} onChange={(value) => setInspection({ ...inspection, odometer_km: value })} required /><TextField label="Notes" value={inspection.notes} onChange={(value) => setInspection({ ...inspection, notes: value })} /><button className="primary-button">Submit inspection</button></form></FormCard><FormCard title="Report an issue" description="Create a visible safety escalation for Fleet Manager and workshop teams."><form className="stack-form" onSubmit={submitIssue}><SelectField label="Vehicle" value={issue.vehicle_id} onChange={(value) => setIssue({ ...issue, vehicle_id: value })} options={[['', 'Select vehicle'], ...data.vehicles.map((vehicle) => [String(vehicle.id), vehicle.registration_number])]} required /><Field label="Issue title" value={issue.title} onChange={(value) => setIssue({ ...issue, title: value })} required /><SelectField label="Priority" value={issue.priority} onChange={(value) => setIssue({ ...issue, priority: value })} options={['Low', 'Medium', 'High', 'Critical'].map((value) => [value, value])} /><TextField label="Describe the issue" value={issue.detail} onChange={(value) => setIssue({ ...issue, detail: value })} required /><button className="primary-button danger-button">Escalate issue</button></form></FormCard></div><DataPanel title="Inspection history" eyebrow={`${data.inspections.length} records`}><Table headers={['Date', 'Vehicle', 'Type', 'Result', 'Odometer', 'Notes']} rows={data.inspections.map((item) => [dateText(item.created_at), `#${item.vehicle_id}`, item.inspection_type, <span className={`status ${item.status === 'SAFE' ? 'good' : 'bad'}`}>{item.status}</span>, `${item.odometer_km} km`, item.notes || '—'])} empty="No inspections recorded yet." /></DataPanel></PageFrame>
 }
 
-function Costs({ token, expenses, vehicles: fleet, onNotify, onExpenseCreated, onExpenseUpdated }) {
-  const total = expenses.reduce((sum, expense) => sum + expense.amount_paise, 0)
-  const categoryTotal = (category) => expenses.filter((expense) => expense.category === category).reduce((sum, expense) => sum + expense.amount_paise, 0)
-  const [expense, setExpense] = useState({ category: 'Maintenance', description: '', amount_paise: '', gst_amount_paise: 0, incurred_on: new Date().toISOString().slice(0, 10), vehicle_id: '', vendor: '', status: 'Pending' })
-  const [fuel, setFuel] = useState({ vehicle_id: '', station: '', fuel_type: 'Diesel', litres_milli: '', price_per_litre_paise: '', odometer_km: '', incurred_on: new Date().toISOString().slice(0, 10) })
-  const [toll, setToll] = useState({ vehicle_id: '', toll_operator: '', plaza: '', amount_paise: '', incurred_on: new Date().toISOString().slice(0, 10) })
-  const submit = async (event) => { event.preventDefault(); try { const created = await createExpense(token, { ...expense, amount_paise: Number(expense.amount_paise), gst_amount_paise: Number(expense.gst_amount_paise), vehicle_id: expense.vehicle_id ? Number(expense.vehicle_id) : null }); onExpenseCreated(created); onNotify('Expense recorded.'); setExpense({ ...expense, description: '', amount_paise: '' }) } catch (error) { onNotify(error.message) } }
-  const submitFuel = async (event) => { event.preventDefault(); try { await createFuelTransaction(token, { ...fuel, vehicle_id: Number(fuel.vehicle_id), litres_milli: Number(fuel.litres_milli), price_per_litre_paise: Number(fuel.price_per_litre_paise), odometer_km: Number(fuel.odometer_km) }); onNotify('Fuel transaction recorded.') } catch (error) { onNotify(error.message) } }
-  const submitToll = async (event) => { event.preventDefault(); try { await createTollTransaction(token, { ...toll, vehicle_id: Number(toll.vehicle_id), amount_paise: Number(toll.amount_paise) }); onNotify('Toll transaction recorded.') } catch (error) { onNotify(error.message) } }
-  return <div><PageHeader eyebrow="Finance & analytics" title="Costs & finance" subtitle="Understand the true cost of every kilometre, vehicle, and route." /><section className="panel table-panel"><div className="table-header"><div><h2>Record operating cost</h2><span>Expenses, fuel, and tolls write to the finance ledger.</span></div></div><form className="form-grid" onSubmit={submit}><select value={expense.category} onChange={(event) => setExpense({ ...expense, category: event.target.value })}><option>Maintenance</option><option>Fuel</option><option>Tolls</option><option>People & admin</option></select><input required placeholder="Description" value={expense.description} onChange={(event) => setExpense({ ...expense, description: event.target.value })} /><input required type="number" placeholder="Amount paise" value={expense.amount_paise} onChange={(event) => setExpense({ ...expense, amount_paise: event.target.value })} /><input type="number" placeholder="GST paise" value={expense.gst_amount_paise} onChange={(event) => setExpense({ ...expense, gst_amount_paise: event.target.value })} /><select value={expense.vehicle_id} onChange={(event) => setExpense({ ...expense, vehicle_id: event.target.value })}><option value="">Organization</option>{fleet.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.reg}</option>)}</select><input type="date" value={expense.incurred_on} onChange={(event) => setExpense({ ...expense, incurred_on: event.target.value })} /><input placeholder="Vendor" value={expense.vendor} onChange={(event) => setExpense({ ...expense, vendor: event.target.value })} /><button className="primary-button" type="submit">Record expense</button></form></section><section className="panel table-panel"><div className="table-header"><div><h2>Fuel entry</h2><span>Capture litres, price, odometer, and vehicle.</span></div></div><form className="form-grid" onSubmit={submitFuel}><select required value={fuel.vehicle_id} onChange={(event) => setFuel({ ...fuel, vehicle_id: event.target.value })}><option value="">Vehicle</option>{fleet.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.reg}</option>)}</select><input placeholder="Station" value={fuel.station} onChange={(event) => setFuel({ ...fuel, station: event.target.value })} /><input required type="number" placeholder="Litres × 1000" value={fuel.litres_milli} onChange={(event) => setFuel({ ...fuel, litres_milli: event.target.value })} /><input required type="number" placeholder="Price/litre paise" value={fuel.price_per_litre_paise} onChange={(event) => setFuel({ ...fuel, price_per_litre_paise: event.target.value })} /><input required type="number" placeholder="Odometer km" value={fuel.odometer_km} onChange={(event) => setFuel({ ...fuel, odometer_km: event.target.value })} /><input type="date" value={fuel.incurred_on} onChange={(event) => setFuel({ ...fuel, incurred_on: event.target.value })} /><button className="primary-button" type="submit">Save fuel</button></form></section><section className="panel table-panel"><div className="table-header"><div><h2>Toll entry</h2><span>Record FASTag and toll-operator costs.</span></div></div><form className="form-grid" onSubmit={submitToll}><select required value={toll.vehicle_id} onChange={(event) => setToll({ ...toll, vehicle_id: event.target.value })}><option value="">Vehicle</option>{fleet.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.reg}</option>)}</select><input required placeholder="Plaza" value={toll.plaza} onChange={(event) => setToll({ ...toll, plaza: event.target.value })} /><input placeholder="Operator" value={toll.toll_operator} onChange={(event) => setToll({ ...toll, toll_operator: event.target.value })} /><input required type="number" placeholder="Amount paise" value={toll.amount_paise} onChange={(event) => setToll({ ...toll, amount_paise: event.target.value })} /><input type="date" value={toll.incurred_on} onChange={(event) => setToll({ ...toll, incurred_on: event.target.value })} /><button className="primary-button" type="submit">Save toll</button></form></section><div className="metric-grid compact"><MetricCard label="Recorded spend" value={`₹${(total / 100000).toFixed(1)}L`} change="live" detail="from expense ledger" icon="₹" tone="navy" /><MetricCard label="Fuel spend" value={`₹${(categoryTotal('Fuel') / 100000).toFixed(1)}L`} change="live" detail="recorded fuel" icon="◉" tone="orange" /><MetricCard label="Maintenance spend" value={`₹${(categoryTotal('Maintenance') / 100000).toFixed(1)}L`} change="live" detail="recorded maintenance" icon="⌁" tone="green" /><MetricCard label="Pending review" value={expenses.filter((item) => item.status !== 'Approved').length} change="live" detail="expense records" icon="!" tone="purple" /></div><div className="content-grid"><section className="panel cost-panel"><PanelHeading title="Spend by category" meta="Live expense ledger" action="View ledger" onAction={() => onNotify('Expense ledger opened.')} /><div className="bar-chart">{['Fuel', 'Maintenance', 'Tolls', 'People & admin'].map((category) => { const amount = categoryTotal(category); return <div className="bar-row" key={category}><span>{category}</span><div><i style={{ width: `${total ? Math.max(4, amount / total * 100) : 4}%` }}></i></div><strong>₹{(amount / 100000).toFixed(1)}L</strong></div> })}</div></section><section className="panel"><PanelHeading title="Recent expenses" meta={`${expenses.length} records`} action="See all" onAction={() => onNotify('All expenses opened.')} /><div className="expense-list">{expenses.slice(0, 5).map((item) => <div className="expense-item" key={item.id}><div className="expense-icon">₹</div><div><strong>{item.description}</strong><span>{fleet.find((vehicle) => vehicle.id === item.vehicle_id)?.reg || item.vendor || 'Organization'}</span></div><strong>₹{(item.amount_paise / 100).toLocaleString('en-IN')}</strong><select value={item.status} onChange={async (event) => { try { const updated = await updateExpense(token, item.id, { status: event.target.value }); onNotify('Expense status updated.'); onExpenseUpdated(updated) } catch (error) { onNotify(error.message) } }}><option>Pending</option><option>Approved</option><option>Rejected</option></select>{item.status === 'Pending' && <button className="row-more" onClick={async () => { try { const updated = await reconcileExpense(token, item.id); onExpenseUpdated(updated); onNotify('Expense reconciled.') } catch (error) { onNotify(error.message) } }}>Reconcile</button>}</div>)}</div></section></div></div>
+function FinancePage({ token, data, refresh }) {
+  const [expense, setExpense] = useState({ vehicle_id: '', category: 'Maintenance', description: '', amount_paise: 0, gst_amount_paise: 0, incurred_on: today(), vendor: '', gstin: '', cost_center: '', payment_mode: 'Bank transfer' })
+  const [fuel, setFuel] = useState({ vehicle_id: '', station: '', fuel_type: 'Diesel', litres_milli: 0, price_per_litre_paise: 0, odometer_km: 0, incurred_on: today(), reference: '' })
+  const [toll, setToll] = useState({ vehicle_id: '', toll_operator: '', plaza: '', amount_paise: 0, incurred_on: today(), tag_reference: '' })
+  async function addExpense(event) { event.preventDefault(); try { await createExpense(token, { ...expense, vehicle_id: expense.vehicle_id ? Number(expense.vehicle_id) : null, amount_paise: Number(expense.amount_paise), gst_amount_paise: Number(expense.gst_amount_paise) }); refresh('Expense submitted for finance review.') } catch (error) { refresh(error.message) } }
+  async function addFuel(event) { event.preventDefault(); try { await createFuelTransaction(token, { ...fuel, vehicle_id: Number(fuel.vehicle_id), litres_milli: Number(fuel.litres_milli), price_per_litre_paise: Number(fuel.price_per_litre_paise), odometer_km: Number(fuel.odometer_km) }); refresh('Fuel transaction recorded.') } catch (error) { refresh(error.message) } }
+  async function addToll(event) { event.preventDefault(); try { await createTollTransaction(token, { ...toll, vehicle_id: Number(toll.vehicle_id), amount_paise: Number(toll.amount_paise) }); refresh('Toll transaction recorded.') } catch (error) { refresh(error.message) } }
+  async function approve(item) { try { await reconcileExpense(token, item.id); refresh('Expense reconciled.') } catch (error) { refresh(error.message) } }
+  return <PageFrame eyebrow="01 · Finance control" title="Ledger & costs" description="Record operating spend with GST context, reconcile the evidence, and keep vehicle cost visible to the organisation."><div className="stat-grid"><Metric label="Pending review" value={data.expenses.filter((item) => item.status === 'Pending').length} detail="expense records" tone="amber" /><Metric label="Approved spend" value={money(data.expenses.filter((item) => item.status === 'Approved').reduce((sum, item) => sum + item.amount_paise, 0))} detail="current loaded ledger" tone="green" /><Metric label="GST captured" value={money(data.expenses.reduce((sum, item) => sum + item.gst_amount_paise, 0))} detail="tax context" tone="blue" /></div><div className="three-grid"><FormCard title="Expense" description="GST-ready operational cost."><form className="stack-form" onSubmit={addExpense}><SelectField label="Vehicle" value={expense.vehicle_id} onChange={(value) => setExpense({ ...expense, vehicle_id: value })} options={[['', 'Organisation expense'], ...data.vehicles.map((vehicle) => [String(vehicle.id), vehicle.registration_number])]} /><Field label="Category" value={expense.category} onChange={(value) => setExpense({ ...expense, category: value })} required /><Field label="Description" value={expense.description} onChange={(value) => setExpense({ ...expense, description: value })} required /><Field label="Amount (paise)" type="number" value={expense.amount_paise} onChange={(value) => setExpense({ ...expense, amount_paise: value })} required /><Field label="GST (paise)" type="number" value={expense.gst_amount_paise} onChange={(value) => setExpense({ ...expense, gst_amount_paise: value })} /><Field label="Incurred on" type="date" value={expense.incurred_on} onChange={(value) => setExpense({ ...expense, incurred_on: value })} /><button className="primary-button">Submit expense</button></form></FormCard><FormCard title="Fuel log" description="Capture litres, rate, and odometer together."><form className="stack-form" onSubmit={addFuel}><SelectField label="Vehicle" value={fuel.vehicle_id} onChange={(value) => setFuel({ ...fuel, vehicle_id: value })} options={[['', 'Select vehicle'], ...data.vehicles.map((vehicle) => [String(vehicle.id), vehicle.registration_number])]} required /><Field label="Station" value={fuel.station} onChange={(value) => setFuel({ ...fuel, station: value })} /><Field label="Fuel type" value={fuel.fuel_type} onChange={(value) => setFuel({ ...fuel, fuel_type: value })} required /><Field label="Litres (milli)" type="number" value={fuel.litres_milli} onChange={(value) => setFuel({ ...fuel, litres_milli: value })} required /><Field label="Rate per litre (paise)" type="number" value={fuel.price_per_litre_paise} onChange={(value) => setFuel({ ...fuel, price_per_litre_paise: value })} required /><Field label="Odometer (km)" type="number" value={fuel.odometer_km} onChange={(value) => setFuel({ ...fuel, odometer_km: value })} required /><Field label="Date" type="date" value={fuel.incurred_on} onChange={(value) => setFuel({ ...fuel, incurred_on: value })} /><button className="primary-button">Record fuel</button></form></FormCard><FormCard title="Toll" description="FASTag and plaza context for route cost."><form className="stack-form" onSubmit={addToll}><SelectField label="Vehicle" value={toll.vehicle_id} onChange={(value) => setToll({ ...toll, vehicle_id: value })} options={[['', 'Select vehicle'], ...data.vehicles.map((vehicle) => [String(vehicle.id), vehicle.registration_number])]} required /><Field label="Plaza" value={toll.plaza} onChange={(value) => setToll({ ...toll, plaza: value })} required /><Field label="Amount (paise)" type="number" value={toll.amount_paise} onChange={(value) => setToll({ ...toll, amount_paise: value })} required /><Field label="Date" type="date" value={toll.incurred_on} onChange={(value) => setToll({ ...toll, incurred_on: value })} /><button className="primary-button">Record toll</button></form></FormCard></div><DataPanel title="Expense approval queue" eyebrow={`${data.expenses.length} records`}><Table headers={['Date', 'Category', 'Vehicle', 'Amount', 'Status', 'Action']} rows={data.expenses.map((item) => [dateText(item.incurred_on), item.category, item.vehicle_id ? `#${item.vehicle_id}` : 'Organisation', money(item.amount_paise), <span className={`status ${item.status === 'Approved' ? 'good' : item.status === 'Rejected' ? 'bad' : 'warn'}`}>{item.status}</span>, item.status === 'Pending' ? <button className="table-action" onClick={() => approve(item)}>Reconcile</button> : '—'])} empty="No expense records have been submitted." /></DataPanel></PageFrame>
 }
 
-function AddVehicleModal({ onClose, onSave }) {
-  const [form, setForm] = useState({ reg: '', type: '', model: '', depot: '' })
-  const [error, setError] = useState('')
-
-  const updateField = (field, value) => setForm((currentForm) => ({ ...currentForm, [field]: value }))
-  const submit = (event) => {
-    event.preventDefault()
-    if (!form.reg.trim() || !form.type || !form.model.trim() || !form.depot.trim()) {
-      setError('Complete all vehicle details before saving.')
-      return
-    }
-    onSave({ reg: form.reg.trim().toUpperCase(), model: form.model.trim(), type: form.type, depot: form.depot.trim(), status: 'Idle / parked', health: 100, km: '0 km', driver: 'Unassigned', accent: 'blue' })
-  }
-
-  return <div className="modal-backdrop" onMouseDown={onClose}><form className="modal" onMouseDown={(event) => event.stopPropagation()} onSubmit={submit}><div className="modal-header"><div><span className="eyebrow">Fleet register</span><h2>Add a vehicle</h2></div><button type="button" onClick={onClose}>×</button></div><p>Start tracking its documents, components, costs, and maintenance history.</p><div className="form-grid"><label>Registration number<input value={form.reg} onChange={(event) => updateField('reg', event.target.value)} placeholder="e.g. MH 12 AB 1234" /></label><label>Vehicle type<select value={form.type} onChange={(event) => updateField('type', event.target.value)}><option value="" disabled>Select type</option><option>Heavy truck</option><option>Tipper</option><option>Multi-axle</option></select></label><label>Make & model<input value={form.model} onChange={(event) => updateField('model', event.target.value)} placeholder="e.g. Tata Prima 5530" /></label><label>Home depot<input value={form.depot} onChange={(event) => updateField('depot', event.target.value)} placeholder="e.g. Pune Central" /></label></div>{error && <div className="form-error">{error}</div>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button type="submit" className="primary-button">Add vehicle</button></div></form></div>
+function NotificationsPage({ token, data, refresh }) {
+  async function mark(item, status) { try { if (status === 'resolved') await resolveNotification(token, item.id); else await updateNotification(token, item.id, status); refresh('Notification updated.') } catch (error) { refresh(error.message) } }
+  async function savePreference(preference) { try { await updateNotificationPreference(token, preference); refresh('Notification preference saved.') } catch (error) { refresh(error.message) } }
+  return <PageFrame eyebrow="01 · Shared control" title="Notifications" description="Every member receives durable in-app delivery. SMS and WhatsApp remain explicit, consent-aware provider boundaries."><div className="notification-banner"><div><span className="overline">Delivery centre</span><h3>{data.notifications.filter((item) => item.status === 'unread').length} unread operational alerts</h3><p>Mobile delivery requires a saved mobile number and configured provider credentials.</p></div><button className="secondary-button" onClick={async () => { try { await dispatchQueuedSms(token); refresh('Queued SMS delivery attempted.') } catch (error) { refresh(error.message) } }}>Dispatch queued SMS</button></div><div className="split-grid"><DataPanel title="In-app alert inbox" eyebrow={`${data.notifications.length} alerts`}><div className="notification-list">{data.notifications.map((item) => <article key={item.id}><div><span className={`severity ${item.severity}`}>{item.severity}</span><strong>{item.title}</strong><p>{item.detail}</p><small>{dateText(item.created_at)} · {item.entity_type} #{item.entity_id}</small></div><div className="row-actions">{item.status === 'unread' && <button className="table-action" onClick={() => mark(item, 'read')}>Mark read</button>}{item.status !== 'resolved' && <button className="table-action" onClick={() => mark(item, 'resolved')}>Resolve</button>}</div></article>)}{!data.notifications.length && <EmptyState visible title="No alerts" text="Operational alerts generated by the backend will appear here." />}</div></DataPanel><DataPanel title="Channel preferences" eyebrow="Member delivery policy"><div className="preference-list">{data.notificationPreferences.map((item) => <div className="preference-row" key={item.notification_type}><span><strong>{item.notification_type}</strong><small>Choose how this alert reaches you.</small></span><label><input type="checkbox" checked={item.in_app} onChange={(event) => savePreference({ ...item, in_app: event.target.checked })} /> In-app</label><label><input type="checkbox" checked={item.sms} onChange={(event) => savePreference({ ...item, sms: event.target.checked })} /> SMS</label><label><input type="checkbox" checked={item.whatsapp} onChange={(event) => savePreference({ ...item, whatsapp: event.target.checked })} /> WhatsApp</label></div>)}{!data.notificationPreferences.length && <p className="empty-copy">Preferences will be created when notification types are first provisioned.</p>}</div></DataPanel></div><DataPanel title="Delivery attempts" eyebrow={`${data.deliveries.length} records`}><Table headers={['Channel', 'User', 'Status', 'Provider message', 'Sent']} rows={data.deliveries.map((item) => [item.channel, `User #${item.user_id}`, item.status, item.provider_message_id || '—', dateText(item.sent_at)])} empty="No delivery attempts recorded." /></DataPanel></PageFrame>
 }
 
-createRoot(document.getElementById('root')).render(<StrictMode><App /></StrictMode>)
+function PageFrame({ eyebrow, title, description, children }) { return <div className="page-frame"><div className="page-intro"><span className="overline">{eyebrow}</span><h2>{title}</h2><p>{description}</p></div>{children}</div> }
+function FormCard({ title, description, children }) { return <section className="form-card"><div className="panel-heading"><div><span className="overline">Workflow form</span><h3>{title}</h3><p>{description}</p></div></div>{children}</section> }
+function DataPanel({ title, eyebrow, children }) { return <section className="panel"><PanelHeader eyebrow={eyebrow} title={title} />{children}</section> }
+function PanelHeader({ eyebrow, title }) { return <div className="panel-heading"><div><span className="overline">{eyebrow}</span><h3>{title}</h3></div></div> }
+function Field({ label, value, onChange, type = 'text', compact = false, ...props }) { return <label className={compact ? 'field compact' : 'field'}>{label}<input type={type} value={value ?? ''} onChange={(event) => onChange(event.target.value)} {...props} /></label> }
+function TextField({ label, value, onChange, compact = false, ...props }) { return <label className={compact ? 'field compact' : 'field'}>{label}<textarea value={value ?? ''} onChange={(event) => onChange(event.target.value)} {...props} /></label> }
+function SelectField({ label, value, onChange, options, compact = false, ...props }) { return <label className={compact ? 'field compact' : 'field'}>{label}<select value={value ?? ''} onChange={(event) => onChange(event.target.value)} {...props}>{options.map(([option, text]) => <option key={option} value={option}>{text}</option>)}</select></label> }
+function SelectInline({ value, onChange, options }) { return <select className="inline-select" value={value} onChange={(event) => onChange(event.target.value)}>{options.map((option) => <option key={option}>{option}</option>)}</select> }
+function Metric({ label, value, detail, tone = 'blue' }) { return <article className={`metric ${tone}`}><span>{label}</span><strong>{value ?? '—'}</strong><small>{detail}</small></article> }
+function Table({ headers, rows, empty }) { return rows.length ? <div className="table-wrap"><table><thead><tr>{headers.map((header) => <th key={header}>{header}</th>)}</tr></thead><tbody>{rows.map((row, index) => <tr key={index}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>)}</tbody></table></div> : <div className="empty-state"><strong>{empty}</strong></div> }
+function EmptyState({ visible, title, text }) { return visible ? <div className="empty-state"><strong>{title}</strong><span>{text}</span></div> : null }
+function LoadingScreen() { return <div className="full-state"><span className="brand-symbol">V</span><h2>Loading your workspace</h2><p>Connecting to organisation records…</p></div> }
+function ErrorScreen({ error, onRetry }) { return <div className="full-state"><span className="brand-symbol">!</span><h2>Workspace could not load</h2><p>{error}</p><button className="primary-button" onClick={onRetry}>Retry</button></div> }
+function pageTitle(page, role) { if (page === 'command') return role === 'owner' ? 'Governance command centre' : `${roleNames[role]} workspace`; return navByRole[role]?.find(([id]) => id === page)?.[1] || 'Workspace' }
+function commandHeadline(role) { return { owner: 'Govern the organisation without operating every task.', fleet_manager: 'See readiness, risk, and the next fleet decision.', inventory_manager: 'Keep every critical part available before the job starts.', technician: 'Turn assigned work into evidence-ready handoffs.', driver: 'Start every route with a clear safety record.', accountant: 'Close the rupee trail with operational context.' }[role] }
+function commandSubhead(role) { return { owner: 'Members, billing, audit evidence, and delegated operations stay visible while operational mutations remain with accountable teams.', fleet_manager: 'Vehicles, odometers, maintenance, documents, and driver coverage in one fleet operating picture.', inventory_manager: 'Catalogue, reorder exposure, stock locations, procurement, and movement history for the workshop.', technician: 'Assigned work orders, checklists, evidence, parts context, and completion handoffs in one execution surface.', driver: 'Assigned vehicle context, inspections, odometer capture, issue escalation, and notification delivery.', accountant: 'Expenses, fuel, tolls, approvals, GST context, and reconciliation connected to the fleet record.' }[role] }
+function commandStats(role, data) {
+  const operations = data.operations || {}
+  const stats = role === 'owner' ? [['Members', data.users.length, 'organisation directory', 'blue'], ['Trial status', data.subscription?.status || '—', `ends ${dateText(data.subscription?.trial_ends_on)}`, 'green'], ['Open work', operations.open_work_orders ?? data.workOrders.filter((item) => !['Completed', 'Cancelled'].includes(item.status)).length, 'delegated operations', 'amber'], ['Audit events', data.audit.length, 'recent evidence', 'purple']] : role === 'fleet_manager' ? [['Active vehicles', operations.active_vehicles ?? data.vehicles.length, 'in operating picture', 'green'], ['Open work', operations.open_work_orders ?? data.workOrders.length, 'maintenance queue', 'amber'], ['Compliance due', operations.compliance_due ?? 0, 'next 30 days', 'red'], ['Unassigned assets', operations.unassigned_vehicles ?? 0, 'needs driver handoff', 'purple']] : role === 'inventory_manager' ? [['Parts catalogue', data.parts.length, 'stock records', 'blue'], ['Low stock', data.parts.filter((item) => item.quantity_on_hand <= item.reorder_level).length, 'reorder decisions', 'red'], ['Open POs', data.purchaseOrders.filter((item) => !['Received', 'Cancelled'].includes(item.status)).length, 'supplier handoffs', 'amber'], ['Locations', data.locations.length, 'stock control points', 'green']] : role === 'technician' ? [['Assigned work', data.workOrders.length, 'execution queue', 'blue'], ['In progress', data.workOrders.filter((item) => item.status === 'In progress').length, 'active repairs', 'amber'], ['Components', data.components.length, 'service context', 'green'], ['Alerts', data.notifications.filter((item) => item.status === 'unread').length, 'recipient-scoped', 'red']] : role === 'driver' ? [['Vehicles', data.vehicles.length, 'assigned context', 'blue'], ['Inspections', data.inspections.length, 'recorded checks', 'green'], ['Open issues', data.issues.filter((item) => item.status === 'OPEN').length, 'safety escalations', 'red'], ['Unread alerts', data.notifications.filter((item) => item.status === 'unread').length, 'delivery inbox', 'amber']] : [['Expenses', data.expenses.length, 'ledger records', 'blue'], ['Pending', data.expenses.filter((item) => item.status === 'Pending').length, 'approval queue', 'amber'], ['Approved spend', money(data.expenses.filter((item) => item.status === 'Approved').reduce((sum, item) => sum + item.amount_paise, 0)), 'loaded ledger', 'green'], ['GST captured', money(data.expenses.reduce((sum, item) => sum + item.gst_amount_paise, 0)), 'tax context', 'purple']]
+  return stats.map(([label, value, detail, tone]) => ({ label, value, detail, tone }))
+}
+function commandActions(role) {
+  const actions = { owner: [['members', 'Invite and assign a member', 'Keep access aligned to responsibility.', '♙', 'blue'], ['billing', 'Review plan capacity', '14-day trial and unlimited members.', '₹', 'green'], ['audit', 'Search audit evidence', 'Inspect organisation-level activity.', '≋', 'purple'], ['notifications', 'Review delivery policy', 'In-app, SMS, and WhatsApp boundaries.', '◌', 'amber']], fleet_manager: [['vehicles', 'Open vehicle register', 'Update readiness and driver context.', '▣', 'blue'], ['maintenance', 'Dispatch maintenance work', 'Create the next accountable handoff.', '◆', 'amber'], ['compliance', 'Review expiry horizon', 'Keep documents ahead of the road.', '▤', 'red'], ['telematics', 'Sync odometers', 'Connect provider signals to fleet records.', '⌁', 'green']], inventory_manager: [['inventory', 'Review stock exposure', 'Find low stock before it blocks work.', '▦', 'red'], ['procurement', 'Create a purchase order', 'Connect supplier and part demand.', '◇', 'amber'], ['notifications', 'Review inventory alerts', 'Resolve recipient-scoped exceptions.', '◌', 'blue']], technician: [['work', 'Open assigned queue', 'Start, execute, and hand off repairs.', '◆', 'amber'], ['notifications', 'Review work alerts', 'Stay current on changes and blockers.', '◌', 'blue']], driver: [['checks', 'Complete daily check', 'Record readiness and odometer.', '✓', 'green'], ['notifications', 'Review safety alerts', 'See what the fleet team needs from you.', '◌', 'red']], accountant: [['finance', 'Open finance ledger', 'Record and reconcile operating spend.', '₹', 'green'], ['notifications', 'Review finance alerts', 'Keep approval and delivery context visible.', '◌', 'blue']] }
+  return (actions[role] || []).map(([page, title, detail, icon, tone]) => ({ page, title, detail, icon, tone }))
+}
+function AttentionList({ role, data, onNavigate }) {
+  const items = []
+  if (['owner', 'fleet_manager'].includes(role) && data.operations?.overdue_work_orders) items.push(['Overdue work orders', `${data.operations.overdue_work_orders} need a fleet decision`, 'maintenance', 'red'])
+  if (['owner', 'fleet_manager'].includes(role) && data.operations?.low_stock_parts) items.push(['Low stock parts', `${data.operations.low_stock_parts} reorder thresholds reached`, 'inventory', 'amber'])
+  if (role === 'inventory_manager' && data.parts.some((item) => item.quantity_on_hand <= item.reorder_level)) items.push(['Reorder exposure', 'One or more catalogue items are below threshold', 'inventory', 'red'])
+  if (role === 'driver' && data.issues.some((item) => item.status === 'OPEN')) items.push(['Open safety issues', 'Your reported defects are visible to the fleet team', 'checks', 'red'])
+  if (role === 'accountant' && data.expenses.some((item) => item.status === 'Pending')) items.push(['Pending finance approvals', 'Expenses are waiting for reconciliation', 'finance', 'amber'])
+  if (!items.length) return <div className="empty-state compact"><strong>No immediate exceptions</strong><span>The loaded organisation records are within the current view.</span></div>
+  return <div className="attention-list">{items.map(([title, detail, page, tone]) => <button key={title} onClick={() => onNavigate(page)}><span className={`attention-icon ${tone}`}>!</span><span><strong>{title}</strong><small>{detail}</small></span><b>→</b></button>)}</div>
+}
+function RecentActivity({ data }) {
+  const rows = [...data.workOrders.map((item) => ({ title: item.title, detail: `Work order · ${item.status}`, date: item.created_at })), ...data.documents.map((item) => ({ title: item.name, detail: `Document · expires ${dateText(item.expires_on)}`, date: item.created_at })), ...data.expenses.map((item) => ({ title: item.description, detail: `Expense · ${money(item.amount_paise)}`, date: item.created_at }))].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 6)
+  return rows.length ? <div className="activity-list">{rows.map((row, index) => <div key={`${row.title}-${index}`}><span className="activity-dot" /><span><strong>{row.title}</strong><small>{row.detail}</small></span><time>{dateText(row.date)}</time></div>)}</div> : <div className="empty-state compact"><strong>No recent activity</strong><span>New records created in your organisation will appear here.</span></div>
+}
+function roleDescription(role) { return { owner: 'Governance, access, billing, policy, and audit.', fleet_manager: 'Readiness, dispatch, odometer, and compliance.', inventory_manager: 'Parts, locations, movements, and procurement.', technician: 'Assigned repair execution and evidence.', driver: 'Daily safety, odometer, and issue reporting.', accountant: 'Ledger, GST, approvals, and reconciliation.' }[role] }
+
+createRoot(document.getElementById('root')).render(<App />)
