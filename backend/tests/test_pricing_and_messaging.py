@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 import sys
 from types import SimpleNamespace
+from datetime import date, timedelta
 
 os.environ["VAHANA_DATABASE_URL"] = "sqlite:///./test-pricing-and-messaging.db"
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -27,6 +28,7 @@ def test_fleetops_pricing_catalog_and_mobile_normalization(tmp_path: Path, monke
         assert catalog["growth"]["monthly_price_paise"] == 999900
         assert catalog["scale"]["monthly_price_paise"] == 2499900
         assert catalog["enterprise"]["min_vehicles"] == 100
+        assert {plan["included_users"] for plan in catalog.values()} == {999999}
 
         signup = client.post("/api/v1/auth/signup", json={
             "organization_name": "Mobile Ready Fleet",
@@ -37,14 +39,19 @@ def test_fleetops_pricing_catalog_and_mobile_normalization(tmp_path: Path, monke
         })
         assert signup.status_code == 201
         assert signup.json()["user"]["mobile_phone"] == "+919876543210"
+        assert signup.json()["user"]["organization_name"] == "Mobile Ready Fleet"
         headers = {"Authorization": f"Bearer {signup.json()['access_token']}"}
+        subscription = client.get("/api/v1/subscription", headers=headers)
+        assert subscription.status_code == 200
+        assert subscription.json()["status"] == "trialing"
+        assert subscription.json()["trial_ends_on"] == (date.today() + timedelta(days=14)).isoformat()
 
         invalid = client.patch(
             "/api/v1/users/me/contact",
             headers=headers,
             json={"mobile_phone": "not-a-number"},
-    )
-    assert invalid.status_code == 422
+        )
+        assert invalid.status_code == 422
 
 
 def test_twilio_sms_and_whatsapp_use_server_side_provider_boundaries(monkeypatch):

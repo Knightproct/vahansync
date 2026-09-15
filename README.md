@@ -75,7 +75,7 @@ VahanSync is priced by managed fleet size rather than by every operational actio
 | Scale | 50–99 vehicles | 50 | ₹24,999/month | ₹350/month |
 | Enterprise | 100+ vehicles | 100 | Custom | ₹300/month |
 
-The vehicle-band rules prevent selecting a smaller tier than the active fleet. The subscription view calculates overage vehicles and an estimated monthly subtotal. Razorpay checkout is now available through the backend subscription endpoint and verified webhooks; recurring billing becomes active after Razorpay plan IDs and credentials are configured.
+Every organisation starts with a 14-day free trial, and every plan supports unlimited member onboarding. The vehicle-band rules prevent selecting a smaller tier than the active fleet. The subscription view calculates overage vehicles and an estimated monthly subtotal. Razorpay checkout is now available through the backend subscription endpoint and verified webhooks; recurring billing becomes active after Razorpay plan IDs and credentials are configured.
 
 ## Organisation access model
 

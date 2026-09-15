@@ -208,12 +208,21 @@ def invitation_is_active(invitation: OrganizationInvitation) -> bool:
     return invitation.accepted_at is None and invitation.revoked_at is None and expires_at > datetime.now(timezone.utc)
 
 
+def trial_end_date() -> str:
+    return (datetime.now(timezone.utc).date() + timedelta(days=14)).isoformat()
+
+
 @router.post("/auth/signup", response_model=OrganizationSignupRead, status_code=status.HTTP_201_CREATED)
 def signup(payload: OrganizationSignup, database: Session = Depends(get_db)) -> OrganizationSignupRead:
     email = payload.email.lower()
     if database.scalar(select(User).where(User.email == email)) is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A user with this email already exists")
-    organization = Organization(name=payload.organization_name.strip(), slug=organization_slug(payload.organization_name, database))
+    organization = Organization(
+        name=payload.organization_name.strip(),
+        slug=organization_slug(payload.organization_name, database),
+        subscription_status="trialing",
+        trial_ends_on=trial_end_date(),
+    )
     database.add(organization)
     database.flush()
     try:
