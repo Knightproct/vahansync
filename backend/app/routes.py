@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session, selectinload
 from .config import get_settings
 from .database import get_db
 from .dependencies import get_current_user, require_permission, require_roles
-from .models import AuditLog, BillingInvoice, BillingPayment, ComplianceDocument, DocumentAsset, DocumentVersion, DriverInspection, Expense, FuelTransaction, InventoryMovement, InventoryTransaction, MaintenancePlan, NotificationPreference, NotificationDelivery, OdometerLog, OperationalNotification, Organization, OrganizationInvitation, Part, PurchaseOrder, PurchaseOrderLine, PurchaseOrderReceipt, StockLocation, TelematicsDevice, TelematicsIntegration, TelemetryReading, TollTransaction, User, Vehicle, VehicleAssignment, VehicleComponent, VehicleIssue, Vendor, WorkOrder, WorkOrderChecklistItem, WorkOrderEvidence, WorkOrderPartUsage, utc_now
+from .models import AuditLog, BillingInvoice, BillingPayment, ComplianceDocument, DocumentAsset, DocumentVersion, DriverInspection, Expense, FuelTransaction, IdempotencyRecord, InventoryMovement, InventoryTransaction, MaintenancePlan, NotificationPreference, NotificationDelivery, OdometerLog, OperationalNotification, Organization, OrganizationInvitation, Part, PurchaseOrder, PurchaseOrderLine, PurchaseOrderReceipt, StockLocation, TelematicsDevice, TelematicsIntegration, TelemetryReading, TollTransaction, User, Vehicle, VehicleAssignment, VehicleComponent, VehicleIssue, Vendor, WorkOrder, WorkOrderChecklistItem, WorkOrderEvidence, WorkOrderPartUsage, utc_now
 from .security import create_access_token, hash_password, provision_supabase_user, verify_password
 from .schemas import (
     ComponentCreate,
@@ -115,6 +115,33 @@ from .schemas import (
 from .storage import download_object, resolve_object, save_upload
 
 router = APIRouter(prefix="/api/v1")
+
+
+def reserve_idempotency_key(request: Request, user: User, database: Session) -> None:
+    key = request.headers.get("Idempotency-Key")
+    if not key:
+        return
+    if len(key) > 160:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Idempotency-Key is too long")
+    method = request.method.upper()
+    path = request.url.path
+    existing = database.scalar(select(IdempotencyRecord).where(
+        IdempotencyRecord.organization_id == user.organization_id,
+        IdempotencyRecord.user_id == user.id,
+        IdempotencyRecord.idempotency_key == key,
+        IdempotencyRecord.method == method,
+        IdempotencyRecord.path == path,
+    ))
+    if existing is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Idempotency-Key has already been used")
+    database.add(IdempotencyRecord(
+        organization_id=user.organization_id,
+        user_id=user.id,
+        idempotency_key=key,
+        method=method,
+        path=path,
+    ))
+    database.flush()
 
 SUBSCRIPTION_PLANS = {
     "starter": {
@@ -1381,6 +1408,7 @@ def create_work_order(
     user: User = Depends(require_permission("maintenance")),
     database: Session = Depends(get_db),
 ) -> WorkOrder:
+    reserve_idempotency_key(request, user, database)
     vehicle = database.scalar(select(Vehicle).where(Vehicle.id == payload.vehicle_id, Vehicle.organization_id == user.organization_id))
     if vehicle is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found in this organization")
@@ -2657,6 +2685,7 @@ def create_expense(
     user: User = Depends(require_permission("finance")),
     database: Session = Depends(get_db),
 ) -> Expense:
+    reserve_idempotency_key(request, user, database)
     if payload.vehicle_id is not None:
         vehicle = database.scalar(select(Vehicle).where(Vehicle.id == payload.vehicle_id, Vehicle.organization_id == user.organization_id))
         if vehicle is None:
@@ -3369,6 +3398,7 @@ def receive_purchase_order(
     user: User = Depends(require_permission("procurement")),
     database: Session = Depends(get_db),
 ) -> PurchaseOrderReceipt:
+    reserve_idempotency_key(request, user, database)
     order = database.scalar(select(PurchaseOrder).where(
         PurchaseOrder.id == purchase_order_id,
         PurchaseOrder.organization_id == user.organization_id,

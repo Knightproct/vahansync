@@ -1,6 +1,6 @@
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from .database import get_db
@@ -42,6 +42,11 @@ def get_current_user(token: str = Depends(oauth2_scheme), database: Session = De
                 raise credentials_error
         if user is None:
             raise credentials_error
+        if database.bind is not None and database.bind.dialect.name == "postgresql":
+            database.execute(
+                text("select set_config('app.organization_id', :organization_id, true)"),
+                {"organization_id": str(user.organization_id)},
+            )
         return user
     except Exception as error:
         raise credentials_error from error

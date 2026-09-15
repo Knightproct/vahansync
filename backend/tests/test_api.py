@@ -75,6 +75,19 @@ def test_health_and_vehicle_lifecycle(tmp_path: Path, monkeypatch):
             "priority": "High",
         })
         assert work_order.status_code == 201
+        idempotency_headers = {**headers, "Idempotency-Key": f"work-order-{uuid4().hex}"}
+        first_idempotent_order = client.post("/api/v1/work-orders", headers=idempotency_headers, json={
+            "vehicle_id": vehicle_id,
+            "title": "Idempotent inspection",
+            "priority": "Low",
+        })
+        assert first_idempotent_order.status_code == 201
+        duplicate_idempotent_order = client.post("/api/v1/work-orders", headers=idempotency_headers, json={
+            "vehicle_id": vehicle_id,
+            "title": "Idempotent inspection",
+            "priority": "Low",
+        })
+        assert duplicate_idempotent_order.status_code == 409
         work_notifications = client.get("/api/v1/notifications", headers=headers)
         assert work_notifications.status_code == 200
         assert any(item["notification_type"] == "work_order_assigned" for item in work_notifications.json())
