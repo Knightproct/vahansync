@@ -601,8 +601,12 @@ class ExpenseCreate(BaseModel):
     incurred_on: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
     vendor: str | None = None
     gstin: str | None = Field(default=None, max_length=20)
+    tax_category: str | None = Field(default=None, max_length=40)
+    invoice_number: str | None = Field(default=None, max_length=80)
+    tds_amount_paise: int = Field(default=0, ge=0)
     cost_center: str | None = Field(default=None, max_length=120)
     payment_mode: str | None = Field(default=None, max_length=40)
+    payment_reference: str | None = Field(default=None, max_length=120)
     status: str = Field(default="Pending", pattern="^(Pending|Approved|Rejected)$")
 
 
