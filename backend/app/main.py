@@ -56,13 +56,24 @@ async def unhandled_exception(_: Request, __: Exception):
 
 @app.get("/health")
 def health() -> dict[str, str | bool]:
+    object_storage_configured = (
+        bool(settings.object_storage_bucket)
+        or (
+            settings.storage_backend == "supabase"
+            and bool(
+                settings.supabase_url
+                and settings.supabase_service_role_key
+                and settings.supabase_storage_bucket
+            )
+        )
+    )
     return {
         "status": "ok",
         "service": "vahana-api",
         "environment": settings.environment,
         "database_configured": bool(settings.database_url),
         "storage_backend": settings.storage_backend,
-        "object_storage_configured": bool(settings.object_storage_bucket),
+        "object_storage_configured": object_storage_configured,
     }
 
 
