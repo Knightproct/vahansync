@@ -228,6 +228,24 @@ def test_health_and_vehicle_lifecycle(tmp_path: Path, monkeypatch):
         updated_po = client.patch(f"/api/v1/purchase-orders/{purchase_order.json()['id']}", headers=headers, json={"status": "Submitted"})
         assert updated_po.status_code == 200
         assert updated_po.json()["status"] == "Submitted"
+        receipt = client.post(
+            f"/api/v1/purchase-orders/{purchase_order.json()['id']}/receipts",
+            headers=headers,
+            json={
+                "part_id": part.json()["id"],
+                "quantity": 3,
+                "damaged_quantity": 1,
+                "backordered_quantity": 1,
+                "unit_cost_paise": 130000,
+            },
+        )
+        assert receipt.status_code == 201
+        over_receipt = client.post(
+            f"/api/v1/purchase-orders/{purchase_order.json()['id']}/receipts",
+            headers=headers,
+            json={"part_id": part.json()["id"], "quantity": 2, "unit_cost_paise": 130000},
+        )
+        assert over_receipt.status_code == 422
         assert client.get("/api/v1/alerts", headers=headers).status_code == 200
         contact = client.patch("/api/v1/users/me/contact", headers=headers, json={"mobile_phone": "+919999999999"})
         assert contact.status_code == 200
