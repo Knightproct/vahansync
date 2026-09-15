@@ -83,6 +83,31 @@ class Vehicle(Base):
     organization: Mapped[Organization] = relationship(back_populates="vehicles")
 
 
+class VehicleAssignment(Base):
+    __tablename__ = "vehicle_assignments"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    vehicle_id: Mapped[int] = mapped_column(ForeignKey("vehicles.id"), nullable=False, index=True)
+    driver_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class OdometerLog(Base):
+    __tablename__ = "odometer_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    vehicle_id: Mapped[int] = mapped_column(ForeignKey("vehicles.id"), nullable=False, index=True)
+    driver_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), index=True)
+    reading_km: Mapped[int] = mapped_column(Integer, nullable=False)
+    source: Mapped[str] = mapped_column(String(40), nullable=False)
+    is_flagged: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
 class VehicleComponent(Base):
     __tablename__ = "vehicle_components"
 
@@ -113,6 +138,12 @@ class WorkOrder(Base):
     due_date: Mapped[Optional[str]] = mapped_column(String(20))
     assigned_to: Mapped[Optional[str]] = mapped_column(String(160))
     assigned_user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    scheduled_for: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    labor_hours: Mapped[Optional[int]] = mapped_column(Integer)
+    repair_notes: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
 
@@ -305,6 +336,7 @@ class OperationalNotification(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    recipient_user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), index=True)
     notification_type: Mapped[str] = mapped_column(String(80), nullable=False)
     severity: Mapped[str] = mapped_column(String(20), nullable=False)
     title: Mapped[str] = mapped_column(String(240), nullable=False)
@@ -342,7 +374,11 @@ class NotificationDelivery(Base):
     channel: Mapped[str] = mapped_column(String(24), nullable=False)
     status: Mapped[str] = mapped_column(String(24), default="queued", nullable=False)
     provider_message_id: Mapped[Optional[str]] = mapped_column(String(160))
+    error_code: Mapped[Optional[str]] = mapped_column(String(80))
+    error_message: Mapped[Optional[str]] = mapped_column(String(500))
+    attempt: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    delivered_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
 
@@ -490,6 +526,53 @@ class PurchaseOrderLine(Base):
     unit_cost_paise: Mapped[int] = mapped_column(Integer, nullable=False)
     line_total_paise: Mapped[int] = mapped_column(Integer, nullable=False)
     purchase_order: Mapped[PurchaseOrder] = relationship(back_populates="lines")
+
+
+class PurchaseOrderReceipt(Base):
+    __tablename__ = "purchase_order_receipts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    purchase_order_id: Mapped[int] = mapped_column(ForeignKey("purchase_orders.id"), nullable=False, index=True)
+    part_id: Mapped[int] = mapped_column(ForeignKey("parts.id"), nullable=False, index=True)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    damaged_quantity: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    backordered_quantity: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    variance_reason: Mapped[Optional[str]] = mapped_column(Text)
+    unit_cost_paise: Mapped[int] = mapped_column(Integer, nullable=False)
+    invoice_number: Mapped[Optional[str]] = mapped_column(String(120))
+    location_id: Mapped[Optional[int]] = mapped_column(ForeignKey("stock_locations.id"))
+    received_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class BillingInvoice(Base):
+    __tablename__ = "billing_invoices"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    period_start: Mapped[str] = mapped_column(String(20), nullable=False)
+    period_end: Mapped[str] = mapped_column(String(20), nullable=False)
+    plan: Mapped[str] = mapped_column(String(32), nullable=False)
+    total_paise: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="draft", nullable=False)
+    external_invoice_id: Mapped[Optional[str]] = mapped_column(String(160))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class BillingPayment(Base):
+    __tablename__ = "billing_payments"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    invoice_id: Mapped[int] = mapped_column(ForeignKey("billing_invoices.id"), nullable=False, index=True)
+    provider: Mapped[str] = mapped_column(String(40), default="razorpay", nullable=False)
+    provider_payment_id: Mapped[Optional[str]] = mapped_column(String(160))
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    amount_paise: Mapped[int] = mapped_column(Integer, nullable=False)
+    paid_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    failure_reason: Mapped[Optional[str]] = mapped_column(String(500))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
 
 class AuditLog(Base):

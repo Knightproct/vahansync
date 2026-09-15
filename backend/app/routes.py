@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session, selectinload
 from .config import get_settings
 from .database import get_db
 from .dependencies import get_current_user, require_permission, require_roles
-from .models import AuditLog, ComplianceDocument, DocumentAsset, DocumentVersion, DriverInspection, Expense, FuelTransaction, InventoryMovement, InventoryTransaction, MaintenancePlan, NotificationPreference, NotificationDelivery, OperationalNotification, Organization, OrganizationInvitation, Part, PurchaseOrder, PurchaseOrderLine, StockLocation, TelematicsDevice, TelematicsIntegration, TelemetryReading, TollTransaction, User, Vehicle, VehicleComponent, VehicleIssue, Vendor, WorkOrder, WorkOrderChecklistItem, WorkOrderEvidence, WorkOrderPartUsage, utc_now
+from .models import AuditLog, BillingInvoice, BillingPayment, ComplianceDocument, DocumentAsset, DocumentVersion, DriverInspection, Expense, FuelTransaction, InventoryMovement, InventoryTransaction, MaintenancePlan, NotificationPreference, NotificationDelivery, OdometerLog, OperationalNotification, Organization, OrganizationInvitation, Part, PurchaseOrder, PurchaseOrderLine, PurchaseOrderReceipt, StockLocation, TelematicsDevice, TelematicsIntegration, TelemetryReading, TollTransaction, User, Vehicle, VehicleAssignment, VehicleComponent, VehicleIssue, Vendor, WorkOrder, WorkOrderChecklistItem, WorkOrderEvidence, WorkOrderPartUsage, utc_now
 from .security import create_access_token, hash_password, provision_supabase_user, verify_password
 from .schemas import (
     ComponentCreate,
@@ -62,6 +62,8 @@ from .schemas import (
     PartCreate,
     PartRead,
     PurchaseOrderCreate,
+    PurchaseOrderReceiptCreate,
+    PurchaseOrderReceiptRead,
     PurchaseOrderRead,
     PurchaseOrderStatusUpdate,
     StockLocationCreate,
@@ -87,6 +89,8 @@ from .schemas import (
     UserRoleUpdate,
     AuditLogRead,
     VehicleCreate,
+    VehicleAssignmentCreate,
+    VehicleAssignmentRead,
     VehicleRead,
     VehicleUpdate,
     VendorCreate,
@@ -99,6 +103,7 @@ from .schemas import (
     WorkOrderPartUsageRead,
     WorkOrderRead,
     WorkOrderUpdate,
+    OdometerLogRead,
     VehicleIssueCreate,
     VehicleIssueRead,
 )
@@ -844,7 +849,7 @@ def list_vehicles(user: User = Depends(get_current_user), database: Session = De
     statement = select(Vehicle).where(Vehicle.organization_id == user.organization_id)
     if user.role == "driver":
         statement = statement.where(Vehicle.assigned_driver_id == user.id)
-    elif user.role == "technician":
+    elif user.role in ("technician", "mechanic"):
         statement = statement.where(Vehicle.id.in_(
             select(WorkOrder.vehicle_id).where(
                 WorkOrder.organization_id == user.organization_id,
@@ -893,6 +898,20 @@ def create_vehicle(
     )
     database.add(vehicle)
     database.flush()
+    if vehicle.assigned_driver_id is not None:
+        database.add(VehicleAssignment(
+            organization_id=user.organization_id,
+            vehicle_id=vehicle.id,
+            driver_id=vehicle.assigned_driver_id,
+        ))
+    if vehicle.odometer_km:
+        database.add(OdometerLog(
+            organization_id=user.organization_id,
+            vehicle_id=vehicle.id,
+            reading_km=vehicle.odometer_km,
+            source="vehicle_creation",
+            is_flagged=False,
+        ))
     database.add(AuditLog(
         organization_id=user.organization_id,
         actor_user_id=user.id,
@@ -938,8 +957,33 @@ def update_vehicle(
         changes["driver_name"] = driver.full_name
     elif changes.get("assigned_driver_id") is None and "assigned_driver_id" in changes:
         changes["driver_name"] = None
+    previous_driver_id = vehicle.assigned_driver_id
+    previous_odometer = vehicle.odometer_km
     for key, value in changes.items():
         setattr(vehicle, key, value)
+    if "assigned_driver_id" in changes and changes["assigned_driver_id"] != previous_driver_id:
+        active_assignment = database.scalar(select(VehicleAssignment).where(
+            VehicleAssignment.organization_id == user.organization_id,
+            VehicleAssignment.vehicle_id == vehicle.id,
+            VehicleAssignment.active.is_(True),
+        ))
+        if active_assignment is not None:
+            active_assignment.active = False
+            active_assignment.ended_at = utc_now()
+        if changes["assigned_driver_id"] is not None:
+            database.add(VehicleAssignment(
+                organization_id=user.organization_id,
+                vehicle_id=vehicle.id,
+                driver_id=changes["assigned_driver_id"],
+            ))
+    if "odometer_km" in changes and changes["odometer_km"] != previous_odometer:
+        database.add(OdometerLog(
+            organization_id=user.organization_id,
+            vehicle_id=vehicle.id,
+            reading_km=changes["odometer_km"],
+            source="vehicle_update",
+            is_flagged=False,
+        ))
     database.add(AuditLog(
         organization_id=user.organization_id,
         actor_user_id=user.id,
@@ -954,6 +998,42 @@ def update_vehicle(
     return vehicle
 
 
+@router.get("/vehicles/{vehicle_id}/assignments", response_model=list[VehicleAssignmentRead])
+def list_vehicle_assignments(
+    vehicle_id: int,
+    user: User = Depends(require_permission("fleet")),
+    database: Session = Depends(get_db),
+) -> list[VehicleAssignment]:
+    vehicle = database.scalar(select(Vehicle).where(
+        Vehicle.id == vehicle_id,
+        Vehicle.organization_id == user.organization_id,
+    ))
+    if vehicle is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
+    return list(database.scalars(select(VehicleAssignment).where(
+        VehicleAssignment.organization_id == user.organization_id,
+        VehicleAssignment.vehicle_id == vehicle_id,
+    ).order_by(VehicleAssignment.id.desc())).all())
+
+
+@router.get("/vehicles/{vehicle_id}/odometer", response_model=list[OdometerLogRead])
+def list_vehicle_odometer(
+    vehicle_id: int,
+    user: User = Depends(get_current_user),
+    database: Session = Depends(get_db),
+) -> list[OdometerLog]:
+    vehicle = database.scalar(select(Vehicle).where(
+        Vehicle.id == vehicle_id,
+        Vehicle.organization_id == user.organization_id,
+    ))
+    if vehicle is None or (user.role == "driver" and vehicle.assigned_driver_id != user.id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
+    return list(database.scalars(select(OdometerLog).where(
+        OdometerLog.organization_id == user.organization_id,
+        OdometerLog.vehicle_id == vehicle_id,
+    ).order_by(OdometerLog.id.desc()).limit(100)).all())
+
+
 @router.get("/components", response_model=list[ComponentRead])
 def list_components(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[VehicleComponent]:
     statement = select(VehicleComponent).where(VehicleComponent.organization_id == user.organization_id)
@@ -961,7 +1041,7 @@ def list_components(user: User = Depends(get_current_user), database: Session = 
         statement = statement.where(VehicleComponent.vehicle_id.in_(
             select(Vehicle.id).where(Vehicle.assigned_driver_id == user.id)
         ))
-    elif user.role == "technician":
+    elif user.role in ("technician", "mechanic"):
         statement = statement.where(VehicleComponent.vehicle_id.in_(
             select(WorkOrder.vehicle_id).where(
                 WorkOrder.organization_id == user.organization_id,
@@ -1020,7 +1100,7 @@ def update_component(
         VehicleComponent.id == component_id,
         VehicleComponent.organization_id == user.organization_id,
     )
-    if user.role == "technician":
+    if user.role in ("technician", "mechanic"):
         statement = statement.where(VehicleComponent.vehicle_id.in_(
             select(WorkOrder.vehicle_id).where(
                 WorkOrder.organization_id == user.organization_id,
@@ -1061,7 +1141,7 @@ def complete_component_service(
         VehicleComponent.id == component_id,
         VehicleComponent.organization_id == user.organization_id,
     )
-    if user.role == "technician":
+    if user.role in ("technician", "mechanic"):
         statement = statement.where(VehicleComponent.vehicle_id.in_(
             select(WorkOrder.vehicle_id).where(
                 WorkOrder.organization_id == user.organization_id,
@@ -1099,9 +1179,9 @@ def complete_component_service(
 @router.get("/work-orders", response_model=list[WorkOrderRead])
 def list_work_orders(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[WorkOrder]:
     statement = select(WorkOrder).where(WorkOrder.organization_id == user.organization_id)
-    if user.role == "technician":
+    if user.role in ("technician", "mechanic"):
         statement = statement.where(WorkOrder.assigned_user_id == user.id)
-    elif user.role not in ("owner", "fleet_manager", "technician"):
+    elif user.role not in ("owner", "fleet_manager"):
         statement = statement.where(WorkOrder.id == -1)
     return list(database.scalars(statement.order_by(WorkOrder.id.desc())).all())
 
@@ -1136,6 +1216,14 @@ def create_driver_inspection(
     vehicle.odometer_km = max(vehicle.odometer_km, payload.odometer_km)
     if payload.status == "UNSAFE":
         vehicle.status = "Out of service"
+    database.add(OdometerLog(
+        organization_id=user.organization_id,
+        vehicle_id=vehicle.id,
+        driver_id=user.id,
+        reading_km=payload.odometer_km,
+        source=f"driver_{payload.inspection_type}",
+        is_flagged=False,
+    ))
     inspection = DriverInspection(
         organization_id=user.organization_id,
         driver_id=user.id,
@@ -1223,7 +1311,7 @@ def create_work_order(
         assignee = database.scalar(select(User).where(
             User.id == payload.assigned_user_id,
             User.organization_id == user.organization_id,
-            User.role.in_(("technician",)),
+            User.role.in_(("technician", "mechanic")),
         ))
         if assignee is None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Assigned user must be a workshop user in this organization")
@@ -1265,13 +1353,13 @@ def update_work_order(
     database: Session = Depends(get_db),
 ) -> WorkOrder:
     statement = select(WorkOrder).where(WorkOrder.id == work_order_id, WorkOrder.organization_id == user.organization_id)
-    if user.role == "technician":
+    if user.role in ("technician", "mechanic"):
         statement = statement.where(WorkOrder.assigned_user_id == user.id)
     work_order = database.scalar(statement)
     if work_order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Work order not found")
     changes = payload.model_dump(exclude_unset=True)
-    if user.role == "technician":
+    if user.role in ("technician", "mechanic"):
         changes = {key: value for key, value in changes.items() if key in {"description"}}
     for key, value in changes.items():
         setattr(work_order, key, value)
@@ -1299,7 +1387,7 @@ def list_work_order_checklist(
         WorkOrder.id == work_order_id,
         WorkOrder.organization_id == user.organization_id,
     )
-    if user.role == "technician":
+    if user.role in ("technician", "mechanic"):
         statement = statement.where(WorkOrder.assigned_user_id == user.id)
     if database.scalar(statement) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Work order not found")
@@ -1321,7 +1409,7 @@ def update_work_order_checklist(
         WorkOrder.id == work_order_id,
         WorkOrder.organization_id == user.organization_id,
     )
-    if user.role == "technician":
+    if user.role in ("technician", "mechanic"):
         statement = statement.where(WorkOrder.assigned_user_id == user.id)
     work_order = database.scalar(statement)
     if work_order is None:
@@ -1373,7 +1461,7 @@ def start_work_order(
         WorkOrder.id == work_order_id,
         WorkOrder.organization_id == user.organization_id,
     )
-    if user.role == "technician":
+    if user.role in ("technician", "mechanic"):
         statement = statement.where(WorkOrder.assigned_user_id == user.id)
     work_order = database.scalar(statement)
     if work_order is None:
@@ -1381,6 +1469,7 @@ def start_work_order(
     if work_order.status not in {"Open", "Assigned"}:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only open or assigned work orders can be started")
     work_order.status = "In progress"
+    work_order.started_at = utc_now()
     database.add(AuditLog(
         organization_id=user.organization_id,
         actor_user_id=user.id,
@@ -1405,7 +1494,7 @@ def complete_work_order(
         WorkOrder.id == work_order_id,
         WorkOrder.organization_id == user.organization_id,
     )
-    if user.role == "technician":
+    if user.role in ("technician", "mechanic"):
         statement = statement.where(WorkOrder.assigned_user_id == user.id)
     work_order = database.scalar(statement)
     if work_order is None:
@@ -1419,6 +1508,7 @@ def complete_work_order(
     if checklist and any(not item.completed for item in checklist):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Complete every checklist item before completing the work order")
     work_order.status = "Ready for review"
+    work_order.completed_at = utc_now()
     database.add(AuditLog(
         organization_id=user.organization_id,
         actor_user_id=user.id,
@@ -1471,7 +1561,7 @@ def list_work_order_parts(
         WorkOrder.id == work_order_id,
         WorkOrder.organization_id == user.organization_id,
     ))
-    if work_order is None or (user.role == "technician" and work_order.assigned_user_id != user.id):
+    if work_order is None or (user.role in ("technician", "mechanic") and work_order.assigned_user_id != user.id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Work order not found")
     return list(database.scalars(select(WorkOrderPartUsage).where(
         WorkOrderPartUsage.organization_id == user.organization_id,
@@ -1489,7 +1579,7 @@ def list_work_order_evidence(
         WorkOrder.id == work_order_id,
         WorkOrder.organization_id == user.organization_id,
     ))
-    if work_order is None or (user.role == "technician" and work_order.assigned_user_id != user.id):
+    if work_order is None or (user.role in ("technician", "mechanic") and work_order.assigned_user_id != user.id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Work order not found")
     return list(database.scalars(select(WorkOrderEvidence).where(
         WorkOrderEvidence.organization_id == user.organization_id,
@@ -1509,7 +1599,7 @@ def upload_work_order_evidence(
         WorkOrder.id == work_order_id,
         WorkOrder.organization_id == user.organization_id,
     )
-    if user.role == "technician":
+    if user.role in ("technician", "mechanic"):
         statement = statement.where(WorkOrder.assigned_user_id == user.id)
     work_order = database.scalar(statement)
     if work_order is None:
@@ -1598,7 +1688,7 @@ def download_work_order(
         WorkOrder.id == work_order_id,
         WorkOrder.organization_id == user.organization_id,
     )
-    if user.role == "technician":
+    if user.role in ("technician", "mechanic"):
         statement = statement.where(WorkOrder.assigned_user_id == user.id)
     work_order = database.scalar(statement)
     if work_order is None:
@@ -2303,8 +2393,17 @@ def sync_notifications(user: User, database: Session) -> None:
 def list_notifications(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[OperationalNotification]:
     sync_notifications(user, database)
     return list(database.scalars(
-        select(OperationalNotification)
-        .where(OperationalNotification.organization_id == user.organization_id)
+        select(OperationalNotification).join(
+            NotificationDelivery,
+            NotificationDelivery.notification_id == OperationalNotification.id,
+        )
+        .where(
+            OperationalNotification.organization_id == user.organization_id,
+            NotificationDelivery.organization_id == user.organization_id,
+            NotificationDelivery.user_id == user.id,
+            NotificationDelivery.channel == "in_app",
+        )
+        .distinct()
         .order_by(OperationalNotification.id.desc())
     ).all())
 
@@ -2322,6 +2421,13 @@ def update_notification(
         OperationalNotification.organization_id == user.organization_id,
     ))
     if notification is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found")
+    delivery = database.scalar(select(NotificationDelivery).where(
+        NotificationDelivery.notification_id == notification_id,
+        NotificationDelivery.user_id == user.id,
+        NotificationDelivery.channel == "in_app",
+    ))
+    if delivery is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found")
     notification.status = payload.status
     notification.resolved_at = utc_now() if payload.status in {"dismissed", "resolved"} else None
@@ -2351,6 +2457,13 @@ def resolve_notification(
         OperationalNotification.organization_id == user.organization_id,
     ))
     if notification is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found")
+    delivery = database.scalar(select(NotificationDelivery).where(
+        NotificationDelivery.notification_id == notification_id,
+        NotificationDelivery.user_id == user.id,
+        NotificationDelivery.channel == "in_app",
+    ))
+    if delivery is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found")
     notification.status = "resolved"
     notification.resolved_at = utc_now()
@@ -3024,6 +3137,82 @@ def update_purchase_order_status(
     database.commit()
     statement = select(PurchaseOrder).options(selectinload(PurchaseOrder.lines)).where(PurchaseOrder.id == order.id)
     return database.scalar(statement)
+
+
+@router.get("/purchase-orders/{purchase_order_id}/receipts", response_model=list[PurchaseOrderReceiptRead])
+def list_purchase_order_receipts(
+    purchase_order_id: int,
+    user: User = Depends(require_permission("procurement")),
+    database: Session = Depends(get_db),
+) -> list[PurchaseOrderReceipt]:
+    order = database.scalar(select(PurchaseOrder).where(
+        PurchaseOrder.id == purchase_order_id,
+        PurchaseOrder.organization_id == user.organization_id,
+    ))
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Purchase order not found")
+    return list(database.scalars(select(PurchaseOrderReceipt).where(
+        PurchaseOrderReceipt.organization_id == user.organization_id,
+        PurchaseOrderReceipt.purchase_order_id == purchase_order_id,
+    ).order_by(PurchaseOrderReceipt.id.desc())).all())
+
+
+@router.post("/purchase-orders/{purchase_order_id}/receipts", response_model=PurchaseOrderReceiptRead, status_code=status.HTTP_201_CREATED)
+def receive_purchase_order(
+    purchase_order_id: int,
+    payload: PurchaseOrderReceiptCreate,
+    request: Request,
+    user: User = Depends(require_permission("procurement")),
+    database: Session = Depends(get_db),
+) -> PurchaseOrderReceipt:
+    order = database.scalar(select(PurchaseOrder).where(
+        PurchaseOrder.id == purchase_order_id,
+        PurchaseOrder.organization_id == user.organization_id,
+    ))
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Purchase order not found")
+    part = database.scalar(select(Part).where(
+        Part.id == payload.part_id,
+        Part.organization_id == user.organization_id,
+    ))
+    if part is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Part not found in this organization")
+    if payload.damaged_quantity > payload.quantity:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Damaged quantity cannot exceed received quantity")
+    if payload.location_id is not None and database.scalar(select(StockLocation).where(
+        StockLocation.id == payload.location_id,
+        StockLocation.organization_id == user.organization_id,
+    )) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Receiving location not found")
+    receipt = PurchaseOrderReceipt(
+        organization_id=user.organization_id,
+        purchase_order_id=order.id,
+        received_by=user.id,
+        **payload.model_dump(),
+    )
+    part.quantity_on_hand += payload.quantity - payload.damaged_quantity
+    order.status = "Partially received"
+    database.add(receipt)
+    database.add(InventoryTransaction(
+        organization_id=user.organization_id,
+        part_id=part.id,
+        transaction_type="receipt",
+        quantity=payload.quantity - payload.damaged_quantity,
+        reference=order.order_number,
+        created_by=user.id,
+    ))
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="purchase_order.received",
+        entity_type="purchase_order",
+        entity_id=str(order.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps({"part_id": part.id, "quantity": payload.quantity, "damaged_quantity": payload.damaged_quantity}),
+    ))
+    database.commit()
+    database.refresh(receipt)
+    return receipt
 
 
 @router.get("/purchase-orders/{purchase_order_id}/download")

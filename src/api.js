@@ -252,6 +252,14 @@ export function getWorkOrders(token) {
   return request('/api/v1/work-orders', { headers: { Authorization: `Bearer ${token}` } })
 }
 
+export function getVehicleAssignments(token, vehicleId) {
+  return request(`/api/v1/vehicles/${vehicleId}/assignments`, { headers: { Authorization: `Bearer ${token}` } })
+}
+
+export function getVehicleOdometer(token, vehicleId) {
+  return request(`/api/v1/vehicles/${vehicleId}/odometer`, { headers: { Authorization: `Bearer ${token}` } })
+}
+
 export function createWorkOrder(token, workOrder) {
   return request('/api/v1/work-orders', {
     method: 'POST',
@@ -444,6 +452,18 @@ export function updatePurchaseOrder(token, orderId, status) {
     method: 'PATCH',
     headers: { Authorization: `Bearer ${token}` },
     body: JSON.stringify({ status }),
+  })
+}
+
+export function getPurchaseOrderReceipts(token, orderId) {
+  return request(`/api/v1/purchase-orders/${orderId}/receipts`, { headers: { Authorization: `Bearer ${token}` } })
+}
+
+export function receivePurchaseOrder(token, orderId, payload) {
+  return request(`/api/v1/purchase-orders/${orderId}/receipts`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
   })
 }
 

@@ -54,7 +54,7 @@ class InvitationCreate(BaseModel):
     email: EmailStr
     full_name: str = Field(min_length=2, max_length=160)
     mobile_phone: str | None = Field(default=None, max_length=32)
-    role: str = Field(pattern=r"^(fleet_manager|inventory_manager|driver|technician|accountant)$")
+    role: str = Field(pattern=r"^(fleet_manager|inventory_manager|driver|mechanic|technician|accountant)$")
     expires_in_days: int = Field(default=7, ge=1, le=30)
 
 
@@ -158,7 +158,11 @@ class NotificationDeliveryRead(BaseModel):
     channel: str
     status: str
     provider_message_id: str | None
+    error_code: str | None
+    error_message: str | None
+    attempt: int
     sent_at: datetime | None
+    delivered_at: datetime | None
 
 
 class SubscriptionPlanRead(BaseModel):
@@ -268,6 +272,34 @@ class VehicleUpdate(BaseModel):
     assigned_driver_id: int | None = None
 
 
+class VehicleAssignmentCreate(BaseModel):
+    vehicle_id: int
+    driver_id: int
+
+
+class VehicleAssignmentRead(VehicleAssignmentCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    organization_id: int
+    active: bool
+    created_at: datetime
+    ended_at: datetime | None
+
+
+class OdometerLogRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    organization_id: int
+    vehicle_id: int
+    driver_id: int | None
+    reading_km: int
+    source: str
+    is_flagged: bool
+    created_at: datetime
+
+
 class WorkOrderCreate(BaseModel):
     vehicle_id: int
     title: str = Field(min_length=2, max_length=200)
@@ -277,6 +309,9 @@ class WorkOrderCreate(BaseModel):
     due_date: str | None = None
     assigned_to: str | None = None
     assigned_user_id: int | None = None
+    scheduled_for: datetime | None = None
+    labor_hours: int | None = Field(default=None, ge=0)
+    repair_notes: str | None = None
 
 
 class WorkOrderRead(WorkOrderCreate):
@@ -285,6 +320,9 @@ class WorkOrderRead(WorkOrderCreate):
     id: int
     organization_id: int
     created_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
+    archived_at: datetime | None
 
 
 class WorkOrderUpdate(BaseModel):
@@ -294,6 +332,9 @@ class WorkOrderUpdate(BaseModel):
     due_date: str | None = None
     assigned_to: str | None = None
     description: str | None = None
+    scheduled_for: datetime | None = None
+    labor_hours: int | None = Field(default=None, ge=0)
+    repair_notes: str | None = None
 
 
 class WorkOrderChecklistItemCreate(BaseModel):
@@ -505,6 +546,7 @@ class NotificationRead(BaseModel):
 
     id: int
     organization_id: int
+    recipient_user_id: int | None
     notification_type: str
     severity: str
     title: str
@@ -725,6 +767,27 @@ class PurchaseOrderRead(BaseModel):
 
 class PurchaseOrderStatusUpdate(BaseModel):
     status: str = Field(pattern="^(Draft|Submitted|Approved|Partially received|Received|Cancelled)$")
+
+
+class PurchaseOrderReceiptCreate(BaseModel):
+    part_id: int
+    quantity: int = Field(gt=0)
+    damaged_quantity: int = Field(default=0, ge=0)
+    backordered_quantity: int = Field(default=0, ge=0)
+    variance_reason: str | None = None
+    unit_cost_paise: int = Field(gt=0)
+    invoice_number: str | None = None
+    location_id: int | None = None
+
+
+class PurchaseOrderReceiptRead(PurchaseOrderReceiptCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    organization_id: int
+    purchase_order_id: int
+    received_by: int
+    received_at: datetime
 
 
 class DocumentUpdate(BaseModel):
