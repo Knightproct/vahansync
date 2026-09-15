@@ -361,6 +361,98 @@ function PageHeader({ eyebrow, title, subtitle, action, onAction }) {
   </div>
 }
 
+function RoleCommandCentre({ role, subscription, vehicles, workOrders, parts, purchaseOrders, documents, expenses, onNavigate }) {
+  const roleConfig = {
+    owner: {
+      eyebrow: 'Owner · governance command centre',
+      title: 'Run the organisation without taking over operations.',
+      description: 'People, policy, billing, audit visibility, and delegated accountability stay in one control room. Operational teams keep their own workspaces.',
+      heroValue: 'Governance',
+      heroLabel: 'owner control surface',
+      actions: [['settings', 'Manage members'], ['settings', 'Review billing']],
+    },
+    fleet_manager: {
+      eyebrow: 'Fleet manager · readiness command centre',
+      title: 'Make the next fleet decision before it becomes a breakdown.',
+      description: 'Vehicle identity, component life, odometer movement, service planning, assignments, and compliance exceptions are prioritised here.',
+      heroValue: `${vehicles.length}`,
+      heroLabel: 'fleet assets',
+      actions: [['fleet', 'Open vehicle register'], ['maintenance', 'Plan maintenance']],
+    },
+    inventory_manager: {
+      eyebrow: 'Inventory manager · supply command centre',
+      title: 'Keep every repair supplied before the vehicle reaches the bay.',
+      description: 'Stock balances, reorder exposure, procurement, vendor context, and movement evidence are organised around the next issue or receipt.',
+      heroValue: `${parts.length}`,
+      heroLabel: 'catalogue records',
+      actions: [['workshop', 'Open stock control'], ['workshop', 'Review procurement']],
+    },
+    driver: {
+      eyebrow: 'Driver · shift command centre',
+      title: 'Start with vehicle condition, not the route.',
+      description: 'Your assigned vehicle, readiness, inspection evidence, defect escalation, and odometer handoff are kept together for a safe shift.',
+      heroValue: vehicles[0]?.reg || '—',
+      heroLabel: 'assigned vehicle',
+      actions: [['driver', 'Start daily check'], ['driver', 'Report an issue']],
+    },
+    technician: {
+      eyebrow: 'Technician · repair command centre',
+      title: 'Turn every assigned job into a traceable return to service.',
+      description: 'Work orders, parts context, repair notes, evidence, checklist completion, and Fleet Manager handoff belong to the technician queue.',
+      heroValue: `${workOrders.length}`,
+      heroLabel: 'assigned work orders',
+      actions: [['maintenance', 'Open repair queue'], ['maintenance', 'Review handoffs']],
+    },
+    accountant: {
+      eyebrow: 'Accountant · finance command centre',
+      title: 'Turn fleet activity into a controlled INR ledger.',
+      description: 'Expenses, fuel, tolls, GST evidence, approvals, reconciliation, and exports stay connected to the vehicles and work that caused them.',
+      heroValue: `₹${(expenses.reduce((sum, item) => sum + Number(item.amount_paise || item.amount || 0), 0) / 100000).toFixed(1)}L`,
+      heroLabel: 'recorded operating cost',
+      actions: [['costs', 'Open finance ledger'], ['costs', 'Add transaction']],
+    },
+  }[role] || {
+    eyebrow: 'VahanSync · command centre',
+    title: 'A focused view of the work assigned to you.',
+    description: 'Every workspace keeps role responsibilities clear and operational actions close at hand.',
+    heroValue: 'Live',
+    heroLabel: 'workspace state',
+    actions: [['overview', 'Refresh overview']],
+  }
+  const status = (value, tone = 'neutral') => <b className={`command-status ${tone}`}>{value}</b>
+  const openOrders = workOrders.filter((item) => !['Completed', 'COMPLETED', 'Closed'].includes(item.status))
+  const lowStock = parts.filter((part) => Number(part.quantity_on_hand ?? part.quantityOnHand ?? 0) <= Number(part.reorder_level ?? part.minReorderLevel ?? 0))
+  const expiringDocs = documents.slice(0, 5)
+  const activity = role === 'owner'
+    ? [['Access', 'Member and invitation controls', 'Governance'], ['Billing', subscription?.status || 'Trial plan', 'Subscription'], ['Policy', 'Unlimited member onboarding', 'Organisation']]
+    : role === 'fleet_manager'
+      ? vehicles.slice(0, 5).map((item) => [item.reg || item.license_plate, `${item.health ?? 0}% health · ${item.status || 'Active'}`, 'Vehicle'])
+      : role === 'inventory_manager'
+        ? parts.slice(0, 5).map((item) => [item.name || item.part, `${item.quantity_on_hand ?? item.quantityOnHand ?? 0} units · ${item.sku || 'SKU pending'}`, 'Stock'])
+        : role === 'driver'
+          ? [['Readiness', 'Submit the first inspection before dispatch', 'Today'], ['Odometer', 'Keep the vehicle reading current', 'Required'], ['Defects', 'Escalate unsafe conditions immediately', 'Safety']]
+          : role === 'technician'
+            ? openOrders.slice(0, 5).map((item) => [item.title, `${item.priority || 'Normal'} · ${item.status}`, 'Work order'])
+            : expenses.slice(0, 5).map((item) => [item.category || 'Operating cost', `₹${Number(item.amount_paise || item.amount || 0).toLocaleString('en-IN')}`, 'Ledger'])
+  return <main className={`command-centre command-centre-${role}`}>
+    <header className="command-hero">
+      <div><span>{roleConfig.eyebrow}</span><h1>{roleConfig.title}<em>.</em></h1><p>{roleConfig.description}</p><div className="command-actions">{roleConfig.actions.map(([destination, label]) => <button key={label} className="primary-button" onClick={() => onNavigate(destination)}>{label}<span>→</span></button>)}</div></div>
+      <div className="command-hero-stat"><strong>{roleConfig.heroValue}</strong><small>{roleConfig.heroLabel}</small><i>{role === 'owner' ? 'Protected' : 'Live workspace'}</i></div>
+    </header>
+    <section className="command-signals">
+      <article><span>{role === 'owner' ? 'Members' : role === 'fleet_manager' ? 'Active assets' : role === 'inventory_manager' ? 'Stock records' : role === 'driver' ? 'Readiness' : role === 'technician' ? 'Repair queue' : 'Ledger records'}</span><strong>{role === 'owner' ? '∞' : role === 'fleet_manager' ? vehicles.length : role === 'inventory_manager' ? parts.length : role === 'driver' ? 'Check' : role === 'technician' ? openOrders.length : expenses.length}</strong><small>{role === 'owner' ? 'unlimited onboarding' : 'visible to your role'}</small></article>
+      <article><span>{role === 'owner' ? 'Trial state' : role === 'fleet_manager' ? 'Open work' : role === 'inventory_manager' ? 'Low stock' : role === 'driver' ? 'Vehicle' : role === 'technician' ? 'In progress' : 'Operating cost'}</span><strong>{role === 'owner' ? (subscription?.status || 'Trial') : role === 'fleet_manager' ? openOrders.length : role === 'inventory_manager' ? lowStock.length : role === 'driver' ? (vehicles[0]?.reg || '—') : role === 'technician' ? openOrders.filter((item) => ['In Progress', 'IN_PROGRESS'].includes(item.status)).length : `₹${(expenses.reduce((sum, item) => sum + Number(item.amount_paise || item.amount || 0), 0) / 100000).toFixed(1)}L`}</strong><small>{role === 'owner' ? 'billing control' : 'needs attention'}</small></article>
+      <article><span>{role === 'owner' ? 'Operational access' : role === 'fleet_manager' ? 'Compliance' : role === 'inventory_manager' ? 'Purchase orders' : role === 'driver' ? 'Daily action' : role === 'technician' ? 'Ready for review' : 'Exports'}</span><strong>{role === 'owner' ? 'Delegated' : role === 'fleet_manager' ? documents.length : role === 'inventory_manager' ? purchaseOrders.length : role === 'driver' ? 'DVIR' : role === 'technician' ? workOrders.filter((item) => ['Ready for review', 'READY_FOR_REVIEW'].includes(item.status)).length : 'CSV / PDF'}</strong><small>{role === 'owner' ? 'role-scoped workspaces' : 'connected records'}</small></article>
+      <article className="is-safe"><span>Workspace health</span><strong>Ready</strong><small>session and API connected</small></article>
+    </section>
+    <section className="command-grid">
+      <article className="command-panel command-panel-primary"><header><div><span>01 · your operating queue</span><h2>{role === 'owner' ? 'Governance boundaries' : role === 'fleet_manager' ? 'Fleet attention board' : role === 'inventory_manager' ? 'Replenishment watch' : role === 'driver' ? 'Shift checklist' : role === 'technician' ? 'Assigned work orders' : 'Finance activity'}</h2></div>{status(role === 'owner' ? 'Read only' : role === 'driver' ? 'Action required' : 'Live queue', role === 'driver' ? 'alert' : 'safe')}</header><div className="command-list">{activity.length ? activity.map(([title, detail, tag]) => <div className="command-list-row" key={`${title}-${detail}`}><div><strong>{title}</strong><p>{detail}</p></div><span>{tag}</span></div>) : <EmptyState title="Nothing queued yet" detail="New records will appear here when your organisation starts operating." />}</div></article>
+      <article className="command-panel command-panel-secondary"><header><div><span>02 · next best action</span><h2>Keep the workflow moving</h2></div>{status('Role scoped', 'neutral')}</header><div className="command-next"><div className="command-next-icon">{role === 'owner' ? '◈' : role === 'fleet_manager' ? '▱' : role === 'inventory_manager' ? '⌘' : role === 'driver' ? '✓' : role === 'technician' ? '⌁' : '₹'}</div><div><strong>{role === 'owner' ? 'Review people and billing' : role === 'fleet_manager' ? 'Open the fleet register' : role === 'inventory_manager' ? 'Select a part and record movement' : role === 'driver' ? 'Complete today’s inspection' : role === 'technician' ? 'Start or complete an assigned job' : 'Reconcile the latest transaction'}</strong><p>{role === 'owner' ? 'Keep governance controls separate from operational mutations.' : role === 'fleet_manager' ? 'The vehicle record is the source for odometer and component life.' : role === 'inventory_manager' ? 'Every receipt, issue, transfer, and adjustment should carry a reason.' : role === 'driver' ? 'A failed inspection immediately creates a visible fleet exception.' : role === 'technician' ? 'Checklist, parts, notes, and evidence create a reviewable handoff.' : 'Keep tax, vendor, payment, and vehicle context together.'}</p><button className="secondary-button" onClick={() => onNavigate(roleConfig.actions[0][0])}>{roleConfig.actions[0][1]} <span>→</span></button></div></div></article>
+    </section>
+    <section className="command-panel command-panel-wide"><header><div><span>03 · connected records</span><h2>{role === 'owner' ? 'Organisation oversight' : 'Recent activity in your workspace'}</h2></div><button className="filter-button" onClick={() => onNavigate(roleConfig.actions[0][0])}>Open workspace →</button></header><div className="command-record-grid">{(role === 'fleet_manager' ? expiringDocs : role === 'inventory_manager' ? purchaseOrders : role === 'technician' ? workOrders : role === 'accountant' ? expenses : activity).slice(0, 6).map((item, index) => { const values = Array.isArray(item) ? item : [item.name || item.title || item.category || item.reg || `Record ${index + 1}`, item.status || item.expires_on || item.amount || 'Connected record', roleConfig.heroLabel]; return <div className="command-record" key={`${values[0]}-${index}`}><i>{String(index + 1).padStart(2, '0')}</i><div><strong>{values[0]}</strong><p>{values[1]}</p></div><span>{values[2]}</span></div> })}</div></section>
+  </main>
+}
+
 function RoleOverview({ role, vehicles, workOrders, parts, purchaseOrders, onNavigate }) {
   const cards = {
     inventory_manager: [
@@ -416,6 +508,7 @@ function Overview({ role, subscription, vehicles: fleet, workOrders, parts, purc
     technician: ['Technician workspace', 'Work through assigned jobs, parts, checklists, and completion updates.'],
     accountant: ['Finance workspace', 'Keep expenses, GST, vendors, and reconciliations accurate.'],
   }[role] || ['Operations workspace', 'Here’s what’s happening across your fleet today.']
+  return <RoleCommandCentre role={role} subscription={subscription} vehicles={fleet} workOrders={workOrders} parts={parts} purchaseOrders={purchaseOrders} documents={documents} expenses={expenses} onNavigate={onNavigate} />
   const canSeeFleet = role === 'fleet_manager'
   const canSeeMaintenance = ['fleet_manager', 'technician'].includes(role)
   const canSeeFinance = role === 'accountant'
