@@ -18,19 +18,23 @@ from sqlalchemy.orm import Session, selectinload
 from .config import get_settings
 from .database import get_db
 from .dependencies import get_current_user, require_permission, require_roles
-from .models import AuditLog, ComplianceDocument, DocumentAsset, Expense, FuelTransaction, InventoryMovement, InventoryTransaction, MaintenancePlan, NotificationPreference, NotificationDelivery, OperationalNotification, Organization, OrganizationInvitation, Part, PurchaseOrder, PurchaseOrderLine, StockLocation, TelematicsDevice, TelematicsIntegration, TelemetryReading, TollTransaction, User, Vehicle, VehicleComponent, Vendor, WorkOrder, utc_now
+from .models import AuditLog, ComplianceDocument, DocumentAsset, DocumentVersion, DriverInspection, Expense, FuelTransaction, InventoryMovement, InventoryTransaction, MaintenancePlan, NotificationPreference, NotificationDelivery, OperationalNotification, Organization, OrganizationInvitation, Part, PurchaseOrder, PurchaseOrderLine, StockLocation, TelematicsDevice, TelematicsIntegration, TelemetryReading, TollTransaction, User, Vehicle, VehicleComponent, VehicleIssue, Vendor, WorkOrder, WorkOrderChecklistItem, WorkOrderEvidence, WorkOrderPartUsage, utc_now
 from .security import create_access_token, hash_password, provision_supabase_user, verify_password
 from .schemas import (
     ComponentCreate,
     ComponentRead,
     ComponentUpdate,
+    DriverInspectionCreate,
+    DriverInspectionRead,
     DocumentCreate,
     DocumentAssetRead,
+    DocumentVersionRead,
     DocumentRead,
     DocumentUpdate,
     ExpenseCreate,
     ExpenseRead,
     ExpenseStatusUpdate,
+    ExpenseReversal,
     FinanceSummaryRead,
     FuelTransactionCreate,
     FuelTransactionRead,
@@ -84,8 +88,15 @@ from .schemas import (
     VendorCreate,
     VendorRead,
     WorkOrderCreate,
+    WorkOrderChecklistItemRead,
+    WorkOrderChecklistUpdate,
+    WorkOrderEvidenceRead,
+    WorkOrderPartUsageCreate,
+    WorkOrderPartUsageRead,
     WorkOrderRead,
     WorkOrderUpdate,
+    VehicleIssueCreate,
+    VehicleIssueRead,
 )
 from .storage import download_object, resolve_object, save_upload
 
@@ -949,6 +960,97 @@ def list_work_orders(user: User = Depends(get_current_user), database: Session =
     return list(database.scalars(statement.order_by(WorkOrder.id.desc())).all())
 
 
+@router.get("/driver/inspections", response_model=list[DriverInspectionRead])
+def list_driver_inspections(
+    user: User = Depends(require_roles("driver")),
+    database: Session = Depends(get_db),
+) -> list[DriverInspection]:
+    return list(database.scalars(select(DriverInspection).where(
+        DriverInspection.organization_id == user.organization_id,
+        DriverInspection.driver_id == user.id,
+    ).order_by(DriverInspection.id.desc()).limit(100)).all())
+
+
+@router.post("/driver/inspections", response_model=DriverInspectionRead, status_code=status.HTTP_201_CREATED)
+def create_driver_inspection(
+    payload: DriverInspectionCreate,
+    request: Request,
+    user: User = Depends(require_roles("driver")),
+    database: Session = Depends(get_db),
+) -> DriverInspection:
+    vehicle = database.scalar(select(Vehicle).where(
+        Vehicle.id == payload.vehicle_id,
+        Vehicle.organization_id == user.organization_id,
+        Vehicle.assigned_driver_id == user.id,
+    ))
+    if vehicle is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle is not assigned to this driver")
+    if payload.odometer_km < vehicle.odometer_km:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Inspection odometer cannot move backwards")
+    vehicle.odometer_km = max(vehicle.odometer_km, payload.odometer_km)
+    if payload.status == "UNSAFE":
+        vehicle.status = "Out of service"
+    inspection = DriverInspection(
+        organization_id=user.organization_id,
+        driver_id=user.id,
+        **payload.model_dump(),
+    )
+    database.add(inspection)
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="driver.inspection_submitted",
+        entity_type="vehicle",
+        entity_id=str(vehicle.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps({"status": payload.status, "odometer_km": payload.odometer_km}),
+    ))
+    database.commit()
+    database.refresh(inspection)
+    return inspection
+
+
+@router.get("/driver/issues", response_model=list[VehicleIssueRead])
+def list_driver_issues(
+    user: User = Depends(require_roles("driver")),
+    database: Session = Depends(get_db),
+) -> list[VehicleIssue]:
+    return list(database.scalars(select(VehicleIssue).where(
+        VehicleIssue.organization_id == user.organization_id,
+        VehicleIssue.driver_id == user.id,
+    ).order_by(VehicleIssue.id.desc()).limit(100)).all())
+
+
+@router.post("/driver/issues", response_model=VehicleIssueRead, status_code=status.HTTP_201_CREATED)
+def create_driver_issue(
+    payload: VehicleIssueCreate,
+    request: Request,
+    user: User = Depends(require_roles("driver")),
+    database: Session = Depends(get_db),
+) -> VehicleIssue:
+    vehicle = database.scalar(select(Vehicle).where(
+        Vehicle.id == payload.vehicle_id,
+        Vehicle.organization_id == user.organization_id,
+        Vehicle.assigned_driver_id == user.id,
+    ))
+    if vehicle is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle is not assigned to this driver")
+    issue = VehicleIssue(organization_id=user.organization_id, driver_id=user.id, **payload.model_dump())
+    database.add(issue)
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="driver.vehicle_issue_reported",
+        entity_type="vehicle_issue",
+        entity_id=str(vehicle.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps({"title": payload.title, "priority": payload.priority}),
+    ))
+    database.commit()
+    database.refresh(issue)
+    return issue
+
+
 @router.post("/work-orders", response_model=WorkOrderRead, status_code=status.HTTP_201_CREATED)
 def create_work_order(
     payload: WorkOrderCreate,
@@ -1013,6 +1115,305 @@ def update_work_order(
     database.commit()
     database.refresh(work_order)
     return work_order
+
+
+@router.get("/work-orders/{work_order_id}/checklist", response_model=list[WorkOrderChecklistItemRead])
+def list_work_order_checklist(
+    work_order_id: int,
+    user: User = Depends(require_permission("maintenance")),
+    database: Session = Depends(get_db),
+) -> list[WorkOrderChecklistItem]:
+    statement = select(WorkOrder).where(
+        WorkOrder.id == work_order_id,
+        WorkOrder.organization_id == user.organization_id,
+    )
+    if user.role == "technician":
+        statement = statement.where(WorkOrder.assigned_user_id == user.id)
+    if database.scalar(statement) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Work order not found")
+    return list(database.scalars(select(WorkOrderChecklistItem).where(
+        WorkOrderChecklistItem.organization_id == user.organization_id,
+        WorkOrderChecklistItem.work_order_id == work_order_id,
+    ).order_by(WorkOrderChecklistItem.sort_order, WorkOrderChecklistItem.id)).all())
+
+
+@router.put("/work-orders/{work_order_id}/checklist", response_model=list[WorkOrderChecklistItemRead])
+def update_work_order_checklist(
+    work_order_id: int,
+    payload: WorkOrderChecklistUpdate,
+    request: Request,
+    user: User = Depends(require_permission("maintenance")),
+    database: Session = Depends(get_db),
+) -> list[WorkOrderChecklistItem]:
+    statement = select(WorkOrder).where(
+        WorkOrder.id == work_order_id,
+        WorkOrder.organization_id == user.organization_id,
+    )
+    if user.role == "technician":
+        statement = statement.where(WorkOrder.assigned_user_id == user.id)
+    work_order = database.scalar(statement)
+    if work_order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Work order not found")
+    existing = database.scalars(select(WorkOrderChecklistItem).where(
+        WorkOrderChecklistItem.organization_id == user.organization_id,
+        WorkOrderChecklistItem.work_order_id == work_order_id,
+    )).all()
+    for item in existing:
+        database.delete(item)
+    database.flush()
+    now = utc_now()
+    items = [
+        WorkOrderChecklistItem(
+            organization_id=user.organization_id,
+            work_order_id=work_order_id,
+            title=item.title.strip(),
+            completed=item.completed,
+            sort_order=item.sort_order,
+            completed_by=user.id if item.completed else None,
+            completed_at=now if item.completed else None,
+        )
+        for item in payload.items
+    ]
+    database.add_all(items)
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="work_order.checklist_updated",
+        entity_type="work_order",
+        entity_id=str(work_order_id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps({"count": len(items), "completed": sum(item.completed for item in items)}),
+    ))
+    database.commit()
+    for item in items:
+        database.refresh(item)
+    return items
+
+
+@router.post("/work-orders/{work_order_id}/start", response_model=WorkOrderRead)
+def start_work_order(
+    work_order_id: int,
+    request: Request,
+    user: User = Depends(require_permission("maintenance")),
+    database: Session = Depends(get_db),
+) -> WorkOrder:
+    statement = select(WorkOrder).where(
+        WorkOrder.id == work_order_id,
+        WorkOrder.organization_id == user.organization_id,
+    )
+    if user.role == "technician":
+        statement = statement.where(WorkOrder.assigned_user_id == user.id)
+    work_order = database.scalar(statement)
+    if work_order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Work order not found")
+    if work_order.status not in {"Open", "Assigned"}:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only open or assigned work orders can be started")
+    work_order.status = "In progress"
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="work_order.started",
+        entity_type="work_order",
+        entity_id=str(work_order.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+    ))
+    database.commit()
+    database.refresh(work_order)
+    return work_order
+
+
+@router.post("/work-orders/{work_order_id}/complete", response_model=WorkOrderRead)
+def complete_work_order(
+    work_order_id: int,
+    request: Request,
+    user: User = Depends(require_permission("maintenance")),
+    database: Session = Depends(get_db),
+) -> WorkOrder:
+    statement = select(WorkOrder).where(
+        WorkOrder.id == work_order_id,
+        WorkOrder.organization_id == user.organization_id,
+    )
+    if user.role == "technician":
+        statement = statement.where(WorkOrder.assigned_user_id == user.id)
+    work_order = database.scalar(statement)
+    if work_order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Work order not found")
+    if work_order.status != "In progress":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only in-progress work orders can be completed")
+    checklist = database.scalars(select(WorkOrderChecklistItem).where(
+        WorkOrderChecklistItem.organization_id == user.organization_id,
+        WorkOrderChecklistItem.work_order_id == work_order_id,
+    )).all()
+    if checklist and any(not item.completed for item in checklist):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Complete every checklist item before completing the work order")
+    work_order.status = "Ready for review"
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="work_order.ready_for_review",
+        entity_type="work_order",
+        entity_id=str(work_order.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+    ))
+    database.commit()
+    database.refresh(work_order)
+    return work_order
+
+
+@router.post("/work-orders/{work_order_id}/approve", response_model=WorkOrderRead)
+def approve_work_order(
+    work_order_id: int,
+    request: Request,
+    user: User = Depends(require_roles("owner", "fleet_manager")),
+    database: Session = Depends(get_db),
+) -> WorkOrder:
+    work_order = database.scalar(select(WorkOrder).where(
+        WorkOrder.id == work_order_id,
+        WorkOrder.organization_id == user.organization_id,
+    ))
+    if work_order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Work order not found")
+    if work_order.status != "Ready for review":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only work orders ready for review can be approved")
+    work_order.status = "Completed"
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="work_order.approved",
+        entity_type="work_order",
+        entity_id=str(work_order.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+    ))
+    database.commit()
+    database.refresh(work_order)
+    return work_order
+
+
+@router.get("/work-orders/{work_order_id}/parts", response_model=list[WorkOrderPartUsageRead])
+def list_work_order_parts(
+    work_order_id: int,
+    user: User = Depends(require_permission("maintenance")),
+    database: Session = Depends(get_db),
+) -> list[WorkOrderPartUsage]:
+    work_order = database.scalar(select(WorkOrder).where(
+        WorkOrder.id == work_order_id,
+        WorkOrder.organization_id == user.organization_id,
+    ))
+    if work_order is None or (user.role == "technician" and work_order.assigned_user_id != user.id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Work order not found")
+    return list(database.scalars(select(WorkOrderPartUsage).where(
+        WorkOrderPartUsage.organization_id == user.organization_id,
+        WorkOrderPartUsage.work_order_id == work_order_id,
+    ).order_by(WorkOrderPartUsage.id)).all())
+
+
+@router.get("/work-orders/{work_order_id}/evidence", response_model=list[WorkOrderEvidenceRead])
+def list_work_order_evidence(
+    work_order_id: int,
+    user: User = Depends(require_permission("maintenance")),
+    database: Session = Depends(get_db),
+) -> list[WorkOrderEvidence]:
+    work_order = database.scalar(select(WorkOrder).where(
+        WorkOrder.id == work_order_id,
+        WorkOrder.organization_id == user.organization_id,
+    ))
+    if work_order is None or (user.role == "technician" and work_order.assigned_user_id != user.id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Work order not found")
+    return list(database.scalars(select(WorkOrderEvidence).where(
+        WorkOrderEvidence.organization_id == user.organization_id,
+        WorkOrderEvidence.work_order_id == work_order_id,
+    ).order_by(WorkOrderEvidence.id.desc())).all())
+
+
+@router.post("/work-orders/{work_order_id}/evidence", response_model=WorkOrderEvidenceRead, status_code=status.HTTP_201_CREATED)
+def upload_work_order_evidence(
+    work_order_id: int,
+    request: Request,
+    file: UploadFile = File(...),
+    user: User = Depends(require_permission("maintenance")),
+    database: Session = Depends(get_db),
+) -> WorkOrderEvidence:
+    statement = select(WorkOrder).where(
+        WorkOrder.id == work_order_id,
+        WorkOrder.organization_id == user.organization_id,
+    )
+    if user.role == "technician":
+        statement = statement.where(WorkOrder.assigned_user_id == user.id)
+    work_order = database.scalar(statement)
+    if work_order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Work order not found")
+    if not file.filename:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="A file name is required")
+    try:
+        object_key, size_bytes, _ = save_upload(file, f"organizations/{user.organization_id}/work-orders/{work_order_id}")
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail=str(error)) from error
+    evidence = WorkOrderEvidence(
+        organization_id=user.organization_id,
+        work_order_id=work_order_id,
+        object_key=object_key,
+        file_name=file.filename[:255],
+        content_type=file.content_type or "application/octet-stream",
+        size_bytes=size_bytes,
+        uploaded_by=user.id,
+    )
+    database.add(evidence)
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="work_order.evidence_uploaded",
+        entity_type="work_order",
+        entity_id=str(work_order_id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps({"file_name": evidence.file_name, "size_bytes": size_bytes}),
+    ))
+    database.commit()
+    database.refresh(evidence)
+    return evidence
+
+
+@router.post("/work-orders/{work_order_id}/parts", response_model=WorkOrderPartUsageRead, status_code=status.HTTP_201_CREATED)
+def record_work_order_part(
+    work_order_id: int,
+    payload: WorkOrderPartUsageCreate,
+    request: Request,
+    user: User = Depends(require_permission("inventory")),
+    database: Session = Depends(get_db),
+) -> WorkOrderPartUsage:
+    work_order = database.scalar(select(WorkOrder).where(
+        WorkOrder.id == work_order_id,
+        WorkOrder.organization_id == user.organization_id,
+    ))
+    part = database.scalar(select(Part).where(
+        Part.id == payload.part_id,
+        Part.organization_id == user.organization_id,
+    ))
+    if work_order is None or part is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Work order or part not found")
+    if part.quantity_on_hand < payload.quantity:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Insufficient stock for this work order")
+    part.quantity_on_hand -= payload.quantity
+    usage = WorkOrderPartUsage(
+        organization_id=user.organization_id,
+        work_order_id=work_order_id,
+        part_id=part.id,
+        quantity=payload.quantity,
+        unit_cost_paise=part.unit_cost_paise,
+        created_by=user.id,
+    )
+    database.add(usage)
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="work_order.part_issued",
+        entity_type="work_order",
+        entity_id=str(work_order_id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps({"part_id": part.id, "quantity": payload.quantity}),
+    ))
+    database.commit()
+    database.refresh(usage)
+    return usage
 
 
 @router.get("/work-orders/{work_order_id}/download")
@@ -1321,6 +1722,20 @@ def upload_document_file(
     document.file_key = object_key
     database.add(asset)
     database.flush()
+    latest_version = database.scalar(select(DocumentVersion).where(
+        DocumentVersion.document_id == document.id,
+        DocumentVersion.organization_id == user.organization_id,
+    ).order_by(DocumentVersion.version_number.desc()))
+    database.add(DocumentVersion(
+        organization_id=user.organization_id,
+        document_id=document.id,
+        version_number=(latest_version.version_number + 1) if latest_version else 1,
+        name=document.name,
+        document_type=document.document_type,
+        expires_on=document.expires_on,
+        asset_id=asset.id,
+        created_by=user.id,
+    ))
     database.add(AuditLog(
         organization_id=user.organization_id,
         actor_user_id=user.id,
@@ -1333,6 +1748,24 @@ def upload_document_file(
     database.commit()
     database.refresh(asset)
     return asset
+
+
+@router.get("/documents/{document_id}/versions", response_model=list[DocumentVersionRead])
+def list_document_versions(
+    document_id: int,
+    user: User = Depends(require_permission("compliance")),
+    database: Session = Depends(get_db),
+) -> list[DocumentVersion]:
+    document = database.scalar(select(ComplianceDocument).where(
+        ComplianceDocument.id == document_id,
+        ComplianceDocument.organization_id == user.organization_id,
+    ))
+    if document is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+    return list(database.scalars(select(DocumentVersion).where(
+        DocumentVersion.document_id == document_id,
+        DocumentVersion.organization_id == user.organization_id,
+    ).order_by(DocumentVersion.version_number.desc())).all())
 
 
 @router.get("/documents/{document_id}/file")
@@ -1542,7 +1975,7 @@ def update_notification(
     if notification is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found")
     notification.status = payload.status
-    notification.resolved_at = utc_now() if payload.status == "dismissed" else None
+    notification.resolved_at = utc_now() if payload.status in {"dismissed", "resolved"} else None
     database.add(AuditLog(
         organization_id=user.organization_id,
         actor_user_id=user.id,
@@ -1551,6 +1984,34 @@ def update_notification(
         entity_id=str(notification.id),
         request_id=request.headers.get("x-request-id", str(uuid4())),
         changes=json.dumps({"status": notification.status}),
+    ))
+    database.commit()
+    database.refresh(notification)
+    return notification
+
+
+@router.post("/notifications/{notification_id}/resolve", response_model=NotificationRead)
+def resolve_notification(
+    notification_id: int,
+    request: Request,
+    user: User = Depends(require_permission("notifications")),
+    database: Session = Depends(get_db),
+) -> OperationalNotification:
+    notification = database.scalar(select(OperationalNotification).where(
+        OperationalNotification.id == notification_id,
+        OperationalNotification.organization_id == user.organization_id,
+    ))
+    if notification is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found")
+    notification.status = "resolved"
+    notification.resolved_at = utc_now()
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="notification.resolved",
+        entity_type="operational_notification",
+        entity_id=str(notification.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
     ))
     database.commit()
     database.refresh(notification)
@@ -1621,6 +2082,68 @@ def update_expense_status(
         entity_id=str(expense.id),
         request_id=request.headers.get("x-request-id", str(uuid4())),
         changes=json.dumps({"status": expense.status}),
+    ))
+    database.commit()
+    database.refresh(expense)
+    return expense
+
+
+@router.post("/expenses/{expense_id}/reconcile", response_model=ExpenseRead)
+def reconcile_expense(
+    expense_id: int,
+    request: Request,
+    user: User = Depends(require_roles("owner", "accountant")),
+    database: Session = Depends(get_db),
+) -> Expense:
+    expense = database.scalar(select(Expense).where(
+        Expense.id == expense_id,
+        Expense.organization_id == user.organization_id,
+    ))
+    if expense is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found")
+    if expense.status == "Rejected":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Rejected expenses cannot be reconciled")
+    expense.status = "Approved"
+    expense.approved_by = user.id
+    expense.approved_at = utc_now()
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="expense.reconciled",
+        entity_type="expense",
+        entity_id=str(expense.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+    ))
+    database.commit()
+    database.refresh(expense)
+    return expense
+
+
+@router.post("/expenses/{expense_id}/reverse", response_model=ExpenseRead)
+def reverse_expense(
+    expense_id: int,
+    payload: ExpenseReversal,
+    request: Request,
+    user: User = Depends(require_roles("owner", "accountant")),
+    database: Session = Depends(get_db),
+) -> Expense:
+    expense = database.scalar(select(Expense).where(
+        Expense.id == expense_id,
+        Expense.organization_id == user.organization_id,
+    ))
+    if expense is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found")
+    if expense.status == "Rejected":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Expense is already reversed")
+    expense.status = "Rejected"
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="expense.reversed",
+        entity_type="expense",
+        entity_id=str(expense.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps({"reason": payload.reason}),
     ))
     database.commit()
     database.refresh(expense)

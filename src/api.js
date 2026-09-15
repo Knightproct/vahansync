@@ -511,3 +511,116 @@ export function updateNotification(token, notificationId, status) {
     body: JSON.stringify({ status }),
   })
 }
+
+export function resolveNotification(token, notificationId) {
+  return request(`/api/v1/notifications/${notificationId}/resolve`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function getWorkOrderChecklist(token, workOrderId) {
+  return request(`/api/v1/work-orders/${workOrderId}/checklist`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function updateWorkOrderChecklist(token, workOrderId, items) {
+  return request(`/api/v1/work-orders/${workOrderId}/checklist`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ items }),
+  })
+}
+
+export function startWorkOrder(token, workOrderId) {
+  return request(`/api/v1/work-orders/${workOrderId}/start`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function completeWorkOrder(token, workOrderId) {
+  return request(`/api/v1/work-orders/${workOrderId}/complete`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function approveWorkOrder(token, workOrderId) {
+  return request(`/api/v1/work-orders/${workOrderId}/approve`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function getWorkOrderParts(token, workOrderId) {
+  return request(`/api/v1/work-orders/${workOrderId}/parts`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function recordWorkOrderPart(token, workOrderId, payload) {
+  return request(`/api/v1/work-orders/${workOrderId}/parts`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function getWorkOrderEvidence(token, workOrderId) {
+  return request(`/api/v1/work-orders/${workOrderId}/evidence`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export async function uploadWorkOrderEvidence(token, workOrderId, file) {
+  const form = new FormData()
+  form.append('file', file)
+  const response = await fetch(`${API_BASE_URL}/api/v1/work-orders/${workOrderId}/evidence`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  })
+  if (!response.ok) throw new Error(`Evidence upload failed with status ${response.status}`)
+  return response.json()
+}
+
+export function getDriverInspections(token) {
+  return request('/api/v1/driver/inspections', { headers: { Authorization: `Bearer ${token}` } })
+}
+
+export function createDriverInspection(token, payload) {
+  return request('/api/v1/driver/inspections', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function getDriverIssues(token) {
+  return request('/api/v1/driver/issues', { headers: { Authorization: `Bearer ${token}` } })
+}
+
+export function createDriverIssue(token, payload) {
+  return request('/api/v1/driver/issues', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function reconcileExpense(token, expenseId) {
+  return request(`/api/v1/expenses/${expenseId}/reconcile`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function reverseExpense(token, expenseId, reason) {
+  return request(`/api/v1/expenses/${expenseId}/reverse`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ reason }),
+  })
+}

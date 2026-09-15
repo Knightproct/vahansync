@@ -260,6 +260,97 @@ class WorkOrderUpdate(BaseModel):
     description: str | None = None
 
 
+class WorkOrderChecklistItemCreate(BaseModel):
+    title: str = Field(min_length=2, max_length=240)
+    completed: bool = False
+    sort_order: int = Field(default=0, ge=0)
+
+
+class WorkOrderChecklistItemRead(WorkOrderChecklistItemCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    work_order_id: int
+    completed_by: int | None
+    completed_at: datetime | None
+
+
+class WorkOrderChecklistUpdate(BaseModel):
+    items: list[WorkOrderChecklistItemCreate] = Field(min_length=1, max_length=50)
+
+
+class WorkOrderPartUsageCreate(BaseModel):
+    part_id: int
+    quantity: int = Field(gt=0)
+
+
+class WorkOrderPartUsageRead(WorkOrderPartUsageCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    work_order_id: int
+    unit_cost_paise: int
+    created_by: int
+    created_at: datetime
+
+
+class WorkOrderEvidenceRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    organization_id: int
+    work_order_id: int
+    object_key: str
+    file_name: str
+    content_type: str
+    size_bytes: int
+    uploaded_by: int
+    created_at: datetime
+
+
+class DriverInspectionCreate(BaseModel):
+    vehicle_id: int
+    inspection_type: str = Field(default="pre_trip", pattern=r"^(pre_trip|post_trip)$")
+    status: str = Field(default="SAFE", pattern=r"^(SAFE|UNSAFE|REVIEW)$")
+    odometer_km: int = Field(ge=0)
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+class DriverInspectionRead(DriverInspectionCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    organization_id: int
+    driver_id: int
+    created_at: datetime
+
+
+class VehicleIssueCreate(BaseModel):
+    vehicle_id: int
+    title: str = Field(min_length=2, max_length=200)
+    detail: str = Field(min_length=3, max_length=5000)
+    priority: str = Field(default="Medium", pattern=r"^(Low|Medium|High|Critical)$")
+
+
+class VehicleIssueRead(VehicleIssueCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    organization_id: int
+    driver_id: int
+    status: str
+    created_at: datetime
+    resolved_at: datetime | None
+
+
+class NotificationResolve(BaseModel):
+    status: str = Field(pattern=r"^(read|resolved)$")
+
+
+class ExpenseReversal(BaseModel):
+    reason: str = Field(min_length=3, max_length=500)
+
+
 class MaintenancePlanCreate(BaseModel):
     vehicle_id: int
     name: str = Field(min_length=2, max_length=200)
@@ -391,7 +482,7 @@ class NotificationRead(BaseModel):
 
 
 class NotificationStatusUpdate(BaseModel):
-    status: str = Field(pattern="^(unread|read|dismissed)$")
+    status: str = Field(pattern="^(unread|read|dismissed|resolved)$")
 
 
 class ExpenseCreate(BaseModel):
@@ -523,6 +614,21 @@ class TelematicsIntegrationRead(TelematicsIntegrationCreate):
     organization_id: int
     last_synced_at: datetime | None
     last_sync_status: str | None
+    created_at: datetime
+
+
+class DocumentVersionRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    organization_id: int
+    document_id: int
+    version_number: int
+    name: str
+    document_type: str
+    expires_on: str
+    asset_id: int | None
+    created_by: int
     created_at: datetime
 
 

@@ -116,6 +116,76 @@ class WorkOrder(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
 
+class WorkOrderChecklistItem(Base):
+    __tablename__ = "work_order_checklist_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    work_order_id: Mapped[int] = mapped_column(ForeignKey("work_orders.id"), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(240), nullable=False)
+    completed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    completed_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class WorkOrderPartUsage(Base):
+    __tablename__ = "work_order_part_usage"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    work_order_id: Mapped[int] = mapped_column(ForeignKey("work_orders.id"), nullable=False, index=True)
+    part_id: Mapped[int] = mapped_column(ForeignKey("parts.id"), nullable=False, index=True)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    unit_cost_paise: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class WorkOrderEvidence(Base):
+    __tablename__ = "work_order_evidence"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    work_order_id: Mapped[int] = mapped_column(ForeignKey("work_orders.id"), nullable=False, index=True)
+    object_key: Mapped[str] = mapped_column(String(500), nullable=False, unique=True)
+    file_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(160), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    uploaded_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class DriverInspection(Base):
+    __tablename__ = "driver_inspections"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    vehicle_id: Mapped[int] = mapped_column(ForeignKey("vehicles.id"), nullable=False, index=True)
+    driver_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    inspection_type: Mapped[str] = mapped_column(String(40), default="pre_trip", nullable=False)
+    status: Mapped[str] = mapped_column(String(30), default="SAFE", nullable=False)
+    odometer_km: Mapped[int] = mapped_column(Integer, nullable=False)
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class VehicleIssue(Base):
+    __tablename__ = "vehicle_issues"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    vehicle_id: Mapped[int] = mapped_column(ForeignKey("vehicles.id"), nullable=False, index=True)
+    driver_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    detail: Mapped[str] = mapped_column(Text, nullable=False)
+    priority: Mapped[str] = mapped_column(String(20), default="Medium", nullable=False)
+    status: Mapped[str] = mapped_column(String(30), default="OPEN", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
 class MaintenancePlan(Base):
     __tablename__ = "maintenance_plans"
 
@@ -212,6 +282,21 @@ class DocumentAsset(Base):
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
     checksum_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     uploaded_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class DocumentVersion(Base):
+    __tablename__ = "document_versions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    document_id: Mapped[int] = mapped_column(ForeignKey("compliance_documents.id"), nullable=False, index=True)
+    version_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    document_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    expires_on: Mapped[str] = mapped_column(String(20), nullable=False)
+    asset_id: Mapped[Optional[int]] = mapped_column(ForeignKey("document_assets.id"))
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
 

@@ -250,3 +250,71 @@ def test_health_and_vehicle_lifecycle(tmp_path: Path, monkeypatch):
         assert synced.json()["status"] == "missing_credentials"
         assert client.post("/api/v1/auth/logout", headers=headers).status_code == 204
         assert client.get("/api/v1/auth/me", headers=headers).status_code == 401
+
+
+def test_execution_and_finance_parity_workflows(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    with TestClient(app) as client:
+        login_response = client.post("/api/v1/auth/login", json={"email": "test-admin@example.com", "password": "TestPassword!123"})
+        headers = {"Authorization": f"Bearer {login_response.json()['access_token']}"}
+        vehicle = client.post("/api/v1/vehicles", headers=headers, json={
+            "registration_number": f"MH 12 {uuid4().hex[:4].upper()}",
+            "model": "Ashok Leyland",
+            "vehicle_type": "Bus",
+            "depot": "Aurangabad",
+        }).json()
+        work_order = client.post("/api/v1/work-orders", headers=headers, json={
+            "vehicle_id": vehicle["id"],
+            "title": "Brake inspection",
+            "priority": "High",
+        }).json()
+        checklist = client.put(
+            f"/api/v1/work-orders/{work_order['id']}/checklist",
+            headers=headers,
+            json={"items": [{"title": "Inspect brake pads", "completed": True}, {"title": "Road test", "completed": True}]},
+        )
+        assert checklist.status_code == 200
+        started = client.post(f"/api/v1/work-orders/{work_order['id']}/start", headers=headers)
+        assert started.status_code == 200
+        completed = client.post(f"/api/v1/work-orders/{work_order['id']}/complete", headers=headers)
+        assert completed.status_code == 200
+        assert completed.json()["status"] == "Ready for review"
+        approved = client.post(f"/api/v1/work-orders/{work_order['id']}/approve", headers=headers)
+        assert approved.status_code == 200
+        assert approved.json()["status"] == "Completed"
+
+        part = client.post("/api/v1/parts", headers=headers, json={
+            "sku": f"PAD-{uuid4().hex[:6].upper()}",
+            "name": "Brake pad",
+            "category": "Brakes",
+            "quantity_on_hand": 4,
+            "reorder_level": 1,
+            "unit_cost_paise": 50000,
+        }).json()
+        usage = client.post(
+            f"/api/v1/work-orders/{work_order['id']}/parts",
+            headers=headers,
+            json={"part_id": part["id"], "quantity": 2},
+        )
+        assert usage.status_code == 201
+        assert client.get(f"/api/v1/work-orders/{work_order['id']}/parts", headers=headers).json()[0]["quantity"] == 2
+
+        expense = client.post("/api/v1/expenses", headers=headers, json={
+            "vehicle_id": vehicle["id"],
+            "category": "Workshop",
+            "description": "Brake inspection",
+            "amount_paise": 250000,
+            "incurred_on": "2027-02-01",
+        }).json()
+        reconciled = client.post(f"/api/v1/expenses/{expense['id']}/reconcile", headers=headers)
+        assert reconciled.status_code == 200
+        assert reconciled.json()["status"] == "Approved"
+        reversed_expense = client.post(
+            f"/api/v1/expenses/{expense['id']}/reverse",
+            headers=headers,
+            json={"reason": "Duplicate workshop bill"},
+        )
+        assert reversed_expense.status_code == 200
+        assert reversed_expense.json()["status"] == "Rejected"
