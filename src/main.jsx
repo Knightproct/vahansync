@@ -86,13 +86,29 @@ function AuthenticatedApp() {
 
   useEffect(() => {
     if (!supabase) return
+    let active = true
     supabase.auth.getSession().then(({ data: sessionData }) => {
       const accessToken = sessionData.session?.access_token
-      if (accessToken) {
+      if (active && accessToken) {
         sessionStorage.setItem('vahana:access-token', accessToken)
         setToken(accessToken)
       }
     })
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!active) return
+      const accessToken = session?.access_token
+      if (accessToken) {
+        sessionStorage.setItem('vahana:access-token', accessToken)
+        setToken(accessToken)
+      } else {
+        sessionStorage.removeItem('vahana:access-token')
+        setToken(null)
+      }
+    })
+    return () => {
+      active = false
+      listener.subscription.unsubscribe()
+    }
   }, [])
 
   useEffect(() => {
@@ -129,6 +145,13 @@ function AuthenticatedApp() {
           invitations: value[19] || [], audit: value[20] || [], operations: value[21], subscriptionPlans: value[22] || [],
         })
       } catch (requestError) {
+        if (requestError.status === 401) {
+          sessionStorage.removeItem('vahana:access-token')
+          setToken(null)
+          setUser(null)
+          setError('')
+          return
+        }
         if (active) setError(requestError.message)
       } finally {
         if (active) setLoading(false)
