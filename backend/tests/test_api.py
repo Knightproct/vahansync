@@ -78,6 +78,14 @@ def test_health_and_vehicle_lifecycle(tmp_path: Path, monkeypatch):
         updated_order = client.patch(f"/api/v1/work-orders/{work_order.json()['id']}", headers=headers, json={"status": "In progress"})
         assert updated_order.status_code == 200
         assert updated_order.json()["status"] == "In progress"
+        edited_order = client.patch(
+            f"/api/v1/work-orders/{work_order.json()['id']}",
+            headers=headers,
+            json={"title": "Updated inspection", "description": "Check brakes and lights", "due_date": "2027-01-31"},
+        )
+        assert edited_order.status_code == 200
+        assert edited_order.json()["title"] == "Updated inspection"
+        assert edited_order.json()["description"] == "Check brakes and lights"
         plan = client.post("/api/v1/maintenance-plans", headers=headers, json={
             "vehicle_id": vehicle_id,
             "name": "Quarterly inspection",
@@ -220,6 +228,14 @@ def test_health_and_vehicle_lifecycle(tmp_path: Path, monkeypatch):
         assert client.get("/api/v1/alerts", headers=headers).status_code == 200
         contact = client.patch("/api/v1/users/me/contact", headers=headers, json={"mobile_phone": "+919999999999"})
         assert contact.status_code == 200
+        profile = client.patch(
+            "/api/v1/users/me",
+            headers=headers,
+            json={"full_name": "Updated Test Admin", "mobile_phone": "+919888888888"},
+        )
+        assert profile.status_code == 200
+        assert profile.json()["full_name"] == "Updated Test Admin"
+        assert profile.json()["mobile_phone"] == "+919888888888"
         notifications = client.get("/api/v1/notifications", headers=headers)
         assert notifications.status_code == 200
         assert notifications.json()

@@ -168,6 +168,14 @@ export function updateMyContact(token, mobile_phone) {
   })
 }
 
+export function updateMyProfile(token, profile) {
+  return request('/api/v1/users/me', {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(profile),
+  })
+}
+
 export function getSubscription(token) {
   return request('/api/v1/subscription', { headers: { Authorization: `Bearer ${token}` } })
 }

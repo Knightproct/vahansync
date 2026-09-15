@@ -123,6 +123,11 @@ class UserContactUpdate(BaseModel):
     mobile_phone: str | None = Field(default=None, max_length=32)
 
 
+class UserProfileUpdate(BaseModel):
+    full_name: str = Field(min_length=2, max_length=160)
+    mobile_phone: str | None = Field(default=None, max_length=32)
+
+
 class NotificationPreferenceRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -283,6 +288,7 @@ class WorkOrderRead(WorkOrderCreate):
 
 
 class WorkOrderUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=2, max_length=200)
     status: str | None = None
     priority: str | None = None
     due_date: str | None = None

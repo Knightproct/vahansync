@@ -83,6 +83,7 @@ from .schemas import (
     UserRead,
     UserCreate,
     UserContactUpdate,
+    UserProfileUpdate,
     UserRoleUpdate,
     AuditLogRead,
     VehicleCreate,
@@ -345,6 +346,33 @@ def fleet_operations_summary(
         low_stock_parts=sum(part.quantity_on_hand <= part.reorder_level for part in parts),
         unassigned_vehicles=sum(vehicle.assigned_driver_id is None for vehicle in vehicles),
     )
+
+
+@router.patch("/users/me", response_model=UserRead)
+def update_my_profile(
+    payload: UserProfileUpdate,
+    request: Request,
+    user: User = Depends(get_current_user),
+    database: Session = Depends(get_db),
+) -> User:
+    changes = {
+        "full_name": payload.full_name.strip(),
+        "mobile_phone": normalize_mobile_phone(payload.mobile_phone),
+    }
+    user.full_name = changes["full_name"]
+    user.mobile_phone = changes["mobile_phone"]
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="user.profile_updated",
+        entity_type="user",
+        entity_id=str(user.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps(changes),
+    ))
+    database.commit()
+    database.refresh(user)
+    return user
 
 
 @router.patch("/users/me/contact", response_model=UserRead)
@@ -1219,6 +1247,8 @@ def update_work_order(
     if work_order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Work order not found")
     changes = payload.model_dump(exclude_unset=True)
+    if user.role == "technician":
+        changes = {key: value for key, value in changes.items() if key in {"description"}}
     for key, value in changes.items():
         setattr(work_order, key, value)
     database.add(AuditLog(
