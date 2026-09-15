@@ -9,7 +9,7 @@ const invitationToken = new URLSearchParams(window.location.search).get('token')
 const isPublicPage = ['/', '/signup', '/invite'].includes(routePath) || routePath.startsWith('/invite/')
 
 const navItems = [
-  { id: 'overview', label: 'Overview', icon: '⌂', permissions: ['fleet', 'maintenance', 'finance', 'compliance'] },
+  { id: 'overview', label: 'Overview', icon: '⌂', permissions: ['fleet', 'maintenance', 'finance', 'compliance', 'inventory', 'workshop', 'driver', 'governance'] },
   { id: 'fleet', label: 'Fleet', icon: '▱', permissions: ['fleet'] },
   { id: 'maintenance', label: 'Maintenance', icon: '⌁', permissions: ['maintenance'] },
   { id: 'driver', label: 'Driver checks', icon: '✓', permissions: ['driver'] },
@@ -230,12 +230,12 @@ function App() {
             <span className="sync-status"><i></i> Live sync</span>
             <div className="search-box"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search vehicles, parts, docs..." /><kbd>⌘ K</kbd></div>
             <button className="icon-button" onClick={() => notify(notifications.length ? `${notifications.filter((item) => item.status === 'unread').length} operational notifications need attention.` : 'You are all caught up.')}>♢{notifications.some((item) => item.status === 'unread') && <i></i>}</button>
-            <button className="icon-button" onClick={() => notify('Help centre opened in a new tab.')}>?</button>
+            <button className="icon-button" aria-label="Contact VahanSync support" onClick={() => { window.location.href = 'mailto:support@vahansync.com?subject=VahanSync support' }}>?</button>
           </div>
         </header>
 
         <div className="page">
-          {active === 'overview' && <Overview role={currentUser?.role} subscription={subscription} vehicles={fleet} workOrders={workOrders} documents={documentsData} expenses={expenses} onNotify={notify} />}
+          {active === 'overview' && <Overview role={currentUser?.role} subscription={subscription} vehicles={fleet} workOrders={workOrders} parts={parts} purchaseOrders={purchaseOrders} documents={documentsData} expenses={expenses} onNotify={notify} onNavigate={setActive} />}
           {active === 'fleet' && <Fleet role={currentUser?.role} vehicles={filteredVehicles} components={components} token={token} onAdd={() => setShowAdd(true)} onNotify={notify} onVehicleUpdated={(updated) => setFleet((current) => current.map((item) => item.id === updated.id ? updated : item))} onComponentCreated={(component) => setComponents((current) => [component, ...current])} onComponentUpdated={(updated) => setComponents((current) => current.map((item) => item.id === updated.id ? updated : item))} />}
           {active === 'maintenance' && <Maintenance role={currentUser?.role} workOrders={workOrders} components={components} plans={maintenancePlans} vehicles={fleet} token={token} onCreated={(workOrder) => setWorkOrders((current) => [workOrder, ...current])} onUpdated={(workOrder) => setWorkOrders((current) => current.map((item) => item.id === workOrder.id ? workOrder : item))} onPlanCreated={(plan) => setMaintenancePlans((current) => [plan, ...current])} onNotify={notify} />}
           {active === 'driver' && <DriverWorkspace token={token} vehicles={fleet} onNotify={notify} />}
@@ -361,7 +361,53 @@ function PageHeader({ eyebrow, title, subtitle, action, onAction }) {
   </div>
 }
 
-function Overview({ role, subscription, vehicles: fleet, workOrders, documents, expenses, onAdd, onNotify }) {
+function RoleOverview({ role, vehicles, workOrders, parts, purchaseOrders, onNavigate }) {
+  const cards = {
+    inventory_manager: [
+      ['Parts catalogue', parts.length, 'items available', 'workshop'],
+      ['Low stock signals', parts.filter((part) => part.quantity_on_hand <= part.reorder_level).length, 'replenishment actions', 'workshop'],
+      ['Purchase orders', purchaseOrders.length, 'procurement records', 'workshop'],
+      ['Next action', 'Stock', 'receive or issue parts', 'workshop'],
+    ],
+    driver: [
+      ['Assigned vehicles', vehicles.length, 'visible to your account', 'driver'],
+      ['Daily readiness', 'Start', 'submit today’s inspection', 'driver'],
+      ['Defect reporting', 'Open', 'report a vehicle issue', 'driver'],
+      ['Odometer', 'Required', 'keep readings current', 'driver'],
+    ],
+    technician: [
+      ['Assigned work orders', workOrders.length, 'jobs in your queue', 'maintenance'],
+      ['In progress', workOrders.filter((item) => item.status === 'In progress').length, 'active repairs', 'maintenance'],
+      ['Ready for review', workOrders.filter((item) => item.status === 'Ready for review').length, 'handoffs to fleet manager', 'maintenance'],
+      ['Next action', 'Execute', 'open the work-order queue', 'maintenance'],
+    ],
+  }[role] || []
+  const destination = role === 'inventory_manager' ? 'workshop' : role === 'driver' ? 'driver' : 'maintenance'
+
+  return <div className="role-overview">
+    <div className="metric-grid">
+      {cards.map(([label, value, detail, destination]) => <MetricCard key={label} label={label} value={value} change="role view" detail={detail} icon="•" tone="blue" />)}
+    </div>
+    <section className="panel role-next-step">
+      <div><span className="eyebrow">Your next step</span><h2>{role === 'inventory_manager' ? 'Keep the workshop supplied' : role === 'driver' ? 'Complete the daily vehicle check' : 'Move assigned repairs forward'}</h2><p>{role === 'inventory_manager' ? 'Review low-stock parts, receive deliveries, and keep purchase orders current.' : role === 'driver' ? 'Choose Driver checks to submit an inspection and report defects before dispatch.' : 'Open Maintenance to start a job, record completion, and hand it back for review.'}</p></div>
+      <button className="primary-button" onClick={() => onNavigate(destination)}>{role === 'inventory_manager' ? 'Open inventory' : role === 'driver' ? 'Open driver checks' : 'Open work orders'} <span>→</span></button>
+    </section>
+  </div>
+}
+
+function Overview({ role, subscription, vehicles: fleet, workOrders, parts, purchaseOrders, documents, expenses, onAdd, onNotify, onNavigate }) {
+  const notify = onNotify
+  onNotify = (message) => {
+    const destinations = {
+      'Fleet view selected from the overview.': 'fleet',
+      'Maintenance planner opened.': 'maintenance',
+      'New service request started.': 'maintenance',
+      'Cost report is ready to review.': 'costs',
+      'Document vault opened.': 'documents',
+    }
+    if (destinations[message] && onNavigate) onNavigate(destinations[message])
+    else notify(message)
+  }
   const workspace = {
     owner: ['Owner command centre', 'Control people, policy, billing, and every operational area.'],
     fleet_manager: ['Fleet manager workspace', 'Monitor availability, vehicle health, assignments, and compliance risk.'],
@@ -377,6 +423,9 @@ function Overview({ role, subscription, vehicles: fleet, workOrders, documents, 
     ? Math.round(fleet.reduce((sum, vehicle) => sum + vehicle.health, 0) / fleet.length)
     : 0
   const statusCount = (status) => fleet.filter((vehicle) => vehicle.status === status).length
+  if (['inventory_manager', 'driver', 'technician'].includes(role)) {
+    return <div><PageHeader eyebrow={workspace[0]} title={workspace[1]} subtitle="Your workspace is focused on the work assigned to your role." /><RoleOverview role={role} vehicles={fleet} workOrders={workOrders} parts={parts} purchaseOrders={purchaseOrders} onNavigate={onNavigate} /></div>
+  }
   return <div>
     <PageHeader eyebrow={workspace[0]} title={workspace[1]} subtitle="VahanSync shows the work relevant to your role, with organisation-wide controls behind it." />
     {role === 'owner' ? <div className="metric-grid">
@@ -421,6 +470,9 @@ function Overview({ role, subscription, vehicles: fleet, workOrders, documents, 
 
 function MetricCard({ label, value, change, detail, icon, tone }) {
   return <div className="metric-card"><div className={`metric-icon ${tone}`}>{icon}</div><div className="metric-label">{label}</div><div className="metric-value">{value}</div><div className="metric-change"><span className={change.startsWith('-') ? 'down' : ''}>{change}</span> {detail}</div></div>
+}
+function EmptyState({ title, detail, action, onAction }) {
+  return <div className="empty-state"><strong>{title}</strong><span>{detail}</span>{action && <button className="secondary-button" onClick={onAction}>{action}</button>}</div>
 }
 function PanelHeading({ title, meta, action, onAction }) { return <div className="panel-heading"><div><h2>{title}</h2><span>{meta}</span></div><button onClick={onAction}>{action} <span>→</span></button></div> }
 function Legend({ color, label, value, sub }) { return <div className="legend-item"><i className={color}></i><span>{label}</span><strong>{value}</strong><small>{sub}</small></div> }
@@ -550,9 +602,38 @@ function DriverWorkspace({ token, vehicles, onNotify }) {
   </div>
 }
 
+function TechnicianMaintenance({ workOrders, vehicles: fleet, token, onUpdated, onNotify }) {
+  const transition = async (item) => {
+    try {
+      const action = item.status === 'Open' || item.status === 'Assigned' ? startWorkOrder : completeWorkOrder
+      const updated = await action(token, item.id)
+      onUpdated(updated)
+      onNotify(`Work order ${updated.status.toLowerCase()}.`)
+    } catch (error) { onNotify(error.message) }
+  }
+  return <div>
+    <PageHeader eyebrow="Technician workspace" title="Assigned work orders" subtitle="Execute repairs, record the handoff, and keep every job auditable." />
+    <div className="metric-grid compact">
+      <MetricCard label="Assigned jobs" value={workOrders.length} change="live" detail="your queue" icon="⌁" tone="blue" />
+      <MetricCard label="Ready to start" value={workOrders.filter((item) => ['Open', 'Assigned'].includes(item.status)).length} change="action" detail="jobs waiting for execution" icon="▶" tone="orange" />
+      <MetricCard label="Completed" value={workOrders.filter((item) => item.status === 'Ready for review').length} change="handoff" detail="awaiting fleet review" icon="✓" tone="green" />
+    </div>
+    <section className="panel table-panel">
+      <div className="table-header"><div><h2>Repair queue</h2><span>Start and complete only the work assigned to you.</span></div></div>
+      <div className="data-table">
+        <div className="data-row data-head"><span>Work order</span><span>Vehicle</span><span>Due</span><span>Priority</span><span>Status</span><span></span></div>
+        {workOrders.length ? workOrders.map((item) => <div className="data-row" key={item.id}><span><strong>{item.title}</strong><small>WO-{item.id}</small></span><span>{fleet.find((vehicle) => vehicle.id === item.vehicle_id)?.reg || 'Vehicle linked'}</span><span>{item.due_date || 'Unscheduled'}</span><span>{item.priority}</span><Status status={item.status} />{['Open', 'Assigned', 'In progress'].includes(item.status) ? <button className="row-more" onClick={() => transition(item)}>{item.status === 'In progress' ? 'Complete repair' : 'Start repair'}</button> : <span>Awaiting review</span>}<button className="row-more" onClick={() => downloadFile(token, `/api/v1/work-orders/${item.id}/download`, `WO-${item.id}.html`).catch((error) => onNotify(error.message))}>Download</button></div>) : <EmptyState title="No assigned work orders" detail="New jobs assigned by the Fleet Manager will appear here." />}
+      </div>
+    </section>
+  </div>
+}
+
 function Maintenance({ role, workOrders, components, plans, vehicles: fleet, token, onCreated, onUpdated, onPlanCreated, onNotify }) {
   const [order, setOrder] = useState({ vehicle_id: '', title: '', description: '', priority: 'Medium', status: 'Open', due_date: '', assigned_to: '' })
   const [plan, setPlan] = useState({ vehicle_id: '', name: '', interval_km: '', interval_days: '', next_due_km: '', next_due_on: '' })
+  if (role === 'technician') {
+    return <TechnicianMaintenance workOrders={workOrders} vehicles={fleet} token={token} onUpdated={onUpdated} onNotify={onNotify} />
+  }
   const submitOrder = async (event) => { event.preventDefault(); try { const created = await createWorkOrder(token, { ...order, vehicle_id: Number(order.vehicle_id), description: order.description || null, due_date: order.due_date || null, assigned_to: order.assigned_to || null }); onCreated(created); setOrder({ ...order, title: '', description: '' }); onNotify('Work order created.') } catch (error) { onNotify(error.message) } }
   const submitPlan = async (event) => { event.preventDefault(); try { const created = await createMaintenancePlan(token, { ...plan, vehicle_id: Number(plan.vehicle_id), interval_km: plan.interval_km ? Number(plan.interval_km) : null, interval_days: plan.interval_days ? Number(plan.interval_days) : null, next_due_km: plan.next_due_km ? Number(plan.next_due_km) : null, next_due_on: plan.next_due_on || null }); onPlanCreated(created); onNotify('Maintenance plan created.') } catch (error) { onNotify(error.message) } }
   const download = (id) => { downloadFile(token, `/api/v1/work-orders/${id}/download`, `WO-${id}.html`).catch((error) => onNotify(error.message)) }

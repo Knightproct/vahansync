@@ -139,6 +139,13 @@ button { cursor: pointer; }
   border: 1px solid var(--line); border-radius: 16px; background: var(--panel); box-shadow: var(--shadow-sm);
 }
 .metric-card::after { content: ''; width: 80px; height: 80px; position: absolute; right: -28px; bottom: -31px; border-radius: 50%; background: rgba(38,163,141,.06); }
+.role-overview { display: grid; gap: 18px; }
+.role-next-step { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 24px; }
+.role-next-step h2 { margin: 5px 0 6px; font-size: 22px; }
+.role-next-step p { max-width: 640px; margin: 0; color: var(--muted); }
+.empty-state { display: grid; justify-items: start; gap: 7px; padding: 28px; color: var(--muted); }
+.empty-state strong { color: var(--ink); font-size: 15px; }
+.empty-state span { max-width: 520px; line-height: 1.5; }
 .metric-icon { width: 35px; height: 35px; display: grid; place-items: center; border-radius: 11px; font-size: 15px; font-weight: 800; }
 .metric-icon.navy { color: #35647d; background: #e7f0f6; }.metric-icon.blue { color: #5579c1; background: #ebf0ff; }.metric-icon.orange { color: #bf7b31; background: var(--amber-soft); }.metric-icon.green { color: #27886f; background: var(--teal-soft); }.metric-icon.purple { color: #8065b6; background: #f0eaff; }
 .metric-label { margin-top: 16px; color: var(--muted); font-size: 11px; }.metric-value { margin-top: 4px; color: var(--ink); font-family: 'Plus Jakarta Sans'; font-size: 25px; font-weight: 800; letter-spacing: -1px; }.metric-change { margin-top: 7px; color: #9aaab3; font-size: 10px; }.metric-change span { color: var(--teal); font-weight: 800; }.metric-change span.down { color: var(--red); }
