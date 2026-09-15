@@ -88,11 +88,11 @@ class UserCreate(BaseModel):
     full_name: str = Field(min_length=2, max_length=160)
     mobile_phone: str | None = Field(default=None, max_length=32)
     password: str = Field(min_length=8)
-    role: str = Field(pattern=r"^(fleet_manager|inventory_manager|driver|technician|accountant)$")
+    role: str = Field(pattern=r"^(fleet_manager|inventory_manager|driver|mechanic|technician|accountant)$")
 
 
 class UserRoleUpdate(BaseModel):
-    role: str = Field(pattern=r"^(fleet_manager|inventory_manager|driver|technician|accountant)$")
+    role: str = Field(pattern=r"^(fleet_manager|inventory_manager|driver|mechanic|technician|accountant)$")
 
 
 class AuditLogRead(BaseModel):
@@ -334,7 +334,7 @@ class WorkOrderCreate(BaseModel):
     title: str = Field(min_length=2, max_length=200)
     description: str | None = None
     priority: str = "Medium"
-    status: str = "Open"
+    status: str = Field(default="Open", pattern=r"^(Draft|Open|Assigned|Scheduled|In progress|Ready for review|Completed|Closed|Archived)$")
     due_date: str | None = None
     assigned_to: str | None = None
     assigned_user_id: int | None = None
@@ -356,7 +356,7 @@ class WorkOrderRead(WorkOrderCreate):
 
 class WorkOrderUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=2, max_length=200)
-    status: str | None = None
+    status: str | None = Field(default=None, pattern=r"^(Draft|Open|Assigned|Scheduled|In progress|Ready for review|Completed|Closed|Archived)$")
     priority: str | None = None
     due_date: str | None = None
     assigned_to: str | None = None

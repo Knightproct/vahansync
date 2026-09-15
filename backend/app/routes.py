@@ -1389,8 +1389,34 @@ def update_work_order(
     if work_order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Work order not found")
     changes = payload.model_dump(exclude_unset=True)
+    if user.role not in ("owner", "fleet_manager", "technician", "mechanic"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only fleet or workshop roles can update work orders")
     if user.role in ("technician", "mechanic"):
         changes = {key: value for key, value in changes.items() if key in {"description"}}
+    else:
+        if "assigned_user_id" in changes and changes["assigned_user_id"] is not None:
+            assignee = database.scalar(select(User).where(
+                User.id == changes["assigned_user_id"],
+                User.organization_id == user.organization_id,
+                User.role.in_(("technician", "mechanic")),
+            ))
+            if assignee is None:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Assigned user must be a workshop user in this organization")
+        if "status" in changes:
+            transitions = {
+                "Draft": {"Open", "Assigned", "Archived"},
+                "Open": {"Assigned", "Scheduled", "In progress", "Archived"},
+                "Assigned": {"Scheduled", "In progress", "Archived"},
+                "Scheduled": {"In progress", "Archived"},
+                "In progress": {"Ready for review"},
+                "Ready for review": {"Completed"},
+                "Completed": {"Closed", "Archived"},
+                "Closed": set(),
+                "Archived": set(),
+            }
+            target_status = changes["status"]
+            if target_status != work_order.status and target_status not in transitions.get(work_order.status, set()):
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Invalid work-order transition: {work_order.status} to {target_status}")
     for key, value in changes.items():
         setattr(work_order, key, value)
     database.add(AuditLog(
