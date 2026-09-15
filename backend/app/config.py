@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     whatsapp_provider: str | None = None
     whatsapp_api_url: str | None = None
     whatsapp_auth_token: str | None = None
+    whatsapp_account_sid: str | None = None
+    whatsapp_from_number: str | None = None
     whatsapp_sender_id: str | None = None
     whatsapp_template_id: str | None = None
     telematics_default_timeout_seconds: int = 30

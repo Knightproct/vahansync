@@ -1933,22 +1933,30 @@ def dispatch_sms(delivery: NotificationDelivery, notification: OperationalNotifi
     if not recipient.mobile_phone:
         delivery.status = "skipped"
         return
-    if not settings.sms_provider or not settings.sms_api_url or not settings.sms_auth_token:
+    if not settings.sms_provider or not settings.sms_auth_token:
         delivery.status = "queued"
         return
     try:
         if settings.sms_provider.lower() == "twilio":
+            account_sid = settings.sms_account_sid
+            from_number = settings.sms_from_number or settings.sms_sender_id
+            if not account_sid or not from_number:
+                delivery.status = "queued"
+                return
             response = httpx.post(
-                settings.sms_api_url,
+                settings.sms_api_url or f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Messages.json",
                 auth=httpx.BasicAuth(settings.sms_account_sid or "", settings.sms_auth_token),
                 data={
                     "To": recipient.mobile_phone,
-                    "From": settings.sms_from_number or settings.sms_sender_id or "",
+                    "From": from_number,
                     "Body": f"{notification.title}: {notification.detail}",
                 },
                 timeout=10,
             )
         else:
+            if not settings.sms_api_url:
+                delivery.status = "queued"
+                return
             response = httpx.post(
                 settings.sms_api_url,
                 headers={
@@ -1977,27 +1985,47 @@ def dispatch_whatsapp(delivery: NotificationDelivery, notification: OperationalN
     if not recipient.mobile_phone:
         delivery.status = "skipped"
         return
-    if not settings.whatsapp_provider or not settings.whatsapp_api_url or not settings.whatsapp_auth_token:
+    if not settings.whatsapp_provider or not settings.whatsapp_auth_token:
         delivery.status = "queued"
         return
     try:
-        response = httpx.post(
-            settings.whatsapp_api_url,
-            headers={
-                "Authorization": f"Bearer {settings.whatsapp_auth_token}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "sender": settings.whatsapp_sender_id,
-                "template_id": settings.whatsapp_template_id,
-                "recipient": recipient.mobile_phone,
-                "variables": {
-                    "title": notification.title,
-                    "detail": notification.detail,
+        if settings.whatsapp_provider.lower() == "twilio":
+            account_sid = settings.whatsapp_account_sid or settings.sms_account_sid
+            from_number = settings.whatsapp_from_number or settings.whatsapp_sender_id
+            if not account_sid or not from_number:
+                delivery.status = "queued"
+                return
+            response = httpx.post(
+                settings.whatsapp_api_url or f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Messages.json",
+                auth=httpx.BasicAuth(account_sid, settings.whatsapp_auth_token),
+                data={
+                    "To": f"whatsapp:{recipient.mobile_phone}",
+                    "From": from_number if from_number.startswith("whatsapp:") else f"whatsapp:{from_number}",
+                    "Body": f"{notification.title}: {notification.detail}",
                 },
-            },
-            timeout=10,
-        )
+                timeout=10,
+            )
+        else:
+            if not settings.whatsapp_api_url:
+                delivery.status = "queued"
+                return
+            response = httpx.post(
+                settings.whatsapp_api_url,
+                headers={
+                    "Authorization": f"Bearer {settings.whatsapp_auth_token}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "sender": settings.whatsapp_sender_id,
+                    "template_id": settings.whatsapp_template_id,
+                    "recipient": recipient.mobile_phone,
+                    "variables": {
+                        "title": notification.title,
+                        "detail": notification.detail,
+                    },
+                },
+                timeout=10,
+            )
         if response.is_error:
             delivery.status = "failed"
             return
