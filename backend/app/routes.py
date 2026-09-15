@@ -3330,8 +3330,22 @@ def receive_purchase_order(
     ))
     if part is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Part not found in this organization")
+    line = database.scalar(select(PurchaseOrderLine).where(
+        PurchaseOrderLine.organization_id == user.organization_id,
+        PurchaseOrderLine.purchase_order_id == order.id,
+        PurchaseOrderLine.part_id == payload.part_id,
+    ))
+    if line is None:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Part is not included in this purchase order")
     if payload.damaged_quantity > payload.quantity:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Damaged quantity cannot exceed received quantity")
+    prior_receipts = list(database.scalars(select(PurchaseOrderReceipt).where(
+        PurchaseOrderReceipt.organization_id == user.organization_id,
+        PurchaseOrderReceipt.purchase_order_id == order.id,
+        PurchaseOrderReceipt.part_id == payload.part_id,
+    )).all())
+    if sum(receipt.quantity for receipt in prior_receipts) + payload.quantity > line.quantity:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Receipt quantity exceeds the ordered quantity")
     if payload.location_id is not None and database.scalar(select(StockLocation).where(
         StockLocation.id == payload.location_id,
         StockLocation.organization_id == user.organization_id,
