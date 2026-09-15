@@ -119,6 +119,19 @@ class FleetOperationsSummaryRead(BaseModel):
     unassigned_vehicles: int
 
 
+class FleetAnalyticsVehicleRead(BaseModel):
+    vehicle_id: int
+    maintenance_cost_paise: int
+    cost_per_km_paise: int
+    downtime_days: int
+    odometer_km: int
+
+
+class FleetAnalyticsRead(BaseModel):
+    vehicles: list[FleetAnalyticsVehicleRead]
+    odometer_anomalies: int
+
+
 class UserContactUpdate(BaseModel):
     mobile_phone: str | None = Field(default=None, max_length=32)
 

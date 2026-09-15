@@ -8,7 +8,7 @@ import {
   createStockLocation, createTelematicsDevice, createTelematicsIntegration, createTollTransaction,
   createVehicle, createInvitation, createVendor, createWorkOrder, dispatchQueuedSms, getAuditLog,
   getComponents, getCurrentUser, getDocuments, getDriverInspections, getDriverIssues, getExpenses,
-  getFleetOperationsSummary, getInvitations, getMaintenancePlans, getNotificationDeliveries,
+  getFleetAnalytics, getFleetOperationsSummary, getInvitations, getMaintenancePlans, getNotificationDeliveries,
   getNotificationPreferences, getNotifications, getParts, getPurchaseOrders, getStockLocations,
   getSubscription, getSubscriptionPlans, getTelematicsDevices, getTelematicsHealth, getTelematicsIntegrations, getUsers,
   getBillingInvoices, getVehicles, getVendors, getWorkOrderChecklist, getWorkOrders, login, logout, reconcileExpense,
@@ -133,6 +133,7 @@ function AuthenticatedApp() {
           current.role === 'owner' ? getInvitations(token) : Promise.resolve([]),
           current.role === 'owner' ? getAuditLog(token) : Promise.resolve([]),
           ['owner', 'fleet_manager'].includes(current.role) ? getFleetOperationsSummary(token) : Promise.resolve(null),
+          ['owner', 'fleet_manager'].includes(current.role) ? getFleetAnalytics(token) : Promise.resolve(null),
           getSubscriptionPlans(token),
           current.role === 'owner' ? getBillingInvoices(token) : Promise.resolve([]),
           ['owner', 'fleet_manager'].includes(current.role) ? getTelematicsHealth(token) : Promise.resolve(null),
@@ -146,8 +147,8 @@ function AuthenticatedApp() {
           plans: value[8] || [], vendors: value[9] || [], purchaseOrders: value[10] || [], locations: value[11] || [],
           notificationPreferences: value[12] || [], deliveries: value[13] || [], inspections: value[14] || [],
           issues: value[15] || [], integrations: value[16] || [], devices: value[17] || [], users: value[18] || [],
-          invitations: value[19] || [], audit: value[20] || [], operations: value[21], subscriptionPlans: value[22] || [],
-          billingInvoices: value[23] || [], telematicsHealth: value[24],
+          invitations: value[19] || [], audit: value[20] || [], operations: value[21], analytics: value[22], subscriptionPlans: value[23] || [],
+          billingInvoices: value[24] || [], telematicsHealth: value[25],
         })
       } catch (requestError) {
         if (requestError.status === 401) {
@@ -187,7 +188,7 @@ function AuthenticatedApp() {
   const nav = navByRole[user.role] || navByRole.owner
   const filteredQuery = query.trim().toLowerCase()
   return <div className="app-shell"><aside className="sidebar"><div className="sidebar-brand"><span className="brand-symbol">V</span><div><strong>VahanSync</strong><small>Operations OS</small></div></div><div className="tenant-switch"><span className="status-dot" /><div><small>Organisation</small><strong>{user.organization_name}</strong></div><span>⌄</span></div><nav className="primary-nav"><span className="nav-caption">Your workspace</span>{nav.map(([id, label, icon]) => <button key={id} className={page === id ? 'nav-item active' : 'nav-item'} onClick={() => setPage(id)}><span className="nav-icon">{icon}</span>{label}{id === 'notifications' && data.notifications?.some((item) => item.status === 'unread') && <i className="nav-badge" />}</button>)}</nav><div className="sidebar-bottom"><div className="user-card"><span className="avatar">{initials(user.full_name)}</span><div><strong>{user.full_name}</strong><small>{roleNames[user.role]}</small></div></div><button className="signout" onClick={signOut}>↪ Sign out</button></div></aside><main className="main-area"><header className="topbar"><div><span className="breadcrumb">VahanSync <b>/</b> {nav.find(([id]) => id === page)?.[1] || 'Workspace'}</span><h1>{pageTitle(page, user.role)}</h1></div><div className="topbar-actions"><label className="global-search"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search this workspace" /></label><span className="live-pill"><i /> Live data</span><button className="avatar avatar-button" onClick={() => setPage('notifications')}>{initials(user.full_name)}</button></div></header><div className="content">
-    {page === 'command' && <CommandPage role={user.role} data={data} onNavigate={setPage} />}
+    {page === 'command' && <><CommandPage role={user.role} data={data} onNavigate={setPage} />{['owner', 'fleet_manager'].includes(user.role) && <FleetAnalyticsPanel analytics={data.analytics} />}</>}
     {page === 'members' && <MembersPage token={token} data={data} refresh={refresh} />}
     {page === 'billing' && <BillingPage token={token} data={data} refresh={refresh} />}
     {page === 'audit' && <AuditPage token={token} entries={data.audit} summary={data.operations} />}
@@ -366,6 +367,11 @@ function CompliancePage({ token, data, refresh, query }) {
   async function upload(documentId) { const file = files[documentId]; if (!file) return; try { await uploadDocumentFile(token, documentId, file); setFiles((current) => ({ ...current, [documentId]: null })); refresh('Document file uploaded.') } catch (error) { refresh(error.message) } }
   const docs = data.documents.filter((item) => JSON.stringify(item).toLowerCase().includes(query))
   return <PageFrame eyebrow="03 · Fleet operations" title="Compliance vault" description="Keep fitness, insurance, PUC, permits, and other expiry-bound evidence attached to the correct vehicle."><FormCard title="Add compliance record" description="Create metadata first, then attach a file from the document row."><form className="form-grid" onSubmit={submit}><SelectField label="Vehicle" value={form.vehicle_id} onChange={(value) => setForm({ ...form, vehicle_id: value })} options={[['', 'Organisation-level'], ...data.vehicles.map((vehicle) => [String(vehicle.id), vehicle.registration_number])]} /><Field label="Document name" value={form.name} onChange={(value) => setForm({ ...form, name: value })} required /><SelectField label="Type" value={form.document_type} onChange={(value) => setForm({ ...form, document_type: value })} options={['Fitness', 'Insurance', 'PUC', 'Permit', 'Tax', 'Other'].map((value) => [value, value])} /><Field label="Issued by" value={form.issued_by} onChange={(value) => setForm({ ...form, issued_by: value })} /><Field label="Expires on" type="date" value={form.expires_on} onChange={(value) => setForm({ ...form, expires_on: value })} required /><button className="primary-button">Save document</button></form></FormCard><DataPanel title="Document vault" eyebrow={`${docs.length} records`}><Table headers={['Document', 'Vehicle', 'Expires', 'Status', 'File actions']} rows={docs.map((item) => [<span><strong>{item.name}</strong><small>{item.document_type} · {item.issued_by || 'Issuer not recorded'}</small></span>, item.vehicle_id ? data.vehicles.find((vehicle) => vehicle.id === item.vehicle_id)?.registration_number || `#${item.vehicle_id}` : 'Organisation', dateText(item.expires_on), <span className={`status ${item.status === 'Valid' ? 'good' : 'warn'}`}>{item.status}</span>, <div className="row-actions"><input type="file" accept="image/*,application/pdf" onChange={(event) => setFiles((current) => ({ ...current, [item.id]: event.target.files?.[0] || null }))} /><button className="table-action" disabled={!files[item.id]} onClick={() => upload(item.id)}>Upload</button>{item.file_key && <button className="table-action" onClick={async () => { try { await downloadFile(token, `/api/v1/documents/${item.id}/file`, `${item.name}.file`); refresh('Document download started.') } catch (error) { refresh(error.message) } }}>Download</button>}<button className="table-action" onClick={async () => { try { await updateDocument(token, item.id, { status: item.status === 'Valid' ? 'Archived' : 'Valid' }); refresh('Document status updated.') } catch (error) { refresh(error.message) } }}>Toggle status</button></div>])} empty="No compliance documents have been entered." /></DataPanel></PageFrame>
+}
+
+function FleetAnalyticsPanel({ analytics }) {
+  if (!analytics) return null
+  return <DataPanel title="Fleet intelligence" eyebrow={`${analytics.vehicles?.length || 0} vehicles analysed`}><Table headers={['Vehicle', 'Maintenance cost', 'Cost / km', 'Downtime', 'Odometer']} rows={(analytics.vehicles || []).map((item) => [`#${item.vehicle_id}`, money(item.maintenance_cost_paise), money(item.cost_per_km_paise), `${item.downtime_days} days`, `${item.odometer_km} km`])} empty="No vehicle analytics are available yet." /><p className="muted">Odometer anomalies flagged: {analytics.odometer_anomalies || 0}</p></DataPanel>
 }
 
 function TelematicsPage({ token, data, refresh }) {

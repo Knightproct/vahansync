@@ -37,6 +37,8 @@ from .schemas import (
     ExpenseStatusUpdate,
     ExpenseReversal,
     FinanceSummaryRead,
+    FleetAnalyticsRead,
+    FleetAnalyticsVehicleRead,
     FleetOperationsSummaryRead,
     FuelTransactionCreate,
     FuelTransactionRead,
@@ -354,6 +356,47 @@ def fleet_operations_summary(
         low_stock_parts=sum(part.quantity_on_hand <= part.reorder_level for part in parts),
         unassigned_vehicles=sum(vehicle.assigned_driver_id is None for vehicle in vehicles),
     )
+
+
+@router.get("/fleet/analytics", response_model=FleetAnalyticsRead)
+def fleet_analytics(
+    user: User = Depends(require_roles("owner", "fleet_manager")),
+    database: Session = Depends(get_db),
+) -> FleetAnalyticsRead:
+    vehicles = list(database.scalars(select(Vehicle).where(Vehicle.organization_id == user.organization_id)).all())
+    expenses = list(database.scalars(select(Expense).where(Expense.organization_id == user.organization_id)).all())
+    fuel = list(database.scalars(select(FuelTransaction).where(FuelTransaction.organization_id == user.organization_id)).all())
+    tolls = list(database.scalars(select(TollTransaction).where(TollTransaction.organization_id == user.organization_id)).all())
+    work_orders = list(database.scalars(select(WorkOrder).where(WorkOrder.organization_id == user.organization_id)).all())
+    now = utc_now()
+    analytics = []
+    for vehicle in vehicles:
+        maintenance_cost = sum(
+            expense.amount_paise
+            for expense in expenses
+            if expense.vehicle_id == vehicle.id
+            and any(term in expense.category.lower() for term in ("maintenance", "repair", "service"))
+            and expense.status != "Rejected"
+        )
+        maintenance_cost += sum(item.total_amount_paise for item in fuel if item.vehicle_id == vehicle.id)
+        maintenance_cost += sum(item.amount_paise for item in tolls if item.vehicle_id == vehicle.id and item.status != "Rejected")
+        downtime_days = sum(
+            max(0, (now - (order.created_at or now)).days)
+            for order in work_orders
+            if order.vehicle_id == vehicle.id and order.status not in {"Completed", "Closed", "Archived", "Cancelled"}
+        )
+        analytics.append(FleetAnalyticsVehicleRead(
+            vehicle_id=vehicle.id,
+            maintenance_cost_paise=maintenance_cost,
+            cost_per_km_paise=maintenance_cost // max(vehicle.odometer_km, 1),
+            downtime_days=downtime_days,
+            odometer_km=vehicle.odometer_km,
+        ))
+    anomalies = len(list(database.scalars(select(OdometerLog).where(
+        OdometerLog.organization_id == user.organization_id,
+        OdometerLog.is_flagged.is_(True),
+    )).all()))
+    return FleetAnalyticsRead(vehicles=analytics, odometer_anomalies=anomalies)
 
 
 @router.patch("/users/me", response_model=UserRead)

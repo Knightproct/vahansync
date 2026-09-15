@@ -160,6 +160,10 @@ export function getFleetOperationsSummary(token) {
   return request('/api/v1/fleet/operations-summary', { headers: { Authorization: `Bearer ${token}` } })
 }
 
+export function getFleetAnalytics(token) {
+  return request('/api/v1/fleet/analytics', { headers: { Authorization: `Bearer ${token}` } })
+}
+
 export function updateMyContact(token, mobile_phone) {
   return request('/api/v1/users/me/contact', {
     method: 'PATCH',
