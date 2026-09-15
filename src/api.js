@@ -639,6 +639,12 @@ export function getWorkOrderParts(token, workOrderId) {
   })
 }
 
+export function getWorkOrderTimeline(token, workOrderId) {
+  return request(`/api/v1/work-orders/${workOrderId}/timeline`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
 export function recordWorkOrderPart(token, workOrderId, payload) {
   return request(`/api/v1/work-orders/${workOrderId}/parts`, {
     method: 'POST',

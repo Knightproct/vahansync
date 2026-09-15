@@ -1663,6 +1663,27 @@ def list_work_order_parts(
     ).order_by(WorkOrderPartUsage.id)).all())
 
 
+@router.get("/work-orders/{work_order_id}/timeline", response_model=list[AuditLogRead])
+def work_order_timeline(
+    work_order_id: int,
+    user: User = Depends(require_permission("maintenance")),
+    database: Session = Depends(get_db),
+) -> list[AuditLog]:
+    statement = select(WorkOrder).where(
+        WorkOrder.id == work_order_id,
+        WorkOrder.organization_id == user.organization_id,
+    )
+    if user.role in ("technician", "mechanic"):
+        statement = statement.where(WorkOrder.assigned_user_id == user.id)
+    if database.scalar(statement) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Work order not found")
+    return list(database.scalars(select(AuditLog).where(
+        AuditLog.organization_id == user.organization_id,
+        AuditLog.entity_type == "work_order",
+        AuditLog.entity_id == str(work_order_id),
+    ).order_by(AuditLog.created_at.asc(), AuditLog.id.asc())).all())
+
+
 @router.get("/work-orders/{work_order_id}/evidence", response_model=list[WorkOrderEvidenceRead])
 def list_work_order_evidence(
     work_order_id: int,
