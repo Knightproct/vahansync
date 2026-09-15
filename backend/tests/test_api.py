@@ -226,6 +226,9 @@ def test_health_and_vehicle_lifecycle(tmp_path: Path, monkeypatch):
         assert latest.json()["speed_kph"] == 54
         vehicle_after_telemetry = client.get("/api/v1/vehicles", headers=headers)
         assert next(item for item in vehicle_after_telemetry.json() if item["id"] == vehicle_id)["odometer_km"] == 12540
+        analytics = client.get("/api/v1/fleet/analytics", headers=headers)
+        assert analytics.status_code == 200
+        assert any(item["vehicle_id"] == vehicle_id for item in analytics.json()["vehicles"])
         vendor = client.post("/api/v1/vendors", headers=headers, json={
             "name": "TVS Autoparts",
             "vendor_type": "Parts supplier",

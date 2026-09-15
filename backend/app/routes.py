@@ -380,11 +380,14 @@ def fleet_analytics(
         )
         maintenance_cost += sum(item.total_amount_paise for item in fuel if item.vehicle_id == vehicle.id)
         maintenance_cost += sum(item.amount_paise for item in tolls if item.vehicle_id == vehicle.id and item.status != "Rejected")
-        downtime_days = sum(
-            max(0, (now - (order.created_at or now)).days)
-            for order in work_orders
-            if order.vehicle_id == vehicle.id and order.status not in {"Completed", "Closed", "Archived", "Cancelled"}
-        )
+        downtime_days = 0
+        for order in work_orders:
+            if order.vehicle_id != vehicle.id or order.status in {"Completed", "Closed", "Archived", "Cancelled"}:
+                continue
+            started_at = order.created_at or now
+            if started_at.tzinfo is None:
+                started_at = started_at.replace(tzinfo=timezone.utc)
+            downtime_days += max(0, (now - started_at).days)
         analytics.append(FleetAnalyticsVehicleRead(
             vehicle_id=vehicle.id,
             maintenance_cost_paise=maintenance_cost,
