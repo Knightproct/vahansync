@@ -642,7 +642,7 @@ export function getWorkOrderChecklist(token, workOrderId) {
 export function updateWorkOrderChecklist(token, workOrderId, items) {
   return request(`/api/v1/work-orders/${workOrderId}/checklist`, {
     method: 'PUT',
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
     body: JSON.stringify({ items }),
   })
 }
@@ -650,28 +650,28 @@ export function updateWorkOrderChecklist(token, workOrderId, items) {
 export function startWorkOrder(token, workOrderId) {
   return request(`/api/v1/work-orders/${workOrderId}/start`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
   })
 }
 
 export function completeWorkOrder(token, workOrderId) {
   return request(`/api/v1/work-orders/${workOrderId}/complete`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
   })
 }
 
 export function approveWorkOrder(token, workOrderId) {
   return request(`/api/v1/work-orders/${workOrderId}/approve`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
   })
 }
 
 export function archiveWorkOrder(token, workOrderId) {
   return request(`/api/v1/work-orders/${workOrderId}/archive`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
   })
 }
 
@@ -690,7 +690,7 @@ export function getWorkOrderTimeline(token, workOrderId) {
 export function recordWorkOrderPart(token, workOrderId, payload) {
   return request(`/api/v1/work-orders/${workOrderId}/parts`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
     body: JSON.stringify(payload),
   })
 }

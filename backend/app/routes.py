@@ -1546,6 +1546,7 @@ def update_work_order_checklist(
     user: User = Depends(require_permission("maintenance")),
     database: Session = Depends(get_db),
 ) -> list[WorkOrderChecklistItem]:
+    reserve_idempotency_key(request, user, database)
     statement = select(WorkOrder).where(
         WorkOrder.id == work_order_id,
         WorkOrder.organization_id == user.organization_id,
@@ -1598,6 +1599,7 @@ def start_work_order(
     user: User = Depends(require_permission("maintenance")),
     database: Session = Depends(get_db),
 ) -> WorkOrder:
+    reserve_idempotency_key(request, user, database)
     statement = select(WorkOrder).where(
         WorkOrder.id == work_order_id,
         WorkOrder.organization_id == user.organization_id,
@@ -1631,6 +1633,7 @@ def complete_work_order(
     user: User = Depends(require_permission("maintenance")),
     database: Session = Depends(get_db),
 ) -> WorkOrder:
+    reserve_idempotency_key(request, user, database)
     statement = select(WorkOrder).where(
         WorkOrder.id == work_order_id,
         WorkOrder.organization_id == user.organization_id,
@@ -1670,6 +1673,7 @@ def approve_work_order(
     user: User = Depends(require_roles("owner", "fleet_manager")),
     database: Session = Depends(get_db),
 ) -> WorkOrder:
+    reserve_idempotency_key(request, user, database)
     work_order = database.scalar(select(WorkOrder).where(
         WorkOrder.id == work_order_id,
         WorkOrder.organization_id == user.organization_id,
@@ -1699,6 +1703,7 @@ def archive_work_order(
     user: User = Depends(require_roles("owner", "fleet_manager")),
     database: Session = Depends(get_db),
 ) -> WorkOrder:
+    reserve_idempotency_key(request, user, database)
     work_order = database.scalar(select(WorkOrder).where(
         WorkOrder.id == work_order_id,
         WorkOrder.organization_id == user.organization_id,
@@ -1834,6 +1839,7 @@ def record_work_order_part(
     user: User = Depends(require_permission("inventory")),
     database: Session = Depends(get_db),
 ) -> WorkOrderPartUsage:
+    reserve_idempotency_key(request, user, database)
     work_order = database.scalar(select(WorkOrder).where(
         WorkOrder.id == work_order_id,
         WorkOrder.organization_id == user.organization_id,
