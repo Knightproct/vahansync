@@ -2,6 +2,7 @@ import { supabase } from './supabase'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : 'http://localhost:8000')
 const useSupabaseAuth = Boolean(supabase) && !API_BASE_URL.includes('localhost')
+const OFFLINE_QUEUE_KEY = 'vahana:offline-mutations'
 function mapVehicle(vehicle) {
   return {
     ...vehicle,
@@ -29,6 +30,39 @@ async function request(path, options = {}) {
   }
 
   return response.json()
+}
+
+function queueOfflineMutation(path, token, payload) {
+  const queue = JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || '[]')
+  queue.push({
+    id: crypto.randomUUID(),
+    path,
+    token,
+    payload,
+    idempotencyKey: crypto.randomUUID(),
+  })
+  localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue))
+}
+
+export async function flushOfflineMutations() {
+  const queue = JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || '[]')
+  const remaining = []
+  for (const item of queue) {
+    try {
+      await request(item.path, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${item.token}`,
+          'Idempotency-Key': item.idempotencyKey,
+        },
+        body: JSON.stringify(item.payload),
+      })
+    } catch (error) {
+      if (error.status !== 409) remaining.push(item)
+    }
+  }
+  localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(remaining))
+  return { flushed: queue.length - remaining.length, pending: remaining.length }
 }
 
 export async function login(email, password) {
@@ -683,24 +717,48 @@ export function getDriverInspections(token) {
   return request('/api/v1/driver/inspections', { headers: { Authorization: `Bearer ${token}` } })
 }
 
-export function createDriverInspection(token, payload) {
-  return request('/api/v1/driver/inspections', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
-    body: JSON.stringify(payload),
-  })
+export async function createDriverInspection(token, payload) {
+  if (!navigator.onLine) {
+    queueOfflineMutation('/api/v1/driver/inspections', token, payload)
+    return { queued: true }
+  }
+  try {
+    return await request('/api/v1/driver/inspections', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
+      body: JSON.stringify(payload),
+    })
+  } catch (error) {
+    if (error instanceof TypeError) {
+      queueOfflineMutation('/api/v1/driver/inspections', token, payload)
+      return { queued: true }
+    }
+    throw error
+  }
+}
+
+export async function createDriverIssue(token, payload) {
+  if (!navigator.onLine) {
+    queueOfflineMutation('/api/v1/driver/issues', token, payload)
+    return { queued: true }
+  }
+  try {
+    return await request('/api/v1/driver/issues', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
+      body: JSON.stringify(payload),
+    })
+  } catch (error) {
+    if (error instanceof TypeError) {
+      queueOfflineMutation('/api/v1/driver/issues', token, payload)
+      return { queued: true }
+    }
+    throw error
+  }
 }
 
 export function getDriverIssues(token) {
   return request('/api/v1/driver/issues', { headers: { Authorization: `Bearer ${token}` } })
-}
-
-export function createDriverIssue(token, payload) {
-  return request('/api/v1/driver/issues', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
-    body: JSON.stringify(payload),
-  })
 }
 
 export function reconcileExpense(token, expenseId) {

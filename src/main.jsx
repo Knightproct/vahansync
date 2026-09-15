@@ -12,7 +12,7 @@ import {
   getNotificationPreferences, getNotifications, getParts, getPurchaseOrders, getStockLocations,
   getSubscription, getSubscriptionPlans, getTelematicsDevices, getTelematicsHealth, getTelematicsIntegrations, getUsers,
   getBillingInvoices, getVehicles, getVendors, getWorkOrderChecklist, getWorkOrders, login, logout, reconcileExpense,
-  requestPasswordReset, resolveNotification, revokeInvitation, signupOrganization, startWorkOrder, syncDueTelematics,
+  requestPasswordReset, resolveNotification, revokeInvitation, signupOrganization, startWorkOrder, syncDueTelematics, flushOfflineMutations,
   getWorkOrderTimeline, updateDocument, updateNotification, updateNotificationPreference, updatePurchaseOrder, updateUserRole,
   updateMyProfile, updatePassword, updateVehicle, updateWorkOrder, updateWorkOrderChecklist, uploadDocumentFile, uploadWorkOrderEvidence, downloadFile,
 } from './api'
@@ -112,6 +112,14 @@ function AuthenticatedApp() {
       listener.subscription.unsubscribe()
     }
   }, [])
+
+  useEffect(() => {
+    if (!token) return
+    flushOfflineMutations(token).catch(() => {})
+    const flush = () => flushOfflineMutations(token).catch(() => {})
+    window.addEventListener('online', flush)
+    return () => window.removeEventListener('online', flush)
+  }, [token])
 
   useEffect(() => {
     if (!token) {
@@ -421,8 +429,8 @@ function TechnicianPage({ token, data, refresh, query }) {
 function DriverPage({ token, data, refresh }) {
   const [inspection, setInspection] = useState({ vehicle_id: '', inspection_type: 'pre_trip', status: 'SAFE', odometer_km: 0, notes: '' })
   const [issue, setIssue] = useState({ vehicle_id: '', title: '', detail: '', priority: 'Medium' })
-  async function submitInspection(event) { event.preventDefault(); try { await createDriverInspection(token, { ...inspection, vehicle_id: Number(inspection.vehicle_id), odometer_km: Number(inspection.odometer_km) }); refresh('Inspection recorded.') } catch (error) { refresh(error.message) } }
-  async function submitIssue(event) { event.preventDefault(); try { await createDriverIssue(token, { ...issue, vehicle_id: Number(issue.vehicle_id) }); refresh('Vehicle issue escalated.') } catch (error) { refresh(error.message) } }
+  async function submitInspection(event) { event.preventDefault(); try { const result = await createDriverInspection(token, { ...inspection, vehicle_id: Number(inspection.vehicle_id), odometer_km: Number(inspection.odometer_km) }); refresh(result.queued ? 'Inspection saved offline and will sync when connected.' : 'Inspection recorded.') } catch (error) { refresh(error.message) } }
+  async function submitIssue(event) { event.preventDefault(); try { const result = await createDriverIssue(token, { ...issue, vehicle_id: Number(issue.vehicle_id) }); refresh(result.queued ? 'Issue saved offline and will sync when connected.' : 'Vehicle issue escalated.') } catch (error) { refresh(error.message) } }
   return <PageFrame eyebrow="01 · Driver safety" title="Daily checks" description="Start the day with a vehicle readiness record, an accurate odometer, and a clear escalation path for anything unsafe."><div className="driver-hero"><div><span className="overline">Assigned vehicle</span><h3>{data.vehicles[0]?.registration_number || 'No vehicle assigned'}</h3><p>{data.vehicles[0]?.model || 'Your Fleet Manager will assign a vehicle to this workspace.'}</p></div><div><span>Latest odometer</span><strong>{data.vehicles[0] ? `${Number(data.vehicles[0].odometer_km).toLocaleString('en-IN')} km` : '—'}</strong></div></div><div className="split-grid"><FormCard title="Record inspection" description="Pre-trip and post-trip checks remain part of the vehicle history."><form className="stack-form" onSubmit={submitInspection}><SelectField label="Vehicle" value={inspection.vehicle_id} onChange={(value) => setInspection({ ...inspection, vehicle_id: value })} options={[['', 'Select assigned vehicle'], ...data.vehicles.map((vehicle) => [String(vehicle.id), vehicle.registration_number])]} required /><SelectField label="Inspection type" value={inspection.inspection_type} onChange={(value) => setInspection({ ...inspection, inspection_type: value })} options={[['pre_trip', 'Pre-trip'], ['post_trip', 'Post-trip']]} /><SelectField label="Readiness" value={inspection.status} onChange={(value) => setInspection({ ...inspection, status: value })} options={['SAFE', 'REVIEW', 'UNSAFE'].map((value) => [value, value])} /><Field label="Odometer (km)" type="number" value={inspection.odometer_km} onChange={(value) => setInspection({ ...inspection, odometer_km: value })} required /><TextField label="Notes" value={inspection.notes} onChange={(value) => setInspection({ ...inspection, notes: value })} /><button className="primary-button">Submit inspection</button></form></FormCard><FormCard title="Report an issue" description="Create a visible safety escalation for Fleet Manager and workshop teams."><form className="stack-form" onSubmit={submitIssue}><SelectField label="Vehicle" value={issue.vehicle_id} onChange={(value) => setIssue({ ...issue, vehicle_id: value })} options={[['', 'Select vehicle'], ...data.vehicles.map((vehicle) => [String(vehicle.id), vehicle.registration_number])]} required /><Field label="Issue title" value={issue.title} onChange={(value) => setIssue({ ...issue, title: value })} required /><SelectField label="Priority" value={issue.priority} onChange={(value) => setIssue({ ...issue, priority: value })} options={['Low', 'Medium', 'High', 'Critical'].map((value) => [value, value])} /><TextField label="Describe the issue" value={issue.detail} onChange={(value) => setIssue({ ...issue, detail: value })} required /><button className="primary-button danger-button">Escalate issue</button></form></FormCard></div><DataPanel title="Inspection history" eyebrow={`${data.inspections.length} records`}><Table headers={['Date', 'Vehicle', 'Type', 'Result', 'Odometer', 'Notes']} rows={data.inspections.map((item) => [dateText(item.created_at), `#${item.vehicle_id}`, item.inspection_type, <span className={`status ${item.status === 'SAFE' ? 'good' : 'bad'}`}>{item.status}</span>, `${item.odometer_km} km`, item.notes || '—'])} empty="No inspections recorded yet." /></DataPanel></PageFrame>
 }
 

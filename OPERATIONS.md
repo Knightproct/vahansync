@@ -20,6 +20,7 @@ The default local storage adapter is intentionally explicit. Production should u
 - Test a restore into an isolated database at least monthly.
 - Restore the database first, then the document objects, then run `npm run migrate`.
 - Verify `/health`, authentication, document downloads, and a tenant-scoped read before traffic is restored.
+- Run `VAHANA_BACKUP_SOURCE_URL=... VAHANA_RESTORE_TARGET_URL=... python -m backend.app.backup_restore` against an isolated PostgreSQL target to verify both database and restore tooling. Set `VAHANA_BACKUP_FILE` to choose the temporary custom-format dump path.
 
 ## Observability
 
