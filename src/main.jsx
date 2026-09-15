@@ -12,10 +12,11 @@ import {
   getNotificationPreferences, getNotifications, getParts, getPurchaseOrders, getStockLocations,
   getSubscription, getSubscriptionPlans, getTelematicsDevices, getTelematicsIntegrations, getUsers,
   getVehicles, getVendors, getWorkOrderChecklist, getWorkOrders, login, logout, reconcileExpense,
-  resolveNotification, revokeInvitation, signupOrganization, startWorkOrder, syncDueTelematics,
+  requestPasswordReset, resolveNotification, revokeInvitation, signupOrganization, startWorkOrder, syncDueTelematics,
   updateDocument, updateNotification, updateNotificationPreference, updatePurchaseOrder, updateUserRole,
-  updateVehicle, updateWorkOrderChecklist, uploadDocumentFile, uploadWorkOrderEvidence, downloadFile,
+  updatePassword, updateVehicle, updateWorkOrderChecklist, uploadDocumentFile, uploadWorkOrderEvidence, downloadFile,
 } from './api'
+import { supabase } from './supabase'
 
 const routeQuery = new URLSearchParams(window.location.search)
 const route = window.location.pathname === '/'
@@ -47,6 +48,7 @@ function App() {
   if (route === '/') return <LandingPage />
   if (route === '/signup') return <AuthPage mode="signup" />
   if (route === '/invite' || route.startsWith('/invite/')) return <AuthPage mode="invite" token={invitationToken} />
+  if (route === '/app' && routeQuery.get('reset') === '1' && supabase) return <ResetPasswordPage />
   return <AuthenticatedApp />
 }
 
@@ -81,6 +83,17 @@ function AuthenticatedApp() {
   const [loading, setLoading] = useState(true)
   const [refreshKey, setRefreshKey] = useState(0)
   const [data, setData] = useState({})
+
+  useEffect(() => {
+    if (!supabase) return
+    supabase.auth.getSession().then(({ data: sessionData }) => {
+      const accessToken = sessionData.session?.access_token
+      if (accessToken) {
+        sessionStorage.setItem('vahana:access-token', accessToken)
+        setToken(accessToken)
+      }
+    })
+  }, [])
 
   useEffect(() => {
     if (!token) {
@@ -164,17 +177,73 @@ function AuthenticatedApp() {
 }
 
 function LoginPage({ onAuthenticated }) {
-  const [email, setEmail] = useState('')
+  const [email, setEmail] = useState(() => localStorage.getItem('vahana:last-email') || '')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [mode, setMode] = useState('login')
+  const [rememberEmail, setRememberEmail] = useState(Boolean(localStorage.getItem('vahana:last-email')))
   const [busy, setBusy] = useState(false)
   async function submit(event) {
     event.preventDefault()
     setBusy(true)
     setError('')
-    try { const session = await login(email, password); onAuthenticated(session.access_token) } catch (requestError) { setError(requestError.message) } finally { setBusy(false) }
+    setNotice('')
+    try {
+      const session = await login(email, password)
+      if (rememberEmail) localStorage.setItem('vahana:last-email', email)
+      else localStorage.removeItem('vahana:last-email')
+      onAuthenticated(session.access_token)
+    } catch (requestError) {
+      setError(requestError.message)
+    } finally {
+      setBusy(false)
+    }
   }
-  return <div className="login-layout"><div className="login-visual"><Brand /><div><span className="overline">Welcome back</span><h1>Keep every operating decision connected.</h1><p>Sign in to the workspace that matches your responsibility: governance, fleet, workshop, field, or finance.</p></div><div className="login-stat"><strong>One record.</strong><span>Vehicle identity, action, evidence, and cost.</span></div></div><form className="login-card" onSubmit={submit}><span className="overline">Secure sign in</span><h2>Enter your workspace</h2><p className="muted">Use the work email assigned to your VahanSync organisation.</p><Field label="Email" type="email" value={email} onChange={setEmail} required /><Field label="Password" type="password" value={password} onChange={setPassword} required minLength="8" />{error && <div className="error-box">{error}</div>}<button className="primary-button wide" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button><a className="auth-switch" href="/signup">Create a new organisation</a></form></div>
+  async function reset(event) {
+    event.preventDefault()
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      await requestPasswordReset(email)
+      setNotice('If this email belongs to a VahanSync organisation, a password-reset link is on its way.')
+    } catch (requestError) {
+      setError(requestError.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return <div className="login-layout"><div className="login-visual"><Brand /><div><span className="overline">Welcome back</span><h1>Keep every operating decision connected.</h1><p>Sign in to the workspace that matches your responsibility: governance, fleet, workshop, field, or finance.</p></div><div className="login-stat"><strong>One record.</strong><span>Vehicle identity, action, evidence, and cost.</span></div></div><form className="login-card" onSubmit={mode === 'login' ? submit : reset}><span className="overline">Secure sign in</span><h2>{mode === 'login' ? 'Enter your workspace' : 'Recover your access'}</h2><p className="muted">{mode === 'login' ? 'Use the work email assigned to your VahanSync organisation.' : 'We will send a secure reset link without revealing whether the account exists.'}</p><Field label="Email" type="email" value={email} onChange={setEmail} required />{mode === 'login' && <><Field label="Password" type="password" value={password} onChange={setPassword} required minLength="8" /><label className="remember-row"><input type="checkbox" checked={rememberEmail} onChange={(event) => { setRememberEmail(event.target.checked); if (!event.target.checked) localStorage.removeItem('vahana:last-email') }} /><span>Remember this email on this device</span></label></>}{error && <div className="error-box">{error}</div>}{notice && <div className="success-box">{notice}</div>}<button className="primary-button wide" disabled={busy}>{busy ? 'Working…' : mode === 'login' ? 'Sign in' : 'Send reset link'}</button>{mode === 'login' ? <button type="button" className="auth-switch link-button" onClick={() => { setMode('reset'); setError(''); setNotice('') }}>Forgot password?</button> : <button type="button" className="auth-switch link-button" onClick={() => { setMode('login'); setError(''); setNotice('') }}>Back to sign in</button>}<a className="auth-switch" href="/signup">Create a new organisation</a></form></div>
+}
+
+function ResetPasswordPage() {
+  const [password, setPassword] = useState('')
+  const [confirmation, setConfirmation] = useState('')
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [busy, setBusy] = useState(false)
+  async function submit(event) {
+    event.preventDefault()
+    if (password !== confirmation) {
+      setError('Passwords do not match.')
+      return
+    }
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      await updatePassword(password)
+      await supabase.auth.signOut()
+      sessionStorage.removeItem('vahana:access-token')
+      setNotice('Password updated. You can now sign in with the new password.')
+    } catch (requestError) {
+      setError(requestError.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return <div className="login-layout"><div className="login-visual"><Brand /><div><span className="overline">Account recovery</span><h1>Restore access without interrupting the operation.</h1><p>Choose a new password, then return to the secure sign-in screen.</p></div><div className="login-stat"><strong>Secure recovery.</strong><span>Passwords never enter VahanSync application storage.</span></div></div><form className="login-card" onSubmit={submit}><span className="overline">New password</span><h2>Set a new password</h2><p className="muted">Use at least 8 characters and keep it unique to your organisation account.</p><Field label="New password" type="password" value={password} onChange={setPassword} required minLength="8" /><Field label="Confirm password" type="password" value={confirmation} onChange={setConfirmation} required minLength="8" />{error && <div className="error-box">{error}</div>}{notice && <div className="success-box">{notice}</div>}<button className="primary-button wide" disabled={busy}>{busy ? 'Updating…' : 'Update password'}</button><a className="auth-switch" href="/app">Back to sign in</a></form></div>
 }
 
 function LandingPage() {

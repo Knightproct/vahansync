@@ -43,6 +43,24 @@ export async function login(email, password) {
   })
 }
 
+export async function requestPasswordReset(email) {
+  if (!useSupabaseAuth) {
+    throw new Error('Password recovery is available through the configured Supabase Auth provider.')
+  }
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${window.location.origin}/?page=app&reset=1`,
+  })
+  if (error) throw new Error(error.message)
+}
+
+export async function updatePassword(password) {
+  if (!useSupabaseAuth) {
+    throw new Error('Password recovery is available through the configured Supabase Auth provider.')
+  }
+  const { error } = await supabase.auth.updateUser({ password })
+  if (error) throw new Error(error.message)
+}
+
 export async function logout() {
   if (useSupabaseAuth) {
     const { error } = await supabase.auth.signOut()
