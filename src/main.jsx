@@ -1,7 +1,7 @@
 import React, { StrictMode, useCallback, useEffect, useMemo, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import './styles.css'
-import { acceptInvitation, approveWorkOrder, changeSubscription, completeComponentService, completeWorkOrder, createComponent, createDocument, createDriverInspection, createDriverIssue, createExpense, createFuelTransaction, createInventoryMovement, createInventoryTransaction, createMaintenancePlan, createPart, createPurchaseOrder, createStockLocation, createSubscriptionCheckout, createTelematicsDevice, createTelematicsIntegration, createTollTransaction, createUser, createVehicle, createInvitation, createVendor, createWorkOrder, dispatchQueuedSms, downloadFile, exportResource, getComponents, getCurrentUser, getDocuments, getDriverInspections, getDriverIssues, getExpenses, getInvitations, getMaintenancePlans, getNotificationDeliveries, getNotificationPreferences, getNotifications, getParts, getPurchaseOrders, getStockLocations, getSubscription, getSubscriptionPlans, getTelematicsDevices, getTelematicsIntegrations, getUsers, getVehicles, getVendors, getWorkOrders, importResource, login, logout, reconcileExpense, resolveNotification, revokeInvitation, signupOrganization, startWorkOrder, syncDueTelematics, updateDocument, updateExpense, updateMyContact, updateNotification, updateNotificationPreference, updatePurchaseOrder, updateUserRole, updateVehicle, updateWorkOrder, uploadDocumentFile } from './api'
+import { acceptInvitation, approveWorkOrder, changeSubscription, completeComponentService, completeWorkOrder, createComponent, createDocument, createDriverInspection, createDriverIssue, createExpense, createFuelTransaction, createInventoryMovement, createInventoryTransaction, createMaintenancePlan, createPart, createPurchaseOrder, createStockLocation, createSubscriptionCheckout, createTelematicsDevice, createTelematicsIntegration, createTollTransaction, createUser, createVehicle, createInvitation, createVendor, createWorkOrder, dispatchQueuedSms, downloadFile, exportResource, getAuditLog, getComponents, getCurrentUser, getDocuments, getDriverInspections, getDriverIssues, getExpenses, getFleetOperationsSummary, getInvitations, getMaintenancePlans, getNotificationDeliveries, getNotificationPreferences, getNotifications, getParts, getPurchaseOrders, getStockLocations, getSubscription, getSubscriptionPlans, getTelematicsDevices, getTelematicsIntegrations, getUsers, getVehicles, getVendors, getWorkOrderChecklist, getWorkOrders, importResource, login, logout, reconcileExpense, resolveNotification, revokeInvitation, signupOrganization, startWorkOrder, syncDueTelematics, updateDocument, updateExpense, updateMyContact, updateNotification, updateNotificationPreference, updatePurchaseOrder, updateUserRole, updateVehicle, updateWorkOrder, updateWorkOrderChecklist, uploadDocumentFile, uploadWorkOrderEvidence } from './api'
 
 const queryPage = new URLSearchParams(window.location.search).get('page')
 const routePath = queryPage ? `/${queryPage}` : window.location.pathname
@@ -17,6 +17,7 @@ const navItems = [
   { id: 'documents', label: 'Documents', icon: '▤', permissions: ['compliance'] },
   { id: 'costs', label: 'Costs & finance', icon: '₹', permissions: ['finance'] },
   { id: 'settings', label: 'Workspace controls', icon: '⚙', permissions: ['governance', 'notifications'] },
+  { id: 'audit', label: 'Audit trail', icon: '≋', permissions: ['governance'] },
 ]
 
 const maintenance = [
@@ -60,6 +61,8 @@ function App() {
   const [token, setToken] = useState(() => window.sessionStorage.getItem('vahana:access-token'))
   const [apiState, setApiState] = useState('loading')
   const [apiError, setApiError] = useState('')
+  const [auditLog, setAuditLog] = useState([])
+  const [operationsSummary, setOperationsSummary] = useState(null)
 
   useEffect(() => {
     if (isPublicPage) return
@@ -102,6 +105,13 @@ function App() {
         setVendors(loadedVendors)
         setPurchaseOrders(loadedPurchaseOrders)
         setNotifications(loadedNotifications)
+        if (loadedUser.role === 'owner') {
+          const [loadedAuditLog, loadedSummary] = await Promise.all([getAuditLog(accessToken), getFleetOperationsSummary(accessToken)])
+          setAuditLog(loadedAuditLog)
+          setOperationsSummary(loadedSummary)
+        } else if (loadedUser.role === 'fleet_manager') {
+          setOperationsSummary(await getFleetOperationsSummary(accessToken))
+        }
         setApiState('ready')
       } catch (error) {
         if (
@@ -235,7 +245,7 @@ function App() {
         </header>
 
         <div className="page">
-          {active === 'overview' && <Overview role={currentUser?.role} subscription={subscription} vehicles={fleet} workOrders={workOrders} parts={parts} purchaseOrders={purchaseOrders} documents={documentsData} expenses={expenses} onNotify={notify} onNavigate={setActive} />}
+          {active === 'overview' && <Overview role={currentUser?.role} subscription={subscription} vehicles={fleet} workOrders={workOrders} parts={parts} purchaseOrders={purchaseOrders} documents={documentsData} expenses={expenses} operationsSummary={operationsSummary} onNotify={notify} onNavigate={setActive} />}
           {active === 'fleet' && <Fleet role={currentUser?.role} vehicles={filteredVehicles} components={components} token={token} onAdd={() => setShowAdd(true)} onNotify={notify} onVehicleUpdated={(updated) => setFleet((current) => current.map((item) => item.id === updated.id ? updated : item))} onComponentCreated={(component) => setComponents((current) => [component, ...current])} onComponentUpdated={(updated) => setComponents((current) => current.map((item) => item.id === updated.id ? updated : item))} />}
           {active === 'maintenance' && <Maintenance role={currentUser?.role} workOrders={workOrders} components={components} plans={maintenancePlans} vehicles={fleet} token={token} onCreated={(workOrder) => setWorkOrders((current) => [workOrder, ...current])} onUpdated={(workOrder) => setWorkOrders((current) => current.map((item) => item.id === workOrder.id ? workOrder : item))} onPlanCreated={(plan) => setMaintenancePlans((current) => [plan, ...current])} onNotify={notify} />}
           {active === 'driver' && <DriverWorkspace token={token} vehicles={fleet} onNotify={notify} />}
@@ -243,6 +253,7 @@ function App() {
           {active === 'documents' && <Documents token={token} documents={documentsData} vehicles={fleet} onNotify={notify} onDocumentCreated={(document) => setDocumentsData((current) => [document, ...current])} />}
           {active === 'costs' && <Costs token={token} expenses={expenses} vehicles={fleet} onNotify={notify} onExpenseCreated={(expense) => setExpenses((current) => [expense, ...current])} onExpenseUpdated={(expense) => setExpenses((current) => current.map((item) => item.id === expense.id ? expense : item))} />}
           {active === 'settings' && <WorkspaceControls token={token} user={currentUser} subscription={subscription} notifications={notifications} onNotify={notify} onSubscriptionChanged={setSubscription} onNotificationsChanged={setNotifications} />}
+          {active === 'audit' && <AuditWorkspace entries={auditLog} summary={operationsSummary} />}
         </div>
       </main>
 
@@ -361,7 +372,7 @@ function PageHeader({ eyebrow, title, subtitle, action, onAction }) {
   </div>
 }
 
-function RoleCommandCentre({ role, subscription, vehicles, workOrders, parts, purchaseOrders, documents, expenses, onNavigate }) {
+function RoleCommandCentre({ role, subscription, vehicles, workOrders, parts, purchaseOrders, documents, expenses, operationsSummary, onNavigate }) {
   const roleConfig = {
     owner: {
       eyebrow: 'Owner · governance command centre',
@@ -445,12 +456,37 @@ function RoleCommandCentre({ role, subscription, vehicles, workOrders, parts, pu
       <article><span>{role === 'owner' ? 'Operational access' : role === 'fleet_manager' ? 'Compliance' : role === 'inventory_manager' ? 'Purchase orders' : role === 'driver' ? 'Daily action' : role === 'technician' ? 'Ready for review' : 'Exports'}</span><strong>{role === 'owner' ? 'Delegated' : role === 'fleet_manager' ? documents.length : role === 'inventory_manager' ? purchaseOrders.length : role === 'driver' ? 'DVIR' : role === 'technician' ? workOrders.filter((item) => ['Ready for review', 'READY_FOR_REVIEW'].includes(item.status)).length : 'CSV / PDF'}</strong><small>{role === 'owner' ? 'role-scoped workspaces' : 'connected records'}</small></article>
       <article className="is-safe"><span>Workspace health</span><strong>Ready</strong><small>session and API connected</small></article>
     </section>
+    {operationsSummary && (role === 'owner' || role === 'fleet_manager') && <section className="command-signals command-signals-secondary">
+      <article><span>Open work</span><strong>{operationsSummary.open_work_orders}</strong><small>{operationsSummary.overdue_work_orders} overdue</small></article>
+      <article><span>Component attention</span><strong>{operationsSummary.due_components}</strong><small>service thresholds reached</small></article>
+      <article><span>Compliance horizon</span><strong>{operationsSummary.compliance_due}</strong><small>due within 30 days</small></article>
+      <article><span>Unassigned assets</span><strong>{operationsSummary.unassigned_vehicles}</strong><small>need driver coverage</small></article>
+    </section>}
     <section className="command-grid">
       <article className="command-panel command-panel-primary"><header><div><span>01 · your operating queue</span><h2>{role === 'owner' ? 'Governance boundaries' : role === 'fleet_manager' ? 'Fleet attention board' : role === 'inventory_manager' ? 'Replenishment watch' : role === 'driver' ? 'Shift checklist' : role === 'technician' ? 'Assigned work orders' : 'Finance activity'}</h2></div>{status(role === 'owner' ? 'Read only' : role === 'driver' ? 'Action required' : 'Live queue', role === 'driver' ? 'alert' : 'safe')}</header><div className="command-list">{activity.length ? activity.map(([title, detail, tag]) => <div className="command-list-row" key={`${title}-${detail}`}><div><strong>{title}</strong><p>{detail}</p></div><span>{tag}</span></div>) : <EmptyState title="Nothing queued yet" detail="New records will appear here when your organisation starts operating." />}</div></article>
       <article className="command-panel command-panel-secondary"><header><div><span>02 · next best action</span><h2>Keep the workflow moving</h2></div>{status('Role scoped', 'neutral')}</header><div className="command-next"><div className="command-next-icon">{role === 'owner' ? '◈' : role === 'fleet_manager' ? '▱' : role === 'inventory_manager' ? '⌘' : role === 'driver' ? '✓' : role === 'technician' ? '⌁' : '₹'}</div><div><strong>{role === 'owner' ? 'Review people and billing' : role === 'fleet_manager' ? 'Open the fleet register' : role === 'inventory_manager' ? 'Select a part and record movement' : role === 'driver' ? 'Complete today’s inspection' : role === 'technician' ? 'Start or complete an assigned job' : 'Reconcile the latest transaction'}</strong><p>{role === 'owner' ? 'Keep governance controls separate from operational mutations.' : role === 'fleet_manager' ? 'The vehicle record is the source for odometer and component life.' : role === 'inventory_manager' ? 'Every receipt, issue, transfer, and adjustment should carry a reason.' : role === 'driver' ? 'A failed inspection immediately creates a visible fleet exception.' : role === 'technician' ? 'Checklist, parts, notes, and evidence create a reviewable handoff.' : 'Keep tax, vendor, payment, and vehicle context together.'}</p><button className="secondary-button" onClick={() => onNavigate(roleConfig.actions[0][0])}>{roleConfig.actions[0][1]} <span>→</span></button></div></div></article>
     </section>
     <section className="command-panel command-panel-wide"><header><div><span>03 · connected records</span><h2>{role === 'owner' ? 'Organisation oversight' : 'Recent activity in your workspace'}</h2></div><button className="filter-button" onClick={() => onNavigate(roleConfig.actions[0][0])}>Open workspace →</button></header><div className="command-record-grid">{(role === 'fleet_manager' ? expiringDocs : role === 'inventory_manager' ? purchaseOrders : role === 'technician' ? workOrders : role === 'accountant' ? expenses : activity).slice(0, 6).map((item, index) => { const values = Array.isArray(item) ? item : [item.name || item.title || item.category || item.reg || `Record ${index + 1}`, item.status || item.expires_on || item.amount || 'Connected record', roleConfig.heroLabel]; return <div className="command-record" key={`${values[0]}-${index}`}><i>{String(index + 1).padStart(2, '0')}</i><div><strong>{values[0]}</strong><p>{values[1]}</p></div><span>{values[2]}</span></div> })}</div></section>
   </main>
+}
+
+function AuditWorkspace({ entries, summary }) {
+  return <div className="workspace-page">
+    <PageHeader eyebrow="Governance · auditability" title="Audit trail" subtitle="Searchable evidence of every governance and operating handoff in this organisation." />
+    {summary && <section className="metric-grid">
+      <MetricCard label="Active vehicles" value={summary.active_vehicles} detail={`${summary.total_vehicles} total assets`} icon="▱" tone="blue" />
+      <MetricCard label="Open work orders" value={summary.open_work_orders} detail={`${summary.overdue_work_orders} overdue`} icon="⌁" tone="amber" />
+      <MetricCard label="Compliance horizon" value={summary.compliance_due} detail="due within 30 days" icon="▤" tone="red" />
+      <MetricCard label="Low stock parts" value={summary.low_stock_parts} detail="reorder attention" icon="⌘" tone="green" />
+    </section>}
+    <section className="panel table-panel">
+      <div className="table-header"><div><span className="eyebrow">Evidence stream</span><h2>Recent organisation activity</h2></div><span>{entries.length} events loaded</span></div>
+      <div className="data-table">
+        <div className="data-row data-head"><span>Action</span><span>Entity</span><span>Actor</span><span>Request</span><span>When</span></div>
+        {entries.length ? entries.map((entry) => <div className="data-row" key={entry.id}><span><strong>{entry.action}</strong><small>{entry.changes || 'No change payload'}</small></span><span>{entry.entity_type} #{entry.entity_id}</span><span>User #{entry.actor_user_id}</span><span>{entry.request_id || '—'}</span><span>{new Date(entry.created_at).toLocaleString('en-IN')}</span></div>) : <EmptyState title="No audit events yet" detail="Governance and workflow actions will appear here as your organisation operates." />}
+      </div>
+    </section>
+  </div>
 }
 
 function RoleOverview({ role, vehicles, workOrders, parts, purchaseOrders, onNavigate }) {
@@ -487,7 +523,7 @@ function RoleOverview({ role, vehicles, workOrders, parts, purchaseOrders, onNav
   </div>
 }
 
-function Overview({ role, subscription, vehicles: fleet, workOrders, parts, purchaseOrders, documents, expenses, onAdd, onNotify, onNavigate }) {
+function Overview({ role, subscription, vehicles: fleet, workOrders, parts, purchaseOrders, documents, expenses, operationsSummary, onAdd, onNotify, onNavigate }) {
   const notify = onNotify
   onNotify = (message) => {
     const destinations = {
@@ -508,7 +544,7 @@ function Overview({ role, subscription, vehicles: fleet, workOrders, parts, purc
     technician: ['Technician workspace', 'Work through assigned jobs, parts, checklists, and completion updates.'],
     accountant: ['Finance workspace', 'Keep expenses, GST, vendors, and reconciliations accurate.'],
   }[role] || ['Operations workspace', 'Here’s what’s happening across your fleet today.']
-  return <RoleCommandCentre role={role} subscription={subscription} vehicles={fleet} workOrders={workOrders} parts={parts} purchaseOrders={purchaseOrders} documents={documents} expenses={expenses} onNavigate={onNavigate} />
+    return <RoleCommandCentre role={role} subscription={subscription} vehicles={fleet} workOrders={workOrders} parts={parts} purchaseOrders={purchaseOrders} documents={documents} expenses={expenses} operationsSummary={operationsSummary} onNavigate={onNavigate} />
   const canSeeFleet = role === 'fleet_manager'
   const canSeeMaintenance = ['fleet_manager', 'technician'].includes(role)
   const canSeeFinance = role === 'accountant'
@@ -696,6 +732,19 @@ function DriverWorkspace({ token, vehicles, onNotify }) {
 }
 
 function TechnicianMaintenance({ workOrders, vehicles: fleet, token, onUpdated, onNotify }) {
+  const [selectedOrder, setSelectedOrder] = useState(null)
+  const [checklist, setChecklist] = useState([])
+  const [savingChecklist, setSavingChecklist] = useState(false)
+  useEffect(() => {
+    if (!selectedOrder) return
+    getWorkOrderChecklist(token, selectedOrder.id)
+      .then((items) => setChecklist(items.length ? items : [
+        { title: 'Confirm repair scope and safety isolation', completed: false, sort_order: 0 },
+        { title: 'Record parts and consumables used', completed: false, sort_order: 1 },
+        { title: 'Verify repair and return-to-service condition', completed: false, sort_order: 2 },
+      ]))
+      .catch((error) => onNotify(error.message))
+  }, [selectedOrder, token, onNotify])
   const transition = async (item) => {
     try {
       const action = item.status === 'Open' || item.status === 'Assigned' ? startWorkOrder : completeWorkOrder
@@ -703,6 +752,21 @@ function TechnicianMaintenance({ workOrders, vehicles: fleet, token, onUpdated, 
       onUpdated(updated)
       onNotify(`Work order ${updated.status.toLowerCase()}.`)
     } catch (error) { onNotify(error.message) }
+  }
+  const toggleChecklist = (index) => setChecklist((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, completed: !item.completed } : item))
+  const saveChecklist = async () => {
+    if (!selectedOrder) return
+    setSavingChecklist(true)
+    try {
+      const updated = await updateWorkOrderChecklist(token, selectedOrder.id, checklist.map((item, index) => ({ title: item.title, completed: item.completed, sort_order: index })))
+      setChecklist(updated)
+      onNotify('Execution checklist saved.')
+    } catch (error) { onNotify(error.message) } finally { setSavingChecklist(false) }
+  }
+  const uploadEvidence = async (event) => {
+    const file = event.target.files?.[0]
+    if (!file || !selectedOrder) return
+    try { await uploadWorkOrderEvidence(token, selectedOrder.id, file); onNotify('Repair evidence uploaded.') } catch (error) { onNotify(error.message) } finally { event.target.value = '' }
   }
   return <div>
     <PageHeader eyebrow="Technician workspace" title="Assigned work orders" subtitle="Execute repairs, record the handoff, and keep every job auditable." />
@@ -715,9 +779,14 @@ function TechnicianMaintenance({ workOrders, vehicles: fleet, token, onUpdated, 
       <div className="table-header"><div><h2>Repair queue</h2><span>Start and complete only the work assigned to you.</span></div></div>
       <div className="data-table">
         <div className="data-row data-head"><span>Work order</span><span>Vehicle</span><span>Due</span><span>Priority</span><span>Status</span><span></span></div>
-        {workOrders.length ? workOrders.map((item) => <div className="data-row" key={item.id}><span><strong>{item.title}</strong><small>WO-{item.id}</small></span><span>{fleet.find((vehicle) => vehicle.id === item.vehicle_id)?.reg || 'Vehicle linked'}</span><span>{item.due_date || 'Unscheduled'}</span><span>{item.priority}</span><Status status={item.status} />{['Open', 'Assigned', 'In progress'].includes(item.status) ? <button className="row-more" onClick={() => transition(item)}>{item.status === 'In progress' ? 'Complete repair' : 'Start repair'}</button> : <span>Awaiting review</span>}<button className="row-more" onClick={() => downloadFile(token, `/api/v1/work-orders/${item.id}/download`, `WO-${item.id}.html`).catch((error) => onNotify(error.message))}>Download</button></div>) : <EmptyState title="No assigned work orders" detail="New jobs assigned by the Fleet Manager will appear here." />}
+        {workOrders.length ? workOrders.map((item) => <div className="data-row" key={item.id}><span><strong>{item.title}</strong><small>WO-{item.id}</small></span><span>{fleet.find((vehicle) => vehicle.id === item.vehicle_id)?.reg || 'Vehicle linked'}</span><span>{item.due_date || 'Unscheduled'}</span><span>{item.priority}</span><Status status={item.status} />{['Open', 'Assigned', 'In progress'].includes(item.status) ? <button className="row-more" onClick={() => transition(item)}>{item.status === 'In progress' ? 'Complete repair' : 'Start repair'}</button> : <span>Awaiting review</span>}<button className="row-more" onClick={() => setSelectedOrder(item)}>Execute</button><button className="row-more" onClick={() => downloadFile(token, `/api/v1/work-orders/${item.id}/download`, `WO-${item.id}.html`).catch((error) => onNotify(error.message))}>Download</button></div>) : <EmptyState title="No assigned work orders" detail="New jobs assigned by the Fleet Manager will appear here." />}
       </div>
     </section>
+    {selectedOrder && <section className="panel execution-panel">
+      <div className="table-header"><div><span className="eyebrow">Execution handoff · WO-{selectedOrder.id}</span><h2>{selectedOrder.title}</h2><span>Checklist-gated completion keeps the technician handoff reviewable.</span></div><button className="filter-button" onClick={() => setSelectedOrder(null)}>Close</button></div>
+      <div className="checklist-list">{checklist.map((item, index) => <label className="checklist-item" key={`${item.title}-${index}`}><input type="checkbox" checked={Boolean(item.completed)} onChange={() => toggleChecklist(index)} /><span>{item.title}</span></label>)}</div>
+      <div className="table-actions"><button className="secondary-button" onClick={saveChecklist} disabled={savingChecklist}>{savingChecklist ? 'Saving…' : 'Save checklist'}</button><label className="filter-button">Add evidence<input hidden type="file" accept="image/*,.pdf" onChange={uploadEvidence} /></label></div>
+    </section>}
   </div>
 }
 

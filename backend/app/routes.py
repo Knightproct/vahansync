@@ -37,6 +37,7 @@ from .schemas import (
     ExpenseStatusUpdate,
     ExpenseReversal,
     FinanceSummaryRead,
+    FleetOperationsSummaryRead,
     FuelTransactionCreate,
     FuelTransactionRead,
     IdentityProviderMetadata,
@@ -83,6 +84,7 @@ from .schemas import (
     UserCreate,
     UserContactUpdate,
     UserRoleUpdate,
+    AuditLogRead,
     VehicleCreate,
     VehicleRead,
     VehicleUpdate,
@@ -298,6 +300,51 @@ def logout(user: User = Depends(get_current_user), database: Session = Depends(g
 @router.get("/auth/me", response_model=UserRead)
 def current_user(user: User = Depends(get_current_user)) -> User:
     return user
+
+
+@router.get("/audit-log", response_model=list[AuditLogRead])
+def list_audit_log(
+    actor_role: str | None = None,
+    entity_type: str | None = None,
+    action: str | None = None,
+    outcome: str | None = None,
+    limit: int = 100,
+    user: User = Depends(require_roles("owner")),
+    database: Session = Depends(get_db),
+) -> list[AuditLog]:
+    statement = select(AuditLog).where(AuditLog.organization_id == user.organization_id)
+    if actor_role:
+        statement = statement.join(User, User.id == AuditLog.actor_user_id).where(User.role == actor_role)
+    if entity_type:
+        statement = statement.where(AuditLog.entity_type == entity_type)
+    if action:
+        statement = statement.where(AuditLog.action.ilike(f"%{action}%"))
+    if outcome:
+        statement = statement.where(AuditLog.changes.ilike(f"%{outcome}%"))
+    return list(database.scalars(statement.order_by(AuditLog.created_at.desc()).limit(max(1, min(limit, 200)))).all())
+
+
+@router.get("/fleet/operations-summary", response_model=FleetOperationsSummaryRead)
+def fleet_operations_summary(
+    user: User = Depends(require_roles("owner", "fleet_manager")),
+    database: Session = Depends(get_db),
+) -> FleetOperationsSummaryRead:
+    vehicles = list(database.scalars(select(Vehicle).where(Vehicle.organization_id == user.organization_id)).all())
+    work_orders = list(database.scalars(select(WorkOrder).where(WorkOrder.organization_id == user.organization_id)).all())
+    components = list(database.scalars(select(VehicleComponent).where(VehicleComponent.organization_id == user.organization_id)).all())
+    documents = list(database.scalars(select(ComplianceDocument).where(ComplianceDocument.organization_id == user.organization_id)).all())
+    parts = list(database.scalars(select(Part).where(Part.organization_id == user.organization_id)).all())
+    today = date.today().isoformat()
+    return FleetOperationsSummaryRead(
+        active_vehicles=sum(vehicle.status not in ("Out of service", "Retired") for vehicle in vehicles),
+        total_vehicles=len(vehicles),
+        open_work_orders=sum(order.status not in ("Completed", "Cancelled") for order in work_orders),
+        overdue_work_orders=sum(order.status not in ("Completed", "Cancelled") and order.due_date is not None and order.due_date < today for order in work_orders),
+        due_components=sum(component.next_service_km is not None and next((vehicle.odometer_km for vehicle in vehicles if vehicle.id == component.vehicle_id), 0) >= component.next_service_km for component in components),
+        compliance_due=sum(document.expires_on <= (date.today() + timedelta(days=30)).isoformat() for document in documents),
+        low_stock_parts=sum(part.quantity_on_hand <= part.reorder_level for part in parts),
+        unassigned_vehicles=sum(vehicle.assigned_driver_id is None for vehicle in vehicles),
+    )
 
 
 @router.patch("/users/me/contact", response_model=UserRead)

@@ -95,6 +95,30 @@ class UserRoleUpdate(BaseModel):
     role: str = Field(pattern=r"^(fleet_manager|inventory_manager|driver|technician|accountant)$")
 
 
+class AuditLogRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    actor_user_id: int
+    action: str
+    entity_type: str
+    entity_id: str
+    request_id: str | None
+    changes: str | None
+    created_at: datetime
+
+
+class FleetOperationsSummaryRead(BaseModel):
+    active_vehicles: int
+    total_vehicles: int
+    open_work_orders: int
+    overdue_work_orders: int
+    due_components: int
+    compliance_due: int
+    low_stock_parts: int
+    unassigned_vehicles: int
+
+
 class UserContactUpdate(BaseModel):
     mobile_phone: str | None = Field(default=None, max_length=32)
 

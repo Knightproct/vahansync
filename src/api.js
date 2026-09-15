@@ -131,6 +131,15 @@ export function getCurrentUser(token) {
   return request('/api/v1/auth/me', { headers: { Authorization: `Bearer ${token}` } })
 }
 
+export function getAuditLog(token, filters = {}) {
+  const params = new URLSearchParams(Object.entries(filters).filter(([, value]) => value !== undefined && value !== ''))
+  return request(`/api/v1/audit-log${params.toString() ? `?${params}` : ''}`, { headers: { Authorization: `Bearer ${token}` } })
+}
+
+export function getFleetOperationsSummary(token) {
+  return request('/api/v1/fleet/operations-summary', { headers: { Authorization: `Bearer ${token}` } })
+}
+
 export function updateMyContact(token, mobile_phone) {
   return request('/api/v1/users/me/contact', {
     method: 'PATCH',
