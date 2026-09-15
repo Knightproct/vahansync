@@ -526,6 +526,10 @@ export function getTelematicsIntegrations(token) {
   return request('/api/v1/telematics/integrations', { headers: { Authorization: `Bearer ${token}` } })
 }
 
+export function getTelematicsHealth(token) {
+  return request('/api/v1/telematics/health', { headers: { Authorization: `Bearer ${token}` } })
+}
+
 export function syncDueTelematics(token) {
   return request('/api/v1/telematics/sync-due', {
     method: 'POST',

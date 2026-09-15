@@ -728,6 +728,15 @@ class TelematicsIntegrationRead(TelematicsIntegrationCreate):
     created_at: datetime
 
 
+class TelematicsHealthRead(BaseModel):
+    active_integrations: int
+    stale_integrations: int
+    active_devices: int
+    stale_devices: int
+    readings_last_24h: int
+    flagged_odometer_readings: int
+
+
 class DocumentVersionRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -72,6 +72,7 @@ from .schemas import (
     TollTransactionRead,
     TelematicsDeviceCreate,
     TelematicsDeviceRead,
+    TelematicsHealthRead,
     TelematicsIntegrationCreate,
     TelematicsIntegrationRead,
     TelemetryReadingCreate,
@@ -2947,6 +2948,32 @@ def list_telematics_integrations(
     return list(database.scalars(select(TelematicsIntegration).where(
         TelematicsIntegration.organization_id == user.organization_id,
     ).order_by(TelematicsIntegration.id.desc())).all())
+
+
+@router.get("/telematics/health", response_model=TelematicsHealthRead)
+def telematics_health(
+    user: User = Depends(require_permission("fleet")),
+    database: Session = Depends(get_db),
+) -> TelematicsHealthRead:
+    now = utc_now()
+    integrations = list(database.scalars(select(TelematicsIntegration).where(
+        TelematicsIntegration.organization_id == user.organization_id,
+    )).all())
+    devices = list(database.scalars(select(TelematicsDevice).where(
+        TelematicsDevice.organization_id == user.organization_id,
+    )).all())
+    readings = list(database.scalars(select(TelemetryReading).where(
+        TelemetryReading.organization_id == user.organization_id,
+        TelemetryReading.recorded_at >= now - timedelta(hours=24),
+    )).all())
+    return TelematicsHealthRead(
+        active_integrations=sum(item.active for item in integrations),
+        stale_integrations=sum(item.active and (item.last_synced_at is None or item.last_synced_at < now - timedelta(hours=48)) for item in integrations),
+        active_devices=sum(item.active for item in devices),
+        stale_devices=sum(item.active and (item.last_seen_at is None or item.last_seen_at < now - timedelta(hours=48)) for item in devices),
+        readings_last_24h=len(readings),
+        flagged_odometer_readings=sum(reading.odometer_km is not None and reading.odometer_km < 0 for reading in readings),
+    )
 
 
 @router.post("/telematics/integrations", response_model=TelematicsIntegrationRead, status_code=status.HTTP_201_CREATED)
