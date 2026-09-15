@@ -17,8 +17,11 @@ import {
   updateVehicle, updateWorkOrderChecklist, uploadDocumentFile, uploadWorkOrderEvidence, downloadFile,
 } from './api'
 
-const route = window.location.pathname
-const invitationToken = new URLSearchParams(window.location.search).get('token') || ''
+const routeQuery = new URLSearchParams(window.location.search)
+const route = window.location.pathname === '/'
+  ? ({ app: '/app', signup: '/signup', invite: '/invite' }[routeQuery.get('page')] || '/')
+  : window.location.pathname
+const invitationToken = routeQuery.get('token') || ''
 const roleNames = {
   owner: 'Owner / Superadmin',
   fleet_manager: 'Fleet Manager',
