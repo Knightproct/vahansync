@@ -1822,6 +1822,42 @@ def build_alerts(user: User, database: Session) -> list[dict[str, str | int]]:
                 "title": f"Reorder {part.name}",
                 "detail": f"{part.quantity_on_hand} on hand, minimum {part.reorder_level}",
             })
+    vehicles = database.scalars(select(Vehicle).where(Vehicle.organization_id == user.organization_id)).all()
+    for vehicle in vehicles:
+        components = database.scalars(select(VehicleComponent).where(
+            VehicleComponent.organization_id == user.organization_id,
+            VehicleComponent.vehicle_id == vehicle.id,
+        )).all()
+        for component in components:
+            if component.next_service_km is not None and vehicle.odometer_km >= component.next_service_km:
+                alerts.append({
+                    "type": "component_due",
+                    "severity": "danger",
+                    "entity_id": component.id,
+                    "title": f"{component.name} service due",
+                    "detail": f"{vehicle.registration_number} has reached {vehicle.odometer_km} km; service threshold {component.next_service_km} km",
+                })
+        if vehicle.status == "Out of service":
+            alerts.append({
+                "type": "driver_safety",
+                "severity": "danger",
+                "entity_id": vehicle.id,
+                "title": f"{vehicle.registration_number} is out of service",
+                "detail": "A driver inspection marked this vehicle unsafe.",
+            })
+    work_orders = database.scalars(select(WorkOrder).where(
+        WorkOrder.organization_id == user.organization_id,
+        WorkOrder.status.in_(["Open", "In progress", "Ready for review"]),
+    )).all()
+    for work_order in work_orders:
+        if work_order.due_date and work_order.due_date < date.today().isoformat():
+            alerts.append({
+                "type": "maintenance_due",
+                "severity": "danger",
+                "entity_id": work_order.id,
+                "title": f"Work order {work_order.id} is overdue",
+                "detail": f"Due {work_order.due_date}; current status is {work_order.status}",
+            })
     return alerts
 
 
@@ -1878,8 +1914,12 @@ def sync_notifications(user: User, database: Session) -> None:
     for alert in build_alerts(user, database):
         if alert["type"] == "document_expiry":
             entity_type = "compliance_document"
-        else:
+        elif alert["type"] == "stock_reorder":
             entity_type = "part"
+        elif alert["type"] in {"component_due", "driver_safety"}:
+            entity_type = "vehicle"
+        else:
+            entity_type = "work_order"
         entity_id = str(alert["entity_id"])
         dedupe_key = f"{alert['type']}:{entity_id}:{alert['detail']}"
         existing = database.scalar(
