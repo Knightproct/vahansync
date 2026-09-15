@@ -2962,6 +2962,12 @@ def telematics_health(
     devices = list(database.scalars(select(TelematicsDevice).where(
         TelematicsDevice.organization_id == user.organization_id,
     )).all())
+    vehicles = {
+        vehicle.id: vehicle.odometer_km
+        for vehicle in database.scalars(select(Vehicle).where(
+            Vehicle.organization_id == user.organization_id,
+        )).all()
+    }
     readings = list(database.scalars(select(TelemetryReading).where(
         TelemetryReading.organization_id == user.organization_id,
         TelemetryReading.recorded_at >= now - timedelta(hours=24),
@@ -2972,7 +2978,12 @@ def telematics_health(
         active_devices=sum(item.active for item in devices),
         stale_devices=sum(item.active and (item.last_seen_at is None or item.last_seen_at < now - timedelta(hours=48)) for item in devices),
         readings_last_24h=len(readings),
-        flagged_odometer_readings=sum(reading.odometer_km is not None and reading.odometer_km < 0 for reading in readings),
+        flagged_odometer_readings=sum(
+            reading.odometer_km is not None
+            and reading.vehicle_id in vehicles
+            and reading.odometer_km < vehicles[reading.vehicle_id]
+            for reading in readings
+        ),
     )
 
 
