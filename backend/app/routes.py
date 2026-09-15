@@ -1419,6 +1419,14 @@ def update_work_order(
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Invalid work-order transition: {work_order.status} to {target_status}")
     for key, value in changes.items():
         setattr(work_order, key, value)
+    if "status" in changes:
+        transitioned_at = utc_now()
+        if changes["status"] == "In progress" and work_order.started_at is None:
+            work_order.started_at = transitioned_at
+        elif changes["status"] == "Ready for review" and work_order.completed_at is None:
+            work_order.completed_at = transitioned_at
+        elif changes["status"] == "Archived":
+            work_order.archived_at = transitioned_at
     database.add(AuditLog(
         organization_id=user.organization_id,
         actor_user_id=user.id,
