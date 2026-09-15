@@ -17,7 +17,8 @@ logger = logging.getLogger("vahana.api")
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    seed_database()
+    if settings.environment.lower() == "development":
+        seed_database()
     yield
 
 
