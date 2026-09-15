@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     sms_template_id: str | None = None
     sms_account_sid: str | None = None
     sms_from_number: str | None = None
+    whatsapp_provider: str | None = None
+    whatsapp_api_url: str | None = None
+    whatsapp_auth_token: str | None = None
+    whatsapp_sender_id: str | None = None
+    whatsapp_template_id: str | None = None
     telematics_default_timeout_seconds: int = 30
     razorpay_key_id: str | None = None
     razorpay_key_secret: str | None = None

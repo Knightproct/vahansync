@@ -68,14 +68,14 @@ The current operations slice also includes:
 
 VahanSync is priced by managed fleet size rather than by every operational action:
 
-| Plan | Fleet size | Included users | Monthly price |
-| --- | ---: | ---: | ---: |
-| Starter | Up to 10 vehicles | 5 | ₹2,499 |
-| Growth | Up to 50 vehicles | 20 | ₹7,499 |
-| Scale | Up to 200 vehicles | 75 | ₹19,999 |
-| Enterprise | Custom | Custom | Contact sales |
+| Plan | Vehicle band | Included vehicles | Platform fee | Additional vehicle |
+| --- | ---: | ---: | ---: | ---: |
+| Starter | 1–10 vehicles | 3 | ₹2,999/month | ₹500/month |
+| Growth | 11–49 vehicles | 15 | ₹9,999/month | ₹450/month |
+| Scale | 50–99 vehicles | 50 | ₹24,999/month | ₹350/month |
+| Enterprise | 100+ vehicles | 100 | Custom | ₹300/month |
 
-The product models trialing, pending activation, renewal, plan limits, and audit history. Razorpay checkout is now available through the backend subscription endpoint and verified webhooks; recurring billing becomes active after Razorpay plan IDs and credentials are configured.
+The vehicle-band rules prevent selecting a smaller tier than the active fleet. The subscription view calculates overage vehicles and an estimated monthly subtotal. Razorpay checkout is now available through the backend subscription endpoint and verified webhooks; recurring billing becomes active after Razorpay plan IDs and credentials are configured.
 
 ## Organisation access model
 
@@ -83,7 +83,7 @@ The first person who submits `/signup` creates the organisation and becomes its 
 
 Each user has exactly one explicit role: `owner`, `fleet_manager`, `inventory_manager`, `driver`, `technician`, or `accountant`. Email addresses are globally unique, invitations cannot grant owner access, and only owners can invite or revoke members. Operational roles are intentionally shareable across a team; “no duplicates” means no duplicate identity or simultaneous invitation, not one person per operational function.
 
-The API remains the security boundary. Drivers only receive vehicles assigned to their user ID, technicians only receive assigned work orders, and every query remains organization-scoped. In-app notifications are durable; external email, SMS, WhatsApp, and push delivery still require configured providers.
+The API remains the security boundary. Drivers only receive vehicles assigned to their user ID, technicians only receive assigned work orders, and every query remains organization-scoped. Mobile numbers are normalized to international format when supplied; SMS and WhatsApp deliveries remain explicitly queued until server-side provider credentials, sender configuration, templates, and applicable consent are configured.
 
 ### Supabase and Razorpay deployment
 
@@ -105,6 +105,19 @@ VAHANA_SUPABASE_STORAGE_BUCKET=documents
 Run `npm run migrate` against the Supabase database before starting the API. The service-role key is backend-only; the browser receives only the anon key. Organisation signup, invitation acceptance, and owner-created users provision their accounts in Supabase Auth; API users are then linked by their Auth subject. The local password endpoint remains available only for development.
 
 Configure Razorpay with `VAHANA_RAZORPAY_KEY_ID`, `VAHANA_RAZORPAY_KEY_SECRET`, `VAHANA_RAZORPAY_WEBHOOK_SECRET`, and one Razorpay plan ID per paid tier (`VAHANA_RAZORPAY_PLAN_STARTER`, `VAHANA_RAZORPAY_PLAN_GROWTH`, `VAHANA_RAZORPAY_PLAN_SCALE`). Point the Razorpay webhook to `/api/v1/webhooks/razorpay`. Until these values are configured, checkout intentionally returns a configuration error rather than pretending payments are live.
+
+Configure mobile delivery providers only on the API:
+
+```text
+VAHANA_SMS_PROVIDER=...
+VAHANA_SMS_API_URL=...
+VAHANA_SMS_AUTH_TOKEN=...
+VAHANA_WHATSAPP_PROVIDER=...
+VAHANA_WHATSAPP_API_URL=...
+VAHANA_WHATSAPP_AUTH_TOKEN=...
+VAHANA_WHATSAPP_SENDER_ID=...
+VAHANA_WHATSAPP_TEMPLATE_ID=...
+```
 
 For non-development environments, set a unique `VAHANA_JWT_SECRET` and a non-default `VAHANA_SEED_ADMIN_PASSWORD`. Set `VAHANA_STORAGE_PATH` to a persistent volume or select an approved object-storage adapter with `VAHANA_STORAGE_BACKEND` and its provider settings. The current local bootstrap uses `Base.metadata.create_all` for development and tests; production rollout should run a reviewed schema migration before starting the API.
 

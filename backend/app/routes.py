@@ -4,6 +4,7 @@ import csv
 import io
 import json
 import os
+import re
 import secrets
 from html import escape
 from datetime import date, datetime, timedelta, timezone
@@ -106,36 +107,67 @@ SUBSCRIPTION_PLANS = {
     "starter": {
         "code": "starter",
         "name": "Starter",
-        "monthly_price_paise": 249900,
-        "included_vehicles": 10,
-        "included_users": 5,
-        "features": ["Fleet register", "Maintenance", "Compliance vault", "Basic finance"],
+        "monthly_price_paise": 299900,
+        "included_vehicles": 3,
+        "overage_vehicle_fee_paise": 50000,
+        "min_vehicles": 1,
+        "max_vehicles": 10,
+        "included_users": 999999,
+        "description": "For small operators and pilots.",
+        "features": ["Fleet register", "Maintenance", "Compliance vault", "Basic finance", "3 vehicles included"],
     },
     "growth": {
         "code": "growth",
         "name": "Growth",
-        "monthly_price_paise": 749900,
-        "included_vehicles": 50,
-        "included_users": 20,
-        "features": ["Everything in Starter", "Workshop inventory", "Procurement", "Fuel and toll", "Notifications"],
+        "monthly_price_paise": 999900,
+        "included_vehicles": 15,
+        "overage_vehicle_fee_paise": 45000,
+        "min_vehicles": 11,
+        "max_vehicles": 49,
+        "included_users": 999999,
+        "description": "For growing regional fleets.",
+        "features": ["Everything in Starter", "15 vehicles included", "Workshop inventory", "Procurement", "Fuel and toll", "Notifications"],
     },
     "scale": {
         "code": "scale",
         "name": "Scale",
-        "monthly_price_paise": 1999900,
-        "included_vehicles": 200,
-        "included_users": 75,
-        "features": ["Everything in Growth", "Telematics", "Advanced finance", "Multi-depot controls", "Priority support"],
+        "monthly_price_paise": 2499900,
+        "included_vehicles": 50,
+        "overage_vehicle_fee_paise": 35000,
+        "min_vehicles": 50,
+        "max_vehicles": 99,
+        "included_users": 999999,
+        "description": "For multi-depot operators.",
+        "features": ["Everything in Growth", "50 vehicles included", "Telematics", "Advanced finance", "Multi-depot controls", "Priority support"],
     },
     "enterprise": {
         "code": "enterprise",
         "name": "Enterprise",
         "monthly_price_paise": None,
-        "included_vehicles": None,
-        "included_users": None,
+        "included_vehicles": 100,
+        "overage_vehicle_fee_paise": 30000,
+        "min_vehicles": 100,
+        "max_vehicles": 999999,
+        "included_users": 999999,
+        "description": "For large fleets with custom service and integrations.",
         "features": ["Custom fleet volume", "SSO", "Dedicated onboarding", "Custom integrations", "SLA"],
     },
 }
+
+
+def calculate_monthly_bill(plan: dict, vehicle_count: int) -> dict[str, int]:
+    billable_vehicles = max(0, vehicle_count)
+    included_vehicles = int(plan["included_vehicles"])
+    overage_vehicles = max(0, billable_vehicles - included_vehicles)
+    platform_fee = int(plan["monthly_price_paise"] or 0)
+    overage = overage_vehicles * int(plan["overage_vehicle_fee_paise"])
+    return {
+        "billable_vehicles": billable_vehicles,
+        "overage_vehicles": overage_vehicles,
+        "platform_fee_paise": platform_fee,
+        "overage_paise": overage,
+        "estimated_subtotal_paise": platform_fee + overage,
+    }
 
 
 def organization_slug(name: str, database: Session) -> str:
@@ -147,6 +179,22 @@ def organization_slug(name: str, database: Session) -> str:
         slug = f"{base}-{suffix}"
         suffix += 1
     return slug
+
+
+def normalize_mobile_phone(value: str | None) -> str | None:
+    if not value:
+        return None
+    compact = re.sub(r"[\s().-]", "", value)
+    if compact.startswith("00"):
+        compact = f"+{compact[2:]}"
+    if compact.isdigit() and len(compact) == 10 and compact[0] in "6789":
+        compact = f"+91{compact}"
+    if not re.fullmatch(r"\+[1-9]\d{7,14}", compact):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Mobile number must be in international format, for example +919876543210",
+        )
+    return compact
 
 
 def invitation_token_hash(token: str) -> str:
@@ -178,7 +226,7 @@ def signup(payload: OrganizationSignup, database: Session = Depends(get_db)) -> 
         organization_id=organization.id,
         email=email,
         full_name=payload.full_name.strip(),
-        mobile_phone=payload.mobile_phone,
+        mobile_phone=normalize_mobile_phone(payload.mobile_phone),
         password_hash=hash_password(payload.password),
         supabase_user_id=supabase_user_id,
         role="owner",
@@ -249,7 +297,7 @@ def update_my_contact(
     user: User = Depends(get_current_user),
     database: Session = Depends(get_db),
 ) -> User:
-    user.mobile_phone = payload.mobile_phone.strip() if payload.mobile_phone else None
+    user.mobile_phone = normalize_mobile_phone(payload.mobile_phone)
     database.commit()
     database.refresh(user)
     return user
@@ -291,7 +339,7 @@ def create_invitation(
         invited_by=user.id,
         email=email,
         full_name=payload.full_name.strip(),
-        mobile_phone=payload.mobile_phone,
+        mobile_phone=normalize_mobile_phone(payload.mobile_phone),
         role=payload.role,
         token_hash=invitation_token_hash(raw_token),
         expires_at=datetime.now(timezone.utc) + timedelta(days=payload.expires_in_days),
@@ -420,7 +468,7 @@ def create_user(
         organization_id=user.organization_id,
         email=email,
         full_name=payload.full_name.strip(),
-        mobile_phone=payload.mobile_phone,
+        mobile_phone=normalize_mobile_phone(payload.mobile_phone),
         password_hash=hash_password(payload.password),
         supabase_user_id=supabase_user_id,
         role=payload.role,
@@ -476,13 +524,17 @@ def list_subscription_plans() -> list[dict]:
 def get_subscription(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> SubscriptionRead:
     organization = database.get(Organization, user.organization_id)
     plan = SUBSCRIPTION_PLANS.get(organization.subscription_plan, SUBSCRIPTION_PLANS["starter"])
+    vehicle_count = database.query(Vehicle).filter(Vehicle.organization_id == user.organization_id).count()
+    bill = calculate_monthly_bill(plan, vehicle_count)
     return SubscriptionRead(
         plan=plan,
         status=organization.subscription_status,
         trial_ends_on=organization.trial_ends_on,
         renews_on=organization.subscription_renews_on,
-        vehicle_count=database.query(Vehicle).filter(Vehicle.organization_id == user.organization_id).count(),
+        vehicle_count=vehicle_count,
         user_count=database.query(User).filter(User.organization_id == user.organization_id).count(),
+        overage_vehicles=bill["overage_vehicles"],
+        estimated_subtotal_paise=bill["estimated_subtotal_paise"],
     )
 
 
@@ -494,6 +546,13 @@ def change_subscription(
     database: Session = Depends(get_db),
 ) -> SubscriptionRead:
     organization = database.get(Organization, user.organization_id)
+    vehicle_count = database.query(Vehicle).filter(Vehicle.organization_id == user.organization_id).count()
+    plan = SUBSCRIPTION_PLANS[payload.plan_code]
+    if vehicle_count < plan["min_vehicles"] or vehicle_count > plan["max_vehicles"]:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"{plan['name']} supports {plan['min_vehicles']} to {plan['max_vehicles']} vehicles; this organization has {vehicle_count}",
+        )
     organization.subscription_plan = payload.plan_code
     organization.subscription_status = "pending_activation"
     database.add(AuditLog(
@@ -667,7 +726,7 @@ def list_notification_deliveries(
 
 
 @router.post("/notification-deliveries/dispatch")
-def dispatch_queued_sms(
+def dispatch_queued_notifications(
     user: User = Depends(require_permission("notifications")),
     database: Session = Depends(get_db),
 ) -> dict[str, int]:
@@ -675,7 +734,7 @@ def dispatch_queued_sms(
         select(NotificationDelivery)
         .where(
             NotificationDelivery.organization_id == user.organization_id,
-            NotificationDelivery.channel == "sms",
+            NotificationDelivery.channel.in_(("sms", "whatsapp")),
             NotificationDelivery.status.in_(("queued", "failed")),
         )
         .order_by(NotificationDelivery.id)
@@ -687,7 +746,10 @@ def dispatch_queued_sms(
         recipient = database.get(User, delivery.user_id)
         if notification is None or recipient is None:
             continue
-        dispatch_sms(delivery, notification, recipient)
+        if delivery.channel == "whatsapp":
+            dispatch_whatsapp(delivery, notification, recipient)
+        else:
+            dispatch_sms(delivery, notification, recipient)
         processed += 1
     database.commit()
     return {"processed": processed}
@@ -1910,6 +1972,42 @@ def dispatch_sms(delivery: NotificationDelivery, notification: OperationalNotifi
         delivery.status = "failed"
 
 
+def dispatch_whatsapp(delivery: NotificationDelivery, notification: OperationalNotification, recipient: User) -> None:
+    settings = get_settings()
+    if not recipient.mobile_phone:
+        delivery.status = "skipped"
+        return
+    if not settings.whatsapp_provider or not settings.whatsapp_api_url or not settings.whatsapp_auth_token:
+        delivery.status = "queued"
+        return
+    try:
+        response = httpx.post(
+            settings.whatsapp_api_url,
+            headers={
+                "Authorization": f"Bearer {settings.whatsapp_auth_token}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "sender": settings.whatsapp_sender_id,
+                "template_id": settings.whatsapp_template_id,
+                "recipient": recipient.mobile_phone,
+                "variables": {
+                    "title": notification.title,
+                    "detail": notification.detail,
+                },
+            },
+            timeout=10,
+        )
+        if response.is_error:
+            delivery.status = "failed"
+            return
+        delivery.status = "delivered"
+        delivery.provider_message_id = str(response.json().get("message_id") or response.headers.get("x-request-id") or "")
+        delivery.sent_at = utc_now()
+    except (httpx.HTTPError, ValueError):
+        delivery.status = "failed"
+
+
 def sync_notifications(user: User, database: Session) -> None:
     for alert in build_alerts(user, database):
         if alert["type"] == "document_expiry":
@@ -1987,6 +2085,8 @@ def sync_notifications(user: User, database: Session) -> None:
                     database.flush()
                     if channel == "sms":
                         dispatch_sms(delivery, notification, recipient)
+                    elif channel == "whatsapp":
+                        dispatch_whatsapp(delivery, notification, recipient)
     database.commit()
 
 

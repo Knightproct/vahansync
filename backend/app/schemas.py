@@ -138,6 +138,10 @@ class SubscriptionPlanRead(BaseModel):
     monthly_price_paise: int | None
     included_vehicles: int | None
     included_users: int | None
+    overage_vehicle_fee_paise: int
+    min_vehicles: int
+    max_vehicles: int
+    description: str
     features: list[str]
 
 
@@ -148,6 +152,8 @@ class SubscriptionRead(BaseModel):
     renews_on: str | None
     vehicle_count: int
     user_count: int
+    overage_vehicles: int
+    estimated_subtotal_paise: int
 
 
 class SubscriptionChange(BaseModel):
