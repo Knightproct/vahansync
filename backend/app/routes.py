@@ -1183,6 +1183,7 @@ def create_driver_issue(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle is not assigned to this driver")
     issue = VehicleIssue(organization_id=user.organization_id, driver_id=user.id, **payload.model_dump())
     database.add(issue)
+    database.flush()
     database.add(AuditLog(
         organization_id=user.organization_id,
         actor_user_id=user.id,
