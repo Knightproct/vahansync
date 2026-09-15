@@ -206,6 +206,35 @@ class RazorpaySubscriptionVerify(BaseModel):
     razorpay_signature: str
 
 
+class BillingInvoiceRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    organization_id: int
+    period_start: str
+    period_end: str
+    plan: str
+    total_paise: int
+    status: str
+    external_invoice_id: str | None
+    created_at: datetime
+
+
+class BillingPaymentRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    organization_id: int
+    invoice_id: int
+    provider: str
+    provider_payment_id: str | None
+    status: str
+    amount_paise: int
+    paid_at: datetime | None
+    failure_reason: str | None
+    created_at: datetime
+
+
 class RazorpayWebhookPayload(BaseModel):
     event: str
 

@@ -260,6 +260,14 @@ export function getVehicleOdometer(token, vehicleId) {
   return request(`/api/v1/vehicles/${vehicleId}/odometer`, { headers: { Authorization: `Bearer ${token}` } })
 }
 
+export function getBillingInvoices(token) {
+  return request('/api/v1/billing/invoices', { headers: { Authorization: `Bearer ${token}` } })
+}
+
+export function getBillingPayments(token, invoiceId) {
+  return request(`/api/v1/billing/invoices/${invoiceId}/payments`, { headers: { Authorization: `Bearer ${token}` } })
+}
+
 export function createWorkOrder(token, workOrder) {
   return request('/api/v1/work-orders', {
     method: 'POST',

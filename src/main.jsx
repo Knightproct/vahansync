@@ -11,7 +11,7 @@ import {
   getFleetOperationsSummary, getInvitations, getMaintenancePlans, getNotificationDeliveries,
   getNotificationPreferences, getNotifications, getParts, getPurchaseOrders, getStockLocations,
   getSubscription, getSubscriptionPlans, getTelematicsDevices, getTelematicsIntegrations, getUsers,
-  getVehicles, getVendors, getWorkOrderChecklist, getWorkOrders, login, logout, reconcileExpense,
+  getBillingInvoices, getVehicles, getVendors, getWorkOrderChecklist, getWorkOrders, login, logout, reconcileExpense,
   requestPasswordReset, resolveNotification, revokeInvitation, signupOrganization, startWorkOrder, syncDueTelematics,
   updateDocument, updateNotification, updateNotificationPreference, updatePurchaseOrder, updateUserRole,
   updateMyProfile, updatePassword, updateVehicle, updateWorkOrder, updateWorkOrderChecklist, uploadDocumentFile, uploadWorkOrderEvidence, downloadFile,
@@ -134,6 +134,7 @@ function AuthenticatedApp() {
           current.role === 'owner' ? getAuditLog(token) : Promise.resolve([]),
           ['owner', 'fleet_manager'].includes(current.role) ? getFleetOperationsSummary(token) : Promise.resolve(null),
           getSubscriptionPlans(token),
+          current.role === 'owner' ? getBillingInvoices(token) : Promise.resolve([]),
         ])
         if (!active) return
         const value = results.map((result) => result.status === 'fulfilled' ? result.value : null)
@@ -145,6 +146,7 @@ function AuthenticatedApp() {
           notificationPreferences: value[12] || [], deliveries: value[13] || [], inspections: value[14] || [],
           issues: value[15] || [], integrations: value[16] || [], devices: value[17] || [], users: value[18] || [],
           invitations: value[19] || [], audit: value[20] || [], operations: value[21], subscriptionPlans: value[22] || [],
+          billingInvoices: value[23] || [],
         })
       } catch (requestError) {
         if (requestError.status === 401) {
@@ -310,7 +312,7 @@ function ProfilePage({ token, user, refresh }) {
 function BillingPage({ token, data, refresh }) {
   const current = data.subscription
   async function selectPlan(code) { try { await changeSubscription(token, code); refresh('Subscription plan updated.') } catch (error) { refresh(error.message) } }
-  return <PageFrame eyebrow="02 · Governance" title="Billing & plans" description="Choose the operating capacity that fits your fleet. Every plan includes a 14-day trial and unlimited member onboarding."><section className="billing-hero"><div><span className="overline">Current subscription</span><h3>{current?.plan?.name || 'Starter'}</h3><p>{current?.status || 'Trialing'} · trial ends {dateText(current?.trial_ends_on)}</p></div><div className="billing-numbers"><span><b>{current?.vehicle_count || 0}</b> vehicles</span><span><b>∞</b> members</span><span><b>{money(current?.estimated_subtotal_paise || 0)}</b> estimate</span></div></section><div className="plan-grid">{data.subscriptionPlans.map((plan) => <article className={current?.plan?.code === plan.code ? 'plan-card selected' : 'plan-card'} key={plan.code}><span className="plan-name">{plan.name}</span><strong>{plan.monthly_price_paise ? money(plan.monthly_price_paise) : 'Custom'}</strong><small>per month</small><p>{plan.description}</p><div className="plan-limit">{plan.included_vehicles || 'Custom'} included vehicles <b>·</b> unlimited members</div><ul>{plan.features.map((feature) => <li key={feature}>✓ {feature}</li>)}</ul><button className={current?.plan?.code === plan.code ? 'secondary-button wide' : 'primary-button wide'} onClick={() => selectPlan(plan.code)}>{current?.plan?.code === plan.code ? 'Current plan' : 'Choose plan'}</button></article>)}</div></PageFrame>
+  return <PageFrame eyebrow="02 · Governance" title="Billing & plans" description="Choose the operating capacity that fits your fleet. Every plan includes a 14-day trial and unlimited member onboarding."><section className="billing-hero"><div><span className="overline">Current subscription</span><h3>{current?.plan?.name || 'Starter'}</h3><p>{current?.status || 'Trialing'} · trial ends {dateText(current?.trial_ends_on)}</p></div><div className="billing-numbers"><span><b>{current?.vehicle_count || 0}</b> vehicles</span><span><b>∞</b> members</span><span><b>{money(current?.estimated_subtotal_paise || 0)}</b> estimate</span></div></section><div className="plan-grid">{data.subscriptionPlans.map((plan) => <article className={current?.plan?.code === plan.code ? 'plan-card selected' : 'plan-card'} key={plan.code}><span className="plan-name">{plan.name}</span><strong>{plan.monthly_price_paise ? money(plan.monthly_price_paise) : 'Custom'}</strong><small>per month</small><p>{plan.description}</p><div className="plan-limit">{plan.included_vehicles || 'Custom'} included vehicles <b>·</b> unlimited members</div><ul>{plan.features.map((feature) => <li key={feature}>✓ {feature}</li>)}</ul><button className={current?.plan?.code === plan.code ? 'secondary-button wide' : 'primary-button wide'} onClick={() => selectPlan(plan.code)}>{current?.plan?.code === plan.code ? 'Current plan' : 'Choose plan'}</button></article>)}</div><DataPanel title="Invoice history" eyebrow={`${data.billingInvoices.length} persisted invoices`}><Table headers={['Period', 'Plan', 'Amount', 'Status', 'Created']} rows={data.billingInvoices.map((invoice) => [`${invoice.period_start} → ${invoice.period_end}`, invoice.plan, money(invoice.total_paise), invoice.status, dateText(invoice.created_at)])} empty="No invoices have been issued yet." /></DataPanel></PageFrame>
 }
 
 function AuditPage({ token, entries, summary }) {

@@ -88,6 +88,8 @@ from .schemas import (
     UserProfileUpdate,
     UserRoleUpdate,
     AuditLogRead,
+    BillingInvoiceRead,
+    BillingPaymentRead,
     VehicleCreate,
     VehicleAssignmentCreate,
     VehicleAssignmentRead,
@@ -765,6 +767,34 @@ def verify_subscription_payment(
     ))
     database.commit()
     return get_subscription(user, database)
+
+
+@router.get("/billing/invoices", response_model=list[BillingInvoiceRead])
+def list_billing_invoices(
+    user: User = Depends(require_roles("owner")),
+    database: Session = Depends(get_db),
+) -> list[BillingInvoice]:
+    return list(database.scalars(select(BillingInvoice).where(
+        BillingInvoice.organization_id == user.organization_id,
+    ).order_by(BillingInvoice.id.desc())).all())
+
+
+@router.get("/billing/invoices/{invoice_id}/payments", response_model=list[BillingPaymentRead])
+def list_billing_payments(
+    invoice_id: int,
+    user: User = Depends(require_roles("owner")),
+    database: Session = Depends(get_db),
+) -> list[BillingPayment]:
+    invoice = database.scalar(select(BillingInvoice).where(
+        BillingInvoice.id == invoice_id,
+        BillingInvoice.organization_id == user.organization_id,
+    ))
+    if invoice is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+    return list(database.scalars(select(BillingPayment).where(
+        BillingPayment.invoice_id == invoice_id,
+        BillingPayment.organization_id == user.organization_id,
+    ).order_by(BillingPayment.id.desc())).all())
 
 
 @router.get("/notification-preferences", response_model=list[NotificationPreferenceRead])

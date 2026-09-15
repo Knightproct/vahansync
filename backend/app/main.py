@@ -34,10 +34,17 @@ app.add_middleware(
 
 @app.middleware("http")
 async def request_context(request: Request, call_next):
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+        origin = request.headers.get("origin")
+        if origin and origin not in settings.allowed_origins:
+            return JSONResponse(status_code=403, content={"detail": "Origin is not allowed"})
     request_id = request.headers.get("x-request-id", str(uuid4()))
     started = perf_counter()
     response = await call_next(request)
     response.headers["x-request-id"] = request_id
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "same-origin"
     logger.info(
         "request_completed request_id=%s method=%s path=%s status=%s duration_ms=%.2f",
         request_id,
