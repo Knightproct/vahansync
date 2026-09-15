@@ -1308,6 +1308,7 @@ def create_driver_inspection(
     user: User = Depends(require_roles("driver")),
     database: Session = Depends(get_db),
 ) -> DriverInspection:
+    reserve_idempotency_key(request, user, database)
     vehicle = database.scalar(select(Vehicle).where(
         Vehicle.id == payload.vehicle_id,
         Vehicle.organization_id == user.organization_id,
@@ -1366,6 +1367,7 @@ def create_driver_issue(
     user: User = Depends(require_roles("driver")),
     database: Session = Depends(get_db),
 ) -> VehicleIssue:
+    reserve_idempotency_key(request, user, database)
     vehicle = database.scalar(select(Vehicle).where(
         Vehicle.id == payload.vehicle_id,
         Vehicle.organization_id == user.organization_id,
