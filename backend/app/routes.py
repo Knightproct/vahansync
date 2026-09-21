@@ -5534,11 +5534,12 @@ class WorkOrderBulkUpdate(BaseModel):
 def reserve_part_for_work_order(
     work_order_id: int,
     payload: WorkOrderPartReservation,
+    request: Request,
     user: User = Depends(require_roles("owner", "mechanic", "technician")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Reserve a part for a work order"""
-    reserve_idempotency_key(Request(), user, database)
+    reserve_idempotency_key(request, user, database)
     
     work_order = database.get(WorkOrder, work_order_id)
     if not work_order or work_order.organization_id != user.organization_id:
@@ -5585,11 +5586,12 @@ def reserve_part_for_work_order(
 def return_reserved_part(
     work_order_id: int,
     payload: dict,
+    request: Request,
     user: User = Depends(require_roles("owner", "mechanic", "technician")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Return a reserved part (unused) back to inventory"""
-    reserve_idempotency_key(Request(), user, database)
+    reserve_idempotency_key(request, user, database)
     
     work_order = database.get(WorkOrder, work_order_id)
     if not work_order or work_order.organization_id != user.organization_id:
