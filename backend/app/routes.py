@@ -757,7 +757,7 @@ def list_subscription_plans() -> list[dict]:
 
 
 @router.get("/subscription", response_model=SubscriptionRead)
-def get_subscription(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> SubscriptionRead:
+def get_subscription(user: User = Depends(require_roles("owner")), database: Session = Depends(get_db)) -> SubscriptionRead:
     organization = database.get(Organization, user.organization_id)
     plan = SUBSCRIPTION_PLANS.get(organization.subscription_plan, SUBSCRIPTION_PLANS["starter"])
     vehicle_count = database.query(Vehicle).filter(Vehicle.organization_id == user.organization_id).count()
@@ -3005,7 +3005,7 @@ def update_notification(
 def resolve_notification(
     notification_id: int,
     request: Request,
-    user: User = Depends(require_permission("notifications")),
+    user: User = Depends(require_roles("owner", "fleet_manager")),
     database: Session = Depends(get_db),
 ) -> OperationalNotification:
     notification = database.scalar(select(OperationalNotification).where(
@@ -3878,7 +3878,7 @@ def download_purchase_order(
 @router.get("/export/{resource}")
 def export_resource(
     resource: str,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_roles("owner")),
     database: Session = Depends(get_db),
 ) -> Response:
     if resource == "vehicles":
@@ -4486,7 +4486,7 @@ def system_version() -> dict:
 
 @router.get("/system/config", response_model=dict)
 def system_config(
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_roles("owner")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Get system configuration and feature flags for the organization"""
@@ -5397,7 +5397,7 @@ class WorkOrderBulkUpdate(BaseModel):
 def reserve_part_for_work_order(
     work_order_id: int,
     payload: WorkOrderPartReservation,
-    user: User = Depends(require_roles("owner", "fleet_manager", "mechanic")),
+    user: User = Depends(require_roles("owner", "mechanic", "technician")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Reserve a part for a work order"""
@@ -5405,6 +5405,8 @@ def reserve_part_for_work_order(
     
     work_order = database.get(WorkOrder, work_order_id)
     if not work_order or work_order.organization_id != user.organization_id:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    if user.role in ("mechanic", "technician") and work_order.assigned_user_id != user.id:
         raise HTTPException(status_code=404, detail="Work order not found")
     
     part = database.get(Part, payload.part_id)
@@ -5426,10 +5428,6 @@ def reserve_part_for_work_order(
     
     database.add(part_usage)
     
-    # Deduct from inventory
-    part.quantity_on_hand -= payload.quantity
-    database.add(part)
-    
     database.commit()
     database.refresh(part_usage)
     
@@ -5448,7 +5446,7 @@ def reserve_part_for_work_order(
 def return_reserved_part(
     work_order_id: int,
     payload: dict,
-    user: User = Depends(require_roles("owner", "fleet_manager", "mechanic")),
+    user: User = Depends(require_roles("owner", "mechanic", "technician")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Return a reserved part (unused) back to inventory"""
@@ -5456,6 +5454,8 @@ def return_reserved_part(
     
     work_order = database.get(WorkOrder, work_order_id)
     if not work_order or work_order.organization_id != user.organization_id:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    if user.role in ("mechanic", "technician") and work_order.assigned_user_id != user.id:
         raise HTTPException(status_code=404, detail="Work order not found")
     
     part_id = payload.get("part_id")
@@ -5474,10 +5474,6 @@ def return_reserved_part(
     
     if not part_usage or part_usage.quantity < quantity:
         raise HTTPException(status_code=400, detail="Part not reserved in this work order")
-    
-    # Return to inventory
-    part.quantity_on_hand += quantity
-    database.add(part)
     
     # Update the usage record
     part_usage.quantity -= quantity
@@ -5499,7 +5495,7 @@ def return_reserved_part(
 
 @router.get("/work-orders/board", response_model=dict)
 def get_work_order_board(
-    user: User = Depends(require_roles("owner", "fleet_manager", "mechanic")),
+    user: User = Depends(require_roles("owner", "fleet_manager", "mechanic", "technician")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Get work order board (kanban view) organized by status"""
@@ -5507,11 +5503,14 @@ def get_work_order_board(
     board = {}
     
     for status in statuses:
-        work_orders = database.query(WorkOrder).filter(
+        statement = database.query(WorkOrder).filter(
             WorkOrder.organization_id == user.organization_id,
             WorkOrder.status == status,
             WorkOrder.archived_at == None,
-        ).order_by(WorkOrder.created_at.desc()).all()
+        )
+        if user.role in ("mechanic", "technician"):
+            statement = statement.filter(WorkOrder.assigned_user_id == user.id)
+        work_orders = statement.order_by(WorkOrder.created_at.desc()).all()
         
         board[status] = [
             {
@@ -5698,7 +5697,7 @@ def reorder_parts_for_work_order(
 @router.get("/inventory/parts/{part_id}/detail", response_model=dict)
 def get_inventory_part_detail(
     part_id: int,
-    user: User = Depends(require_roles("owner", "fleet_manager")),
+    user: User = Depends(require_roles("owner", "fleet_manager", "inventory_manager")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Get detailed inventory information for a part"""
@@ -5770,7 +5769,7 @@ def get_inventory_part_detail(
 @router.get("/inventory/parts/{part_id}/references", response_model=dict)
 def get_inventory_part_references(
     part_id: int,
-    user: User = Depends(require_roles("owner", "fleet_manager")),
+    user: User = Depends(require_roles("owner", "fleet_manager", "inventory_manager")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Get all references to a part across the system"""
@@ -5825,7 +5824,7 @@ def get_inventory_part_references(
 
 @router.get("/inventory/movements/export", response_model=dict)
 def export_inventory_movements(
-    user: User = Depends(require_roles("owner", "fleet_manager")),
+    user: User = Depends(require_roles("owner", "fleet_manager", "inventory_manager")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Export inventory movements as CSV-formatted data"""
@@ -5867,7 +5866,7 @@ def export_inventory_movements(
 @router.post("/inventory/movements/import", response_model=dict)
 def import_inventory_movements(
     file: UploadFile = File(...),
-    user: User = Depends(require_roles("owner", "fleet_manager")),
+    user: User = Depends(require_roles("owner", "inventory_manager")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Import inventory movements from CSV file"""
@@ -5922,7 +5921,7 @@ def import_inventory_movements(
 @router.post("/inventory/movements/preview", response_model=dict)
 def preview_inventory_import(
     file: UploadFile = File(...),
-    user: User = Depends(require_roles("owner", "fleet_manager")),
+    user: User = Depends(require_roles("owner", "inventory_manager")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Preview inventory import without committing"""
@@ -5949,7 +5948,7 @@ def preview_inventory_import(
 @router.get("/inventory/parts/by-location/{location_id}", response_model=list[dict])
 def get_inventory_by_location(
     location_id: int,
-    user: User = Depends(require_roles("owner", "fleet_manager")),
+    user: User = Depends(require_roles("owner", "fleet_manager", "inventory_manager")),
     database: Session = Depends(get_db),
 ) -> list[dict]:
     """Get all inventory at a specific location"""
@@ -5993,7 +5992,7 @@ def get_inventory_by_location(
 
 @router.get("/inventory/summary", response_model=dict)
 def get_inventory_summary(
-    user: User = Depends(require_roles("owner", "fleet_manager")),
+    user: User = Depends(require_roles("owner", "fleet_manager", "inventory_manager")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Get inventory summary and analytics"""
@@ -7486,7 +7485,7 @@ def get_fuel_efficiency_report(
 
 @router.get("/financials/metrics", response_model=dict)
 def get_financial_metrics(
-    user: User = Depends(require_roles("owner", "fleet_manager")),
+    user: User = Depends(require_roles("owner", "fleet_manager", "accountant")),
     database: Session = Depends(get_db),
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -7599,7 +7598,7 @@ def get_financial_metrics(
 
 @router.get("/financials/reconciliation", response_model=dict)
 def get_financial_reconciliation(
-    user: User = Depends(require_roles("owner", "fleet_manager")),
+    user: User = Depends(require_roles("owner", "accountant")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Get financial reconciliation summary"""
@@ -7666,7 +7665,7 @@ def get_financial_reconciliation(
 
 @router.get("/financials/approval-queue", response_model=dict)
 def get_financial_approval_queue(
-    user: User = Depends(require_roles("owner", "fleet_manager")),
+    user: User = Depends(require_roles("owner", "accountant")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Get queue of expenses pending approval"""
@@ -7734,7 +7733,7 @@ def get_financial_approval_queue(
 @router.post("/financials/expenses/{expense_id}/approve", response_model=dict)
 def approve_expense(
     expense_id: int,
-    user: User = Depends(require_roles("owner", "fleet_manager")),
+    user: User = Depends(require_roles("owner", "accountant")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Approve an expense for reimbursement"""
@@ -7743,6 +7742,8 @@ def approve_expense(
     expense = database.get(Expense, expense_id)
     if not expense or expense.organization_id != user.organization_id:
         raise HTTPException(status_code=404, detail="Expense not found")
+    if user.role == "accountant" and expense.created_by == user.id:
+        raise HTTPException(status_code=403, detail="Accountants cannot approve their own expenses")
     
     expense.status = "Approved"
     expense.approved_by = user.id
@@ -7779,7 +7780,7 @@ def approve_expense(
 def reject_expense(
     expense_id: int,
     payload: dict,
-    user: User = Depends(require_roles("owner", "fleet_manager")),
+    user: User = Depends(require_roles("owner", "accountant")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Reject an expense"""
@@ -7822,7 +7823,7 @@ def reject_expense(
 @router.post("/financials/bulk-approve", response_model=dict)
 def bulk_approve_expenses(
     payload: dict,
-    user: User = Depends(require_roles("owner", "fleet_manager")),
+    user: User = Depends(require_roles("owner", "accountant")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Bulk approve multiple expenses"""
@@ -7845,6 +7846,8 @@ def bulk_approve_expenses(
     total_approved_paise = 0
     
     for expense in expenses:
+        if user.role == "accountant" and expense.created_by == user.id:
+            continue
         if expense.status not in ["Approved"]:  # Don't reapprove
             expense.status = "Approved"
             expense.approved_by = user.id
@@ -8235,12 +8238,20 @@ def simulate_payment(
 @router.get("/notifications/{notification_id}/source-detail", response_model=dict)
 def get_notification_source_detail(
     notification_id: int,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("notifications")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Get detailed source information for a notification"""
     notification = database.get(OperationalNotification, notification_id)
     if not notification or notification.organization_id != user.organization_id:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    delivery = database.scalar(select(NotificationDelivery).where(
+        NotificationDelivery.notification_id == notification_id,
+        NotificationDelivery.organization_id == user.organization_id,
+        NotificationDelivery.user_id == user.id,
+        NotificationDelivery.channel == "in_app",
+    ))
+    if delivery is None:
         raise HTTPException(status_code=404, detail="Notification not found")
     
     # Fetch the related entity
@@ -8372,7 +8383,7 @@ def escalate_notification(
 def resolve_notification(
     notification_id: int,
     payload: dict,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_roles("owner", "fleet_manager")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Mark a notification as resolved"""
@@ -8414,14 +8425,20 @@ def resolve_notification(
 
 @router.get("/notifications/pending", response_model=dict)
 def get_pending_notifications(
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("notifications")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Get pending unresolved notifications"""
-    notifications = database.query(OperationalNotification).filter(
+    notifications = database.query(OperationalNotification).join(
+        NotificationDelivery,
+        NotificationDelivery.notification_id == OperationalNotification.id,
+    ).filter(
         OperationalNotification.organization_id == user.organization_id,
+        NotificationDelivery.organization_id == user.organization_id,
+        NotificationDelivery.user_id == user.id,
+        NotificationDelivery.channel == "in_app",
         OperationalNotification.status.in_(["unread", "read"]),
-    ).order_by(OperationalNotification.severity.desc(), OperationalNotification.created_at.desc()).all()
+    ).distinct().order_by(OperationalNotification.severity.desc(), OperationalNotification.created_at.desc()).all()
     
     # Group by severity
     by_severity = {
@@ -8451,7 +8468,7 @@ def get_pending_notifications(
 @router.post("/notifications/bulk-resolve", response_model=dict)
 def bulk_resolve_notifications(
     payload: dict,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_roles("owner", "fleet_manager")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Bulk resolve multiple notifications"""
@@ -8462,10 +8479,16 @@ def bulk_resolve_notifications(
     if not notification_ids:
         raise HTTPException(status_code=400, detail="No notification IDs provided")
     
-    notifications = database.query(OperationalNotification).filter(
+    notifications = database.query(OperationalNotification).join(
+        NotificationDelivery,
+        NotificationDelivery.notification_id == OperationalNotification.id,
+    ).filter(
         OperationalNotification.organization_id == user.organization_id,
+        NotificationDelivery.organization_id == user.organization_id,
+        NotificationDelivery.user_id == user.id,
+        NotificationDelivery.channel == "in_app",
         OperationalNotification.id.in_(notification_ids),
-    ).all()
+    ).distinct().all()
     
     if not notifications:
         raise HTTPException(status_code=404, detail="No notifications found")
@@ -8496,7 +8519,7 @@ def bulk_resolve_notifications(
 @router.get("/vendors/{vendor_id}/pricing-history", response_model=dict)
 def get_vendor_pricing_history(
     vendor_id: int,
-    user: User = Depends(require_roles("owner", "fleet_manager")),
+    user: User = Depends(require_roles("owner", "inventory_manager", "accountant")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Get pricing history for parts from a vendor"""
@@ -8576,7 +8599,7 @@ def get_vendor_pricing_history(
 def receive_partial_purchase_order(
     po_id: int,
     payload: dict,
-    user: User = Depends(require_roles("owner", "fleet_manager")),
+    user: User = Depends(require_roles("owner", "inventory_manager")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Receive partial shipment with variance tracking"""
@@ -8791,7 +8814,7 @@ def get_compliance_summary(
 
 @router.get("/activity-feed", response_model=dict)
 def get_activity_feed(
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_roles("owner", "fleet_manager", "accountant")),
     database: Session = Depends(get_db),
     limit: int = 50,
 ) -> dict:
@@ -8800,16 +8823,28 @@ def get_activity_feed(
     audit_events = database.query(AuditEvent).filter(
         AuditEvent.organization_id == user.organization_id
     ).order_by(AuditEvent.created_at.desc()).limit(limit).all()
+    if user.role == "accountant":
+        audit_events = [
+            event for event in audit_events
+            if event.entity_type in {"expense", "fuel_transaction", "toll_transaction"}
+            or event.action.startswith(("expense.", "finance.", "fuel.", "toll."))
+        ]
     
     # Get recent work order updates
-    work_orders = database.query(WorkOrder).filter(
+    work_orders = [] if user.role == "accountant" else database.query(WorkOrder).filter(
         WorkOrder.organization_id == user.organization_id
     ).order_by(WorkOrder.created_at.desc()).limit(limit).all()
     
     # Get recent notifications
-    notifications = database.query(OperationalNotification).filter(
-        OperationalNotification.organization_id == user.organization_id
-    ).order_by(OperationalNotification.created_at.desc()).limit(limit).all()
+    notifications = database.query(OperationalNotification).join(
+        NotificationDelivery,
+        NotificationDelivery.notification_id == OperationalNotification.id,
+    ).filter(
+        OperationalNotification.organization_id == user.organization_id,
+        NotificationDelivery.organization_id == user.organization_id,
+        NotificationDelivery.user_id == user.id,
+        NotificationDelivery.channel == "in_app",
+    ).distinct().order_by(OperationalNotification.created_at.desc()).limit(limit).all()
     
     # Build activity feed
     activities = []
@@ -8858,7 +8893,7 @@ def get_activity_feed(
 
 @router.get("/activity-feed/by-type", response_model=dict)
 def get_activity_feed_by_type(
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_roles("owner", "fleet_manager", "accountant")),
     database: Session = Depends(get_db),
     activity_type: str = "all",
 ) -> dict:
@@ -8867,10 +8902,16 @@ def get_activity_feed_by_type(
         audit_events = database.query(AuditEvent).filter(
             AuditEvent.organization_id == user.organization_id
         ).order_by(AuditEvent.created_at.desc()).limit(100).all()
+        if user.role == "accountant":
+            audit_events = [
+                event for event in audit_events
+                if event.entity_type in {"expense", "fuel_transaction", "toll_transaction"}
+                or event.action.startswith(("expense.", "finance.", "fuel.", "toll."))
+            ]
     else:
         audit_events = []
     
-    if activity_type == "work_orders" or activity_type == "all":
+    if user.role != "accountant" and (activity_type == "work_orders" or activity_type == "all"):
         work_orders = database.query(WorkOrder).filter(
             WorkOrder.organization_id == user.organization_id
         ).order_by(WorkOrder.created_at.desc()).limit(100).all()
@@ -8878,9 +8919,15 @@ def get_activity_feed_by_type(
         work_orders = []
     
     if activity_type == "notifications" or activity_type == "all":
-        notifications = database.query(OperationalNotification).filter(
-            OperationalNotification.organization_id == user.organization_id
-        ).order_by(OperationalNotification.created_at.desc()).limit(100).all()
+        notifications = database.query(OperationalNotification).join(
+            NotificationDelivery,
+            NotificationDelivery.notification_id == OperationalNotification.id,
+        ).filter(
+            OperationalNotification.organization_id == user.organization_id,
+            NotificationDelivery.organization_id == user.organization_id,
+            NotificationDelivery.user_id == user.id,
+            NotificationDelivery.channel == "in_app",
+        ).distinct().order_by(OperationalNotification.created_at.desc()).limit(100).all()
     else:
         notifications = []
     
