@@ -5,7 +5,7 @@ Tests cover Vehicle, WorkOrder, and Inventory transaction models with edge cases
 import pytest
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
-from app.database import SessionLocal
+from app.database import Base, SessionLocal, engine
 from app.models import Vehicle, WorkOrder, Organization, User, Part, InventoryTransaction
 
 
@@ -15,6 +15,13 @@ def db():
     session = SessionLocal()
     yield session
     session.close()
+
+
+@pytest.fixture(autouse=True)
+def isolated_schema():
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    yield
 
 
 @pytest.fixture
@@ -175,7 +182,8 @@ def test_inventory_transaction(db: Session, test_org: Organization, test_user: U
     part = Part(
         organization_id=test_org.id,
         name="Engine Oil",
-        part_code="OIL001",
+        sku="OIL001",
+        category="Lubricants",
         quantity_on_hand=100,
         reorder_level=20
     )
@@ -203,7 +211,8 @@ def test_inventory_validation(db: Session, test_org: Organization):
     part = Part(
         organization_id=test_org.id,
         name="Spark Plug",
-        part_code="PLUG001",
+        sku="PLUG001",
+        category="Ignition",
         quantity_on_hand=5,
         reorder_level=10
     )

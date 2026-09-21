@@ -29,7 +29,7 @@ import sys
 from uuid import uuid4
 
 os.environ["VAHANA_DATABASE_URL"] = "sqlite:///./test-sql-injection.db"
-os.environ["VAHANA_SEED_ADMIN_EMAIL"] = "injection-test@example.com"
+os.environ["VAHANA_SEED_ADMIN_EMAIL"] = "test-admin@example.com"
 os.environ["VAHANA_SEED_ADMIN_PASSWORD"] = "TestPassword!123"
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -43,7 +43,7 @@ def _get_owner_headers(client):
     login = client.post(
         "/api/v1/auth/login",
         json={
-            "email": "injection-test@example.com",
+            "email": "test-admin@example.com",
             "password": "TestPassword!123"
         }
     )
@@ -62,7 +62,7 @@ def _create_test_audit_logs(client, headers, db_session):
     from uuid import uuid4
 
     # Get the owner user from the authenticated headers
-    user = db_session.query(User).filter_by(email="injection-test@example.com").first()
+    user = db_session.query(User).filter_by(email="test-admin@example.com").first()
     assert user is not None
 
     # Create baseline audit logs with various actions and outcomes
