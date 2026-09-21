@@ -232,9 +232,7 @@ function AuthenticatedApp() {
     {page === 'vehicles' && <VehiclesPage token={token} data={data} refresh={refresh} query={filteredQuery} />}
     {page === 'maintenance' && <MaintenancePage token={token} data={data} refresh={refresh} query={filteredQuery} />}
     {page === 'compliance' && <CompliancePage token={token} data={data} refresh={refresh} query={filteredQuery} />}
-    {page === 'telematics' && <TelematicsPage token={token} data={data} refresh={refresh} />}
     {page === 'inventory' && <InventoryPage token={token} data={data} refresh={refresh} query={filteredQuery} />}
-    {page === 'procurement' && <ProcurementPage token={token} data={data} refresh={refresh} />}
     {page === 'fleet' && <FleetManagerWorkspace token={token} data={data} refresh={refresh} query={filteredQuery} />}
     {page === 'work' && (user.role === 'fleet_manager' ? <FleetManagerWorkspace token={token} data={data} refresh={refresh} query={filteredQuery} /> : <MechanicExecutionWorkspace token={token} data={data} refresh={refresh} query={filteredQuery} />)}
     {page === 'checks' && <DriverPortal token={token} data={data} refresh={refresh} />}

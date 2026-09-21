@@ -19,7 +19,10 @@ export const navByRole = {
 }
 
 export function workspaceFromLocation(location = window.location) {
-  const workspace = new URLSearchParams(location.search).get('workspace')
+  const pathWorkspace = location.pathname.startsWith('/app/')
+    ? location.pathname.slice('/app/'.length).split('/')[0]
+    : ''
+  const workspace = pathWorkspace || new URLSearchParams(location.search).get('workspace')
   return workspace && workspaceIds.has(workspace) ? workspace : 'command'
 }
 
@@ -30,8 +33,9 @@ export function workspaceForRole(workspace, role) {
 
 export function navigateToWorkspace(workspace) {
   const url = new URL(window.location.href)
+  url.pathname = `/app/${workspace}`
   url.searchParams.set('page', 'app')
-  url.searchParams.set('workspace', workspace)
+  url.searchParams.delete('workspace')
   window.history.pushState({ workspace }, '', url)
   window.dispatchEvent(new PopStateEvent('popstate', { state: { workspace } }))
 }
