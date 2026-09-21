@@ -4052,7 +4052,6 @@ def list_assignable_members(
         .where(
             User.organization_id == user.organization_id,
             User.role.in_(("technician", "mechanic")),
-            User.is_active.is_(True),
         )
         .order_by(User.full_name.asc())
     ).all())
@@ -4115,7 +4114,6 @@ def assign_vehicle_driver(
         User.id == payload.driver_id,
         User.organization_id == user.organization_id,
         User.role == "driver",
-        User.is_active.is_(True),
     ))
     if driver is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Driver not found in this organization")
@@ -4207,7 +4205,6 @@ def assign_work_order(
             User.id == payload.mechanic_id,
             User.organization_id == user.organization_id,
             User.role.in_(("technician", "mechanic")),
-            User.is_active.is_(True),
         ))
         if mechanic is None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Mechanic/Technician not found in this organization")
