@@ -230,6 +230,7 @@ function AuthenticatedApp() {
     {page === 'billing' && <BillingPage token={token} data={data} refresh={refresh} />}
     {page === 'audit' && <AuditPage token={token} entries={data.audit} summary={data.operations} />}
     {page === 'settings' && <OrganizationSettingsPage token={token} refresh={refresh} />}
+    {page === 'onboarding' && <OnboardingPage token={token} refresh={refresh} />}
     {page === 'vehicles' && <VehiclesPage token={token} data={data} refresh={refresh} query={filteredQuery} />}
     {page === 'maintenance' && <MaintenancePage token={token} data={data} refresh={refresh} query={filteredQuery} />}
     {page === 'compliance' && <CompliancePage token={token} data={data} refresh={refresh} query={filteredQuery} />}
@@ -435,6 +436,68 @@ function OrganizationSettingsPage({ token, refresh }) {
   </PageFrame>
 }
 
+function OnboardingPage({ token, refresh }) {
+  const [status, setStatus] = useState(null)
+  const [checklist, setChecklist] = useState([])
+  const [form, setForm] = useState({ organization_name: '', first_name: '', last_name: '', industry: '', fleet_size: '' })
+  const [loading, setLoading] = useState(true)
+
+  async function load() {
+    try {
+      const [onboardingStatus, onboardingChecklist] = await Promise.all([getOnboardingStatus(token), getOnboardingChecklist(token)])
+      setStatus(onboardingStatus)
+      setChecklist(onboardingChecklist || [])
+      setForm((current) => ({
+        ...current,
+        organization_name: onboardingStatus?.organization_name || '',
+      }))
+    } catch (error) {
+      refresh(error.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    load()
+  }, [token])
+
+  async function bootstrap(event) {
+    event.preventDefault()
+    try {
+      await bootstrapOnboarding(token, form)
+      refresh('Onboarding defaults created.')
+      await load()
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+
+  if (loading) return <div className="page-frame"><h2>Loading onboarding checklist…</h2></div>
+
+  return <PageFrame eyebrow="01 · Setup" title="Onboarding checklist" description="Complete the foundational setup steps before handing the operating system to the wider team.">
+    <div className="stat-grid">
+      <Metric label="Completion" value={`${status?.completion_percent ?? 0}%`} detail={status?.is_complete ? 'Ready for operations' : 'Setup remains'} tone={status?.is_complete ? 'green' : 'amber'} />
+      <Metric label="Checklist items" value={checklist.length} detail={`${checklist.filter((item) => item.completed).length} completed`} tone="blue" />
+    </div>
+    <div className="split-grid">
+      <FormCard title="Bootstrap organisation" description="Create the default warehouse and notification preferences for this tenant.">
+        <form className="stack-form" onSubmit={bootstrap}>
+          <Field label="Organisation name" value={form.organization_name} onChange={(value) => setForm({ ...form, organization_name: value })} required />
+          <Field label="First name" value={form.first_name} onChange={(value) => setForm({ ...form, first_name: value })} required />
+          <Field label="Last name" value={form.last_name} onChange={(value) => setForm({ ...form, last_name: value })} required />
+          <Field label="Industry" value={form.industry} onChange={(value) => setForm({ ...form, industry: value })} />
+          <Field label="Fleet size" value={form.fleet_size} onChange={(value) => setForm({ ...form, fleet_size: value })} />
+          <button className="primary-button">Bootstrap defaults</button>
+        </form>
+      </FormCard>
+      <DataPanel title="Setup progress" eyebrow={`${checklist.filter((item) => item.completed).length} of ${checklist.length} complete`}>
+        <Table headers={['Step', 'Description', 'Status']} rows={checklist.map((item) => [<strong>{item.title}</strong>, item.description, item.completed ? <span className="status good">Complete</span> : <span className="status warn">Pending</span>])} empty="No onboarding steps returned." />
+      </DataPanel>
+    </div>
+  </PageFrame>
+}
+
 function BillingPage({ token, data, refresh }) {
   const current = data.subscription
   async function selectPlan(code) { try { await changeSubscription(token, code); refresh('Subscription plan updated.') } catch (error) { refresh(error.message) } }
@@ -460,6 +523,7 @@ function VehiclesPage({ token, data, refresh, query }) {
 
 function MaintenancePage({ token, data, refresh, query }) {
   const [tab, setTab] = useState('work')
+  const [boardStats, setBoardStats] = useState(null)
   const [form, setForm] = useState({ vehicle_id: '', title: '', description: '', priority: 'Medium', due_date: today(), assigned_to: '' })
   const [editing, setEditing] = useState(null)
   const [editForm, setEditForm] = useState({})
@@ -481,6 +545,13 @@ function MaintenancePage({ token, data, refresh, query }) {
     }
   }
   const work = data.workOrders.filter((order) => JSON.stringify(order).toLowerCase().includes(query))
+  useEffect(() => {
+    let active = true
+    Promise.all([getWorkOrderBoard(token), getWorkOrderBoardStats(token)])
+      .then(([, stats]) => { if (active) setBoardStats(stats) })
+      .catch((error) => refresh(error.message))
+    return () => { active = false }
+  }, [token])
   return <PageFrame eyebrow="02 · Fleet operations" title="Maintenance command" description="Plan preventive work, dispatch a repair, track execution evidence, and close the lifecycle record."><div className="tabs">{[['work', 'Work orders'], ['plans', 'Preventive plans'], ['components', 'Components']].map(([id, label]) => <button className={tab === id ? 'tab active' : 'tab'} key={id} onClick={() => setTab(id)}>{label}</button>)}</div>{tab === 'work' && <><FormCard title="Dispatch work" description="A work order carries the vehicle, priority, due date, and accountable handoff."><form className="form-grid" onSubmit={createWork}><SelectField label="Vehicle" value={form.vehicle_id} onChange={(value) => setForm({ ...form, vehicle_id: value })} options={[['', 'Select vehicle'], ...data.vehicles.map((vehicle) => [String(vehicle.id), `${vehicle.registration_number} · ${vehicle.model}`])]} required /><Field label="Work title" value={form.title} onChange={(value) => setForm({ ...form, title: value })} required /><SelectField label="Priority" value={form.priority} onChange={(value) => setForm({ ...form, priority: value })} options={['Low', 'Medium', 'High', 'Critical'].map((value) => [value, value])} /><Field label="Due date" type="date" value={form.due_date} onChange={(value) => setForm({ ...form, due_date: value })} /><Field label="Assigned technician" value={form.assigned_to} onChange={(value) => setForm({ ...form, assigned_to: value })} /><TextField label="Scope and instructions" value={form.description} onChange={(value) => setForm({ ...form, description: value })} /><button className="primary-button">Create work order</button></form></FormCard>{editing && <FormCard title="Edit work order" description="Update planning details before the job is closed."><form className="form-grid" onSubmit={saveEdit}><Field label="Work title" value={editForm.title} onChange={(value) => setEditForm({ ...editForm, title: value })} required /><SelectField label="Priority" value={editForm.priority} onChange={(value) => setEditForm({ ...editForm, priority: value })} options={['Low', 'Medium', 'High', 'Critical'].map((value) => [value, value])} /><Field label="Due date" type="date" value={editForm.due_date} onChange={(value) => setEditForm({ ...editForm, due_date: value })} /><Field label="Assigned technician label" value={editForm.assigned_to} onChange={(value) => setEditForm({ ...editForm, assigned_to: value })} /><TextField label="Scope and instructions" value={editForm.description} onChange={(value) => setEditForm({ ...editForm, description: value })} /><div className="row-actions"><button className="primary-button">Save changes</button><button type="button" className="secondary-button" onClick={() => setEditing(null)}>Cancel</button></div></form></FormCard>}<DataPanel title="Dispatch board" eyebrow={`${work.length} work orders`}><Table headers={['Work', 'Vehicle', 'Priority', 'Due', 'Status', 'Action']} rows={work.map((order) => [<span><strong>{order.title}</strong><small>{order.description || 'No extra instructions'}</small></span>, data.vehicles.find((vehicle) => vehicle.id === order.vehicle_id)?.registration_number || `Vehicle #${order.vehicle_id}`, order.priority, dateText(order.due_date), <span className={`status ${order.status === 'Completed' ? 'good' : order.status === 'Cancelled' ? 'bad' : 'warn'}`}>{order.status}</span>, <div className="row-actions"><button className="table-action" onClick={() => beginEdit(order)}>Edit</button>{order.status === 'Open' && <button className="table-action" onClick={() => transition(order, 'start')}>Start</button>}{['In progress', 'REWORK'].includes(order.status) && <button className="table-action" onClick={() => transition(order, 'complete')}>Submit review</button>}{['Ready for review', 'READY_FOR_REVIEW'].includes(order.status) && <button className="table-action" onClick={() => transition(order, 'approve')}>Approve</button>}</div>])} empty="No work orders have been dispatched." /></DataPanel></>}{tab === 'plans' && <><FormCard title="Preventive maintenance plan" description="Create a service horizon from kilometres, days, or both."><form className="form-grid" onSubmit={createPlan}><SelectField label="Vehicle" value={plan.vehicle_id} onChange={(value) => setPlan({ ...plan, vehicle_id: value })} options={[['', 'Select vehicle'], ...data.vehicles.map((vehicle) => [String(vehicle.id), vehicle.registration_number])]} required /><Field label="Plan name" value={plan.name} onChange={(value) => setPlan({ ...plan, name: value })} required /><Field label="Interval kilometres" type="number" value={plan.interval_km} onChange={(value) => setPlan({ ...plan, interval_km: value })} /><Field label="Interval days" type="number" value={plan.interval_days} onChange={(value) => setPlan({ ...plan, interval_days: value })} /><Field label="Next due kilometres" type="number" value={plan.next_due_km} onChange={(value) => setPlan({ ...plan, next_due_km: value })} /><Field label="Next due date" type="date" value={plan.next_due_on} onChange={(value) => setPlan({ ...plan, next_due_on: value })} /><button className="primary-button">Save maintenance plan</button></form></FormCard><DataPanel title="Preventive plan register" eyebrow={`${data.plans.length} plans`}><Table headers={['Plan', 'Vehicle', 'Next due', 'Active']} rows={data.plans.map((item) => [item.name, data.vehicles.find((vehicle) => vehicle.id === item.vehicle_id)?.registration_number || `#${item.vehicle_id}`, item.next_due_on || `${item.next_due_km || '—'} km`, item.active ? <span className="status good">Active</span> : <span className="status bad">Inactive</span>])} empty="No preventive plans have been created." /></DataPanel></>}{tab === 'components' && <><FormCard title="Component lifecycle" description="Track installation, service interval, and the next threshold for every critical component."><form className="form-grid" onSubmit={createComp}><SelectField label="Vehicle" value={component.vehicle_id} onChange={(value) => setComponent({ ...component, vehicle_id: value })} options={[['', 'Select vehicle'], ...data.vehicles.map((vehicle) => [String(vehicle.id), vehicle.registration_number])]} required /><Field label="Component name" value={component.name} onChange={(value) => setComponent({ ...component, name: value })} required /><Field label="Component type" value={component.component_type} onChange={(value) => setComponent({ ...component, component_type: value })} required /><Field label="Installed at km" type="number" value={component.installed_at_km} onChange={(value) => setComponent({ ...component, installed_at_km: value })} /><Field label="Service interval km" type="number" value={component.service_interval_km} onChange={(value) => setComponent({ ...component, service_interval_km: value })} /><button className="primary-button">Add component</button></form></FormCard><DataPanel title="Component register" eyebrow={`${data.components.length} tracked components`}><Table headers={['Component', 'Vehicle', 'Next service', 'Status', 'Action']} rows={data.components.map((item) => [<span><strong>{item.name}</strong><small>{item.component_type}</small></span>, data.vehicles.find((vehicle) => vehicle.id === item.vehicle_id)?.registration_number || `#${item.vehicle_id}`, `${item.next_service_km || '—'} km`, item.status, <button className="table-action" onClick={async () => { try { await completeComponentService(token, item.id, data.vehicles.find((vehicle) => vehicle.id === item.vehicle_id)?.odometer_km || 0); refresh('Component service completed.') } catch (error) { refresh(error.message) } }}>Complete service</button>])} empty="No component lifecycle records exist." /></DataPanel></>}</PageFrame>
 }
 
@@ -509,6 +580,7 @@ function TelematicsPage({ token, data, refresh }) {
 
 function InventoryPage({ token, data, refresh, query }) {
   const [tab, setTab] = useState('parts')
+  const [inventorySummary, setInventorySummary] = useState(null)
   const [part, setPart] = useState({ sku: '', name: '', category: '', quantity_on_hand: 0, reorder_level: 0, unit_cost_paise: 0, supplier: '' })
   const [location, setLocation] = useState({ name: '', code: '', address: '' })
   const [movement, setMovement] = useState({ part_id: '', location_id: '', transaction_type: 'receipt', quantity: 1, reference: '' })
@@ -516,6 +588,13 @@ function InventoryPage({ token, data, refresh, query }) {
   async function addLocation(event) { event.preventDefault(); try { await createStockLocation(token, location); refresh('Stock location added.') } catch (error) { refresh(error.message) } }
   async function move(event) { event.preventDefault(); try { await createInventoryMovement(token, { ...movement, part_id: Number(movement.part_id), location_id: Number(movement.location_id), quantity: Number(movement.quantity) }); refresh('Inventory movement recorded.') } catch (error) { refresh(error.message) } }
   const parts = data.parts.filter((item) => JSON.stringify(item).toLowerCase().includes(query))
+  useEffect(() => {
+    let active = true
+    getInventorySummary(token)
+      .then((summary) => { if (active) setInventorySummary(summary) })
+      .catch((error) => refresh(error.message))
+    return () => { active = false }
+  }, [token])
   return <PageFrame eyebrow="01 · Workshop control" title="Parts & stock" description="Know what is available, where it lives, why it moved, and which part needs a reorder decision."><div className="tabs">{[['parts', 'Catalogue'], ['locations', 'Locations'], ['movement', 'Movement']].map(([id, label]) => <button className={tab === id ? 'tab active' : 'tab'} key={id} onClick={() => setTab(id)}>{label}</button>)}</div>{tab === 'parts' && <><FormCard title="Add catalogue item" description="Unit cost is stored in paise for precise finance handoff."><form className="form-grid" onSubmit={addPart}><Field label="SKU" value={part.sku} onChange={(value) => setPart({ ...part, sku: value })} required /><Field label="Part name" value={part.name} onChange={(value) => setPart({ ...part, name: value })} required /><Field label="Category" value={part.category} onChange={(value) => setPart({ ...part, category: value })} required /><Field label="Opening quantity" type="number" value={part.quantity_on_hand} onChange={(value) => setPart({ ...part, quantity_on_hand: value })} /><Field label="Reorder level" type="number" value={part.reorder_level} onChange={(value) => setPart({ ...part, reorder_level: value })} /><Field label="Unit cost (paise)" type="number" value={part.unit_cost_paise} onChange={(value) => setPart({ ...part, unit_cost_paise: value })} /><Field label="Supplier" value={part.supplier} onChange={(value) => setPart({ ...part, supplier: value })} /><button className="primary-button">Create part</button></form></FormCard><DataPanel title="Parts catalogue" eyebrow={`${parts.length} items`}><Table headers={['Part', 'Category', 'On hand', 'Reorder at', 'Unit cost', 'Supplier']} rows={parts.map((item) => [<span><strong>{item.name}</strong><small>{item.sku}</small></span>, item.category, <span className={item.quantity_on_hand <= item.reorder_level ? 'number bad' : 'number'}>{item.quantity_on_hand}</span>, item.reorder_level, money(item.unit_cost_paise), item.supplier || '—'])} empty="No parts have been catalogued." /></DataPanel></>}{tab === 'locations' && <><FormCard title="Add stock location" description="Make bins, depots, and workshop stores explicit."><form className="form-grid" onSubmit={addLocation}><Field label="Location name" value={location.name} onChange={(value) => setLocation({ ...location, name: value })} required /><Field label="Code" value={location.code} onChange={(value) => setLocation({ ...location, code: value })} required /><Field label="Address" value={location.address} onChange={(value) => setLocation({ ...location, address: value })} /><button className="primary-button">Create location</button></form></FormCard><DataPanel title="Location register" eyebrow={`${data.locations.length} locations`}><Table headers={['Name', 'Code', 'Address', 'Status']} rows={data.locations.map((item) => [item.name, item.code, item.address || '—', item.active ? <span className="status good">Active</span> : <span className="status bad">Inactive</span>])} empty="No stock locations have been defined." /></DataPanel></>}{tab === 'movement' && <><FormCard title="Record movement" description="Every receipt, issue, or adjustment keeps a reason and location reference."><form className="form-grid" onSubmit={move}><SelectField label="Part" value={movement.part_id} onChange={(value) => setMovement({ ...movement, part_id: value })} options={[['', 'Select part'], ...data.parts.map((item) => [String(item.id), `${item.sku} · ${item.name}`])]} required /><SelectField label="Location" value={movement.location_id} onChange={(value) => setMovement({ ...movement, location_id: value })} options={[['', 'Select location'], ...data.locations.map((item) => [String(item.id), item.name])]} required /><SelectField label="Movement type" value={movement.transaction_type} onChange={(value) => setMovement({ ...movement, transaction_type: value })} options={['receipt', 'issue', 'adjustment'].map((value) => [value, value])} /><Field label="Quantity" type="number" value={movement.quantity} onChange={(value) => setMovement({ ...movement, quantity: value })} /><Field label="Reference / reason" value={movement.reference} onChange={(value) => setMovement({ ...movement, reference: value })} /><button className="primary-button">Record movement</button></form></FormCard><DataPanel title="Movement history" eyebrow="Latest stock events"><p className="empty-copy">Movement history is available from the API and will appear here after the first recorded receipt, issue, or adjustment.</p></DataPanel></>}</PageFrame>
 }
 
