@@ -8394,9 +8394,17 @@ def get_notification_source_detail(
     entity_data = None
     
     if notification.entity_type == "work_order":
-        entity = database.get(WorkOrder, int(notification.entity_id))
+        entity = database.scalar(select(WorkOrder).where(
+            WorkOrder.id == int(notification.entity_id),
+            WorkOrder.organization_id == user.organization_id,
+        ))
+        if entity and user.role in ("mechanic", "technician") and entity.assigned_user_id != user.id:
+            entity = None
         if entity:
-            vehicle = database.get(Vehicle, entity.vehicle_id)
+            vehicle = database.scalar(select(Vehicle).where(
+                Vehicle.id == entity.vehicle_id,
+                Vehicle.organization_id == user.organization_id,
+            ))
             entity_data = {
                 "type": "work_order",
                 "id": entity.id,
@@ -8411,7 +8419,12 @@ def get_notification_source_detail(
             }
     
     elif notification.entity_type == "vehicle":
-        entity = database.get(Vehicle, int(notification.entity_id))
+        entity = database.scalar(select(Vehicle).where(
+            Vehicle.id == int(notification.entity_id),
+            Vehicle.organization_id == user.organization_id,
+        ))
+        if entity and user.role == "driver" and entity.assigned_driver_id != user.id:
+            entity = None
         if entity:
             entity_data = {
                 "type": "vehicle",
@@ -8423,7 +8436,10 @@ def get_notification_source_detail(
             }
     
     elif notification.entity_type == "compliance_document":
-        entity = database.get(ComplianceDocument, int(notification.entity_id))
+        entity = database.scalar(select(ComplianceDocument).where(
+            ComplianceDocument.id == int(notification.entity_id),
+            ComplianceDocument.organization_id == user.organization_id,
+        ))
         if entity:
             entity_data = {
                 "type": "compliance_document",
@@ -8435,7 +8451,10 @@ def get_notification_source_detail(
             }
     
     elif notification.entity_type == "triage_issue":
-        entity = database.get(VehicleIssue, int(notification.entity_id))
+        entity = database.scalar(select(VehicleIssue).where(
+            VehicleIssue.id == int(notification.entity_id),
+            VehicleIssue.organization_id == user.organization_id,
+        ))
         if entity:
             entity_data = {
                 "type": "triage_issue",
