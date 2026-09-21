@@ -1021,7 +1021,7 @@ def dispatch_queued_notifications(
 
 @router.get("/vehicles", response_model=list[VehicleRead])
 def list_vehicles(
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("fleet_read")),
     database: Session = Depends(get_db),
     skip: int = 0,
     limit: int = 20
@@ -1240,7 +1240,7 @@ def list_vehicle_assignments(
 @router.get("/vehicles/{vehicle_id}/odometer", response_model=list[OdometerLogRead])
 def list_vehicle_odometer(
     vehicle_id: int,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("fleet_read")),
     database: Session = Depends(get_db),
 ) -> list[OdometerLog]:
     vehicle = database.scalar(select(Vehicle).where(
@@ -1256,7 +1256,7 @@ def list_vehicle_odometer(
 
 
 @router.get("/components", response_model=list[ComponentRead])
-def list_components(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[VehicleComponent]:
+def list_components(user: User = Depends(require_permission("maintenance_read")), database: Session = Depends(get_db)) -> list[VehicleComponent]:
     statement = select(VehicleComponent).where(VehicleComponent.organization_id == user.organization_id)
     if user.role == "driver":
         statement = statement.where(VehicleComponent.vehicle_id.in_(
@@ -1278,7 +1278,7 @@ def list_components(user: User = Depends(get_current_user), database: Session = 
 def create_component(
     payload: ComponentCreate,
     request: Request,
-    user: User = Depends(require_permission("maintenance")),
+    user: User = Depends(require_roles("owner", "fleet_manager")),
     database: Session = Depends(get_db),
 ) -> VehicleComponent:
     vehicle = database.scalar(select(Vehicle).where(Vehicle.id == payload.vehicle_id, Vehicle.organization_id == user.organization_id))
@@ -1320,7 +1320,7 @@ def update_component(
     component_id: int,
     payload: ComponentUpdate,
     request: Request,
-    user: User = Depends(require_permission("maintenance")),
+    user: User = Depends(require_roles("owner", "fleet_manager")),
     database: Session = Depends(get_db),
 ) -> VehicleComponent:
     statement = select(VehicleComponent).where(
@@ -1367,7 +1367,7 @@ def update_component(
 def delete_component(
     component_id: int,
     request: Request,
-    user: User = Depends(require_permission("maintenance")),
+    user: User = Depends(require_roles("owner", "fleet_manager")),
     database: Session = Depends(get_db),
 ) -> Response:
     component = database.scalar(select(VehicleComponent).where(
@@ -1444,7 +1444,7 @@ def complete_component_service(
 
 @router.get("/work-orders", response_model=list[WorkOrderRead])
 def list_work_orders(
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("maintenance_read")),
     database: Session = Depends(get_db),
     skip: int = 0,
     limit: int = 20
@@ -1580,7 +1580,7 @@ def create_driver_issue(
 def create_work_order(
     payload: WorkOrderCreate,
     request: Request,
-    user: User = Depends(require_permission("maintenance")),
+    user: User = Depends(require_roles("owner", "fleet_manager")),
     database: Session = Depends(get_db),
 ) -> WorkOrder:
     reserve_idempotency_key(request, user, database)
@@ -1700,7 +1700,7 @@ def update_work_order(
 def delete_work_order(
     work_order_id: int,
     request: Request,
-    user: User = Depends(require_permission("maintenance")),
+    user: User = Depends(require_roles("owner", "fleet_manager")),
     database: Session = Depends(get_db),
 ) -> Response:
     work_order = database.scalar(select(WorkOrder).where(
@@ -2143,7 +2143,7 @@ def download_work_order(
 
 
 @router.get("/maintenance-plans", response_model=list[MaintenancePlanRead])
-def list_maintenance_plans(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[MaintenancePlan]:
+def list_maintenance_plans(user: User = Depends(require_permission("maintenance_read")), database: Session = Depends(get_db)) -> list[MaintenancePlan]:
     return list(database.scalars(select(MaintenancePlan).where(MaintenancePlan.organization_id == user.organization_id).order_by(MaintenancePlan.id.desc())).all())
 
 
@@ -2151,7 +2151,7 @@ def list_maintenance_plans(user: User = Depends(get_current_user), database: Ses
 def create_maintenance_plan(
     payload: MaintenancePlanCreate,
     request: Request,
-    user: User = Depends(require_permission("maintenance")),
+    user: User = Depends(require_roles("owner", "fleet_manager")),
     database: Session = Depends(get_db),
 ) -> MaintenancePlan:
     vehicle = database.scalar(select(Vehicle).where(Vehicle.id == payload.vehicle_id, Vehicle.organization_id == user.organization_id))
@@ -2177,7 +2177,7 @@ def create_maintenance_plan(
 
 
 @router.get("/parts", response_model=list[PartRead])
-def list_parts(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[Part]:
+def list_parts(user: User = Depends(require_permission("inventory_read")), database: Session = Depends(get_db)) -> list[Part]:
     return list(database.scalars(select(Part).where(Part.organization_id == user.organization_id).order_by(Part.id.desc())).all())
 
 
@@ -2242,7 +2242,7 @@ def create_inventory_transaction(
 
 @router.get("/inventory/transactions", response_model=list[InventoryTransactionRead])
 def list_inventory_transactions(
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_roles("owner", "inventory_manager")),
     database: Session = Depends(get_db),
     skip: int = 0,
     limit: int = 20
@@ -2256,7 +2256,7 @@ def list_inventory_transactions(
 
 
 @router.get("/stock-locations", response_model=list[StockLocationRead])
-def list_stock_locations(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[StockLocation]:
+def list_stock_locations(user: User = Depends(require_roles("owner", "inventory_manager")), database: Session = Depends(get_db)) -> list[StockLocation]:
     return list(database.scalars(select(StockLocation).where(StockLocation.organization_id == user.organization_id).order_by(StockLocation.name.asc())).all())
 
 
@@ -2289,7 +2289,7 @@ def create_stock_location(
 
 
 @router.get("/inventory/movements", response_model=list[InventoryMovementRead])
-def list_inventory_movements(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[InventoryMovement]:
+def list_inventory_movements(user: User = Depends(require_roles("owner", "inventory_manager")), database: Session = Depends(get_db)) -> list[InventoryMovement]:
     return list(database.scalars(select(InventoryMovement).where(InventoryMovement.organization_id == user.organization_id).order_by(InventoryMovement.id.desc())).all())
 
 
@@ -2328,7 +2328,7 @@ def create_inventory_movement(
 
 
 @router.get("/documents", response_model=list[DocumentRead])
-def list_documents(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[ComplianceDocument]:
+def list_documents(user: User = Depends(require_permission("compliance_read")), database: Session = Depends(get_db)) -> list[ComplianceDocument]:
     statement = select(ComplianceDocument).where(ComplianceDocument.organization_id == user.organization_id)
     if user.role == "driver":
         statement = statement.where(ComplianceDocument.vehicle_id.in_(
@@ -2461,7 +2461,7 @@ def upload_document_file(
 @router.get("/documents/{document_id}/versions", response_model=list[DocumentVersionRead])
 def list_document_versions(
     document_id: int,
-    user: User = Depends(require_permission("compliance")),
+    user: User = Depends(require_permission("compliance_read")),
     database: Session = Depends(get_db),
 ) -> list[DocumentVersion]:
     document = database.scalar(select(ComplianceDocument).where(
@@ -2470,6 +2470,13 @@ def list_document_versions(
     ))
     if document is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+    if user.role == "driver":
+        assigned = database.scalar(select(Vehicle.id).where(
+            Vehicle.id == document.vehicle_id,
+            Vehicle.assigned_driver_id == user.id,
+        ))
+        if assigned is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
     return list(database.scalars(select(DocumentVersion).where(
         DocumentVersion.document_id == document_id,
         DocumentVersion.organization_id == user.organization_id,
@@ -2479,9 +2486,22 @@ def list_document_versions(
 @router.get("/documents/{document_id}/file")
 def download_document_file(
     document_id: int,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("compliance_read")),
     database: Session = Depends(get_db),
 ) -> Response:
+    document = database.scalar(select(ComplianceDocument).where(
+        ComplianceDocument.id == document_id,
+        ComplianceDocument.organization_id == user.organization_id,
+    ))
+    if document is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+    if user.role == "driver":
+        assigned = database.scalar(select(Vehicle.id).where(
+            Vehicle.id == document.vehicle_id,
+            Vehicle.assigned_driver_id == user.id,
+        ))
+        if assigned is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
     asset = database.scalar(
         select(DocumentAsset)
         .where(DocumentAsset.document_id == document_id, DocumentAsset.organization_id == user.organization_id)
@@ -3017,7 +3037,7 @@ def resolve_notification(
 
 
 @router.get("/expenses", response_model=list[ExpenseRead])
-def list_expenses(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[Expense]:
+def list_expenses(user: User = Depends(require_permission("finance_read")), database: Session = Depends(get_db)) -> list[Expense]:
     statement = select(Expense).where(Expense.organization_id == user.organization_id)
     if user.role not in ("owner", "accountant"):
         statement = statement.where(Expense.id == -1)
@@ -3075,6 +3095,8 @@ def update_expense_status(
     ))
     if expense is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found")
+    if payload.status == "Approved" and user.role == "accountant" and expense.created_by == user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Accountants cannot approve their own expenses")
     expense.status = payload.status
     expense.approved_by = user.id if payload.status == "Approved" else None
     expense.approved_at = utc_now() if payload.status == "Approved" else None
@@ -3107,6 +3129,8 @@ def reconcile_expense(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found")
     if expense.status == "Rejected":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Rejected expenses cannot be reconciled")
+    if user.role == "accountant" and expense.created_by == user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Accountants cannot approve their own expenses")
     expense.status = "Approved"
     expense.approved_by = user.id
     expense.approved_at = utc_now()
@@ -3155,7 +3179,7 @@ def reverse_expense(
 
 
 @router.get("/finance/summary", response_model=list[FinanceSummaryRead])
-def finance_summary(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[FinanceSummaryRead]:
+def finance_summary(user: User = Depends(require_permission("finance_read")), database: Session = Depends(get_db)) -> list[FinanceSummaryRead]:
     totals: dict[str, dict[str, int]] = {}
     expenses = database.scalars(select(Expense).where(Expense.organization_id == user.organization_id)).all()
     for expense in expenses:
@@ -3183,7 +3207,7 @@ def finance_summary(user: User = Depends(get_current_user), database: Session = 
 
 
 @router.get("/fuel-transactions", response_model=list[FuelTransactionRead])
-def list_fuel_transactions(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[FuelTransaction]:
+def list_fuel_transactions(user: User = Depends(require_permission("fuel_read")), database: Session = Depends(get_db)) -> list[FuelTransaction]:
     statement = select(FuelTransaction).where(FuelTransaction.organization_id == user.organization_id)
     if user.role == "driver":
         statement = statement.where(FuelTransaction.vehicle_id.in_(
@@ -3200,7 +3224,7 @@ def list_fuel_transactions(user: User = Depends(get_current_user), database: Ses
 def create_fuel_transaction(
     payload: FuelTransactionCreate,
     request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("fuel_read")),
     database: Session = Depends(get_db),
 ) -> FuelTransaction:
     vehicle = database.scalar(select(Vehicle).where(Vehicle.id == payload.vehicle_id, Vehicle.organization_id == user.organization_id))
@@ -3234,7 +3258,7 @@ def create_fuel_transaction(
 
 
 @router.get("/toll-transactions", response_model=list[TollTransactionRead])
-def list_toll_transactions(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[TollTransaction]:
+def list_toll_transactions(user: User = Depends(require_permission("finance_read")), database: Session = Depends(get_db)) -> list[TollTransaction]:
     return list(database.scalars(
         select(TollTransaction)
         .where(TollTransaction.organization_id == user.organization_id)
@@ -3270,7 +3294,7 @@ def create_toll_transaction(
 
 
 @router.get("/telematics/devices", response_model=list[TelematicsDeviceRead])
-def list_telematics_devices(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[TelematicsDevice]:
+def list_telematics_devices(user: User = Depends(require_permission("fleet")), database: Session = Depends(get_db)) -> list[TelematicsDevice]:
     return list(database.scalars(
         select(TelematicsDevice)
         .where(TelematicsDevice.organization_id == user.organization_id)
@@ -3603,7 +3627,7 @@ def ingest_telemetry(
 @router.get("/telematics/vehicles/{vehicle_id}/latest", response_model=TelemetryReadingRead)
 def latest_vehicle_telemetry(
     vehicle_id: int,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("fleet")),
     database: Session = Depends(get_db),
 ) -> TelemetryReading:
     reading = database.scalar(
@@ -3617,7 +3641,7 @@ def latest_vehicle_telemetry(
 
 
 @router.get("/vendors", response_model=list[VendorRead])
-def list_vendors(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[Vendor]:
+def list_vendors(user: User = Depends(require_permission("procurement_read")), database: Session = Depends(get_db)) -> list[Vendor]:
     return list(database.scalars(select(Vendor).where(Vendor.organization_id == user.organization_id).order_by(Vendor.name.asc())).all())
 
 
@@ -3646,7 +3670,7 @@ def create_vendor(
 
 
 @router.get("/purchase-orders", response_model=list[PurchaseOrderRead])
-def list_purchase_orders(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[PurchaseOrder]:
+def list_purchase_orders(user: User = Depends(require_permission("procurement_read")), database: Session = Depends(get_db)) -> list[PurchaseOrder]:
     statement = select(PurchaseOrder).options(selectinload(PurchaseOrder.lines)).where(PurchaseOrder.organization_id == user.organization_id).order_by(PurchaseOrder.id.desc())
     return list(database.scalars(statement).unique().all())
 
