@@ -225,7 +225,7 @@ function AuthenticatedApp() {
   const nav = navByRole[user.role] || navByRole.owner
   const filteredQuery = query.trim().toLowerCase()
   return <div className="app-shell"><aside className="sidebar"><div className="sidebar-brand"><span className="brand-symbol">V</span><div><strong>VahanSync</strong><small>Operations OS</small></div></div><div className="tenant-switch"><span className="status-dot" /><div><small>Organisation</small><strong>{user.organization_name}</strong></div><span>⌄</span></div><nav className="primary-nav"><span className="nav-caption">Your workspace</span>{nav.map(([id, label, icon]) => <button key={id} className={page === id ? 'nav-item active' : 'nav-item'} onClick={() => navigate(id)}><span className="nav-icon">{icon}</span>{label}{id === 'notifications' && data.notifications?.some((item) => item.status === 'unread') && <i className="nav-badge" />}</button>)}</nav><div className="sidebar-bottom"><div className="user-card"><span className="avatar">{initials(user.full_name)}</span><div><strong>{user.full_name}</strong><small>{roleNames[user.role]}</small></div></div><button className="signout" onClick={signOut}>↪ Sign out</button></div></aside><main className="main-area"><header className="topbar"><div><span className="breadcrumb">VahanSync <b>/</b> {nav.find(([id]) => id === page)?.[1] || 'Workspace'}</span><h1>{pageTitle(page, user.role)}</h1></div><div className="topbar-actions"><label className="global-search"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search this workspace" /></label><span className="live-pill"><i /> Live data</span><button className="avatar avatar-button" onClick={() => navigate('notifications')}>{initials(user.full_name)}</button></div></header><div className="content">
-    {page === 'command' && <><CommandPage role={user.role} data={data} onNavigate={navigate} />{['owner', 'fleet_manager'].includes(user.role) && <FleetAnalyticsPanel analytics={data.analytics} />}</>}
+    {page === 'command' && <><CommandPage token={token} role={user.role} data={data} onNavigate={navigate} />{['owner', 'fleet_manager'].includes(user.role) && <FleetAnalyticsPanel analytics={data.analytics} />}</>}
     {page === 'members' && <MembersPage token={token} data={data} refresh={refresh} />}
     {page === 'billing' && <BillingPage token={token} data={data} refresh={refresh} />}
     {page === 'audit' && <AuditPage token={token} entries={data.audit} summary={data.operations} />}
@@ -330,8 +330,23 @@ function LandingPage() {
 function Feature({ number, title, text }) { return <article className="feature-card"><span>{number}</span><h3>{title}</h3><p>{text}</p><a className="text-link" href="/signup">Explore the workflow →</a></article> }
 function Brand() { return <a className="brand" href="/"><span className="brand-symbol">V</span><span><strong>VahanSync</strong><small>Fleet operating system</small></span></a> }
 
-function CommandPage({ role, data, onNavigate }) {
-  return <div className={`command-page role-${role}`}><section className="workspace-hero"><div><span className="overline">{roleNames[role]} workspace</span><h2>{commandHeadline(role)}</h2><p>{commandSubhead(role)}</p></div><div className="hero-date"><span>Today</span><strong>{new Date().toLocaleDateString('en-IN', { weekday: 'long', day: '2-digit', month: 'short' })}</strong><small>Live from organisation records</small></div></section><section className="stat-grid">{commandStats(role, data).map((stat) => <Metric key={stat.label} {...stat} />)}</section><div className="command-grid"><section className="panel"><PanelHeader eyebrow="Next actions" title="Move the operation forward" /><div className="action-list">{commandActions(role).map((action) => <button key={action.page} className="action-card" onClick={() => onNavigate(action.page)}><span className={`action-icon ${action.tone}`}>{action.icon}</span><span><strong>{action.title}</strong><small>{action.detail}</small></span><b>→</b></button>)}</div></section><section className="panel"><PanelHeader eyebrow="Operating picture" title="What needs attention" /><AttentionList role={role} data={data} onNavigate={onNavigate} /></section></div><section className="panel activity-panel"><PanelHeader eyebrow="Connected records" title="Recent organisation activity" /><RecentActivity data={data} /></section></div>
+function CommandPage({ token, role, data, onNavigate }) {
+  const [summary, setSummary] = useState(null)
+  const [workOrderMetrics, setWorkOrderMetrics] = useState(null)
+
+  useEffect(() => {
+    let active = true
+    Promise.all([getDashboardSummary(token), getDashboardMetrics(token, 'work_orders')])
+      .then(([dashboardSummary, metrics]) => {
+        if (!active) return
+        setSummary(dashboardSummary)
+        setWorkOrderMetrics(metrics)
+      })
+      .catch(() => {})
+    return () => { active = false }
+  }, [token])
+
+  return <div className={`command-page role-${role}`}><section className="workspace-hero"><div><span className="overline">{roleNames[role]} workspace</span><h2>{commandHeadline(role)}</h2><p>{commandSubhead(role)}</p></div><div className="hero-date"><span>Today</span><strong>{new Date().toLocaleDateString('en-IN', { weekday: 'long', day: '2-digit', month: 'short' })}</strong><small>Live from organisation records</small></div></section><section className="stat-grid">{commandStats(role, data).map((stat) => <Metric key={stat.label} {...stat} />)}</section>{summary && <DataPanel title="Live dashboard metrics" eyebrow="Backend KPI snapshot"><div className="detail-list"><span><small>Total vehicles</small><strong>{summary.vehicle_count ?? summary.total_vehicles ?? '—'}</strong></span><span><small>Active work orders</small><strong>{summary.active_work_orders ?? summary.open_work_orders ?? '—'}</strong></span><span><small>Work-order statuses</small><strong>{Object.values(workOrderMetrics?.status_counts || {}).reduce((total, count) => total + count, 0) || '—'}</strong></span></div></DataPanel>}<div className="command-grid"><section className="panel"><PanelHeader eyebrow="Next actions" title="Move the operation forward" /><div className="action-list">{commandActions(role).map((action) => <button key={action.page} className="action-card" onClick={() => onNavigate(action.page)}><span className={`action-icon ${action.tone}`}>{action.icon}</span><span><strong>{action.title}</strong><small>{action.detail}</small></span><b>→</b></button>)}</div></section><section className="panel"><PanelHeader eyebrow="Operating picture" title="What needs attention" /><AttentionList role={role} data={data} onNavigate={onNavigate} /></section></div><section className="panel activity-panel"><PanelHeader eyebrow="Connected records" title="Recent organisation activity" /><RecentActivity data={data} /></section></div>
 }
 
 function MembersPage({ token, data, refresh }) {
@@ -1322,6 +1337,18 @@ function FinancialsWorkspace({ token, data, refresh }) {
     }
   }
 
+  async function approve(expenseId) {
+    try {
+      await approveExpense(token, expenseId)
+      refresh('Expense approved.')
+      const [summary, queue] = await Promise.all([getFinancialsSummary(token), getFinancialApprovalQueue(token)])
+      setFinancials(summary)
+      setApprovalQueue(queue || [])
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+
   if (loading) return <div className="page-frame"><h2>Loading financial dashboard…</h2></div>
 
   return (
@@ -1371,6 +1398,7 @@ function FinancialsWorkspace({ token, data, refresh }) {
             dateText(expense.incurred_on),
             <span className="status warn">Pending review</span>,
             <div className="row-actions">
+              <button className="table-action" onClick={() => approve(expense.id)}>Approve</button>
               <button className="table-action" onClick={() => reject(expense.id)}>Reject</button>
             </div>
           ])}
