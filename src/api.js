@@ -24,7 +24,12 @@ async function request(path, options = {}) {
 
   if (!response.ok) {
     const body = await response.json().catch(() => null)
-    const error = new Error(body?.detail || `Request failed with status ${response.status}`)
+    const detail = Array.isArray(body?.detail)
+      ? body.detail.map((item) => item.msg || item.detail || JSON.stringify(item)).join(', ')
+      : typeof body?.detail === 'object'
+        ? JSON.stringify(body.detail)
+        : body?.detail
+    const error = new Error(detail || `Request failed with status ${response.status}`)
     error.status = response.status
     throw error
   }

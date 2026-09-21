@@ -42,7 +42,7 @@ const routeQuery = new URLSearchParams(window.location.search)
 const route = window.location.pathname === '/'
   ? ({ app: '/app', signup: '/signup', invite: '/invite' }[routeQuery.get('page')] || '/')
   : window.location.pathname
-const invitationToken = routeQuery.get('token') || ''
+const invitationToken = routeQuery.get('token') || (window.location.pathname.startsWith('/invite/') ? decodeURIComponent(window.location.pathname.slice('/invite/'.length)) : '')
 const today = () => new Date().toISOString().slice(0, 10)
 const money = (paise = 0) => `₹${(Number(paise) / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
 const dateText = (value) => value ? new Date(value).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
