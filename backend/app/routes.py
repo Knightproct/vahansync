@@ -998,6 +998,7 @@ def dispatch_queued_notifications(
         select(NotificationDelivery)
         .where(
             NotificationDelivery.organization_id == user.organization_id,
+            NotificationDelivery.user_id == user.id,
             NotificationDelivery.channel.in_(("sms", "whatsapp")),
             NotificationDelivery.status.in_(("queued", "failed")),
         )
@@ -2587,6 +2588,47 @@ def build_alerts(user: User, database: Session) -> list[dict[str, str | int]]:
                 "title": f"Work order {work_order.id} is overdue",
                 "detail": f"Due {work_order.due_date}; current status is {work_order.status}",
             })
+    if user.role == "accountant":
+        return []
+    if user.role == "inventory_manager":
+        return [alert for alert in alerts if alert["type"] == "stock_reorder"]
+    if user.role == "driver":
+        assigned_vehicle_ids = {
+            assignment.vehicle_id
+            for assignment in database.scalars(select(VehicleAssignment).where(
+                VehicleAssignment.organization_id == user.organization_id,
+                VehicleAssignment.driver_id == user.id,
+                VehicleAssignment.active.is_(True),
+            )).all()
+        }
+        return [
+            alert for alert in alerts
+            if alert["type"] == "driver_safety" and alert["entity_id"] in assigned_vehicle_ids
+        ]
+    if user.role in {"mechanic", "technician"}:
+        assigned_work_orders = database.scalars(select(WorkOrder).where(
+            WorkOrder.organization_id == user.organization_id,
+            WorkOrder.assigned_user_id == user.id,
+        )).all()
+        assigned_work_order_ids = {work_order.id for work_order in assigned_work_orders}
+        assigned_vehicle_ids = {work_order.vehicle_id for work_order in assigned_work_orders}
+        assigned_component_ids = {
+            component.id
+            for component in database.scalars(select(VehicleComponent).where(
+                VehicleComponent.organization_id == user.organization_id,
+                VehicleComponent.vehicle_id.in_(assigned_vehicle_ids or {-1}),
+            )).all()
+        }
+        return [
+            alert for alert in alerts
+            if (
+                alert["type"] == "maintenance_due"
+                and alert["entity_id"] in assigned_work_order_ids
+            ) or (
+                alert["type"] == "component_due"
+                and alert["entity_id"] in assigned_component_ids
+            )
+        ]
     return alerts
 
 
@@ -2663,7 +2705,7 @@ ALERT_RECIPIENT_ROLES = {
 
 
 @router.get("/alerts")
-def list_alerts(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[dict[str, str | int]]:
+def list_alerts(user: User = Depends(require_permission("notifications")), database: Session = Depends(get_db)) -> list[dict[str, str | int]]:
     return build_alerts(user, database)
 
 
@@ -4866,7 +4908,7 @@ class OnboardingBootstrap(BaseModel):
 
 @router.get("/onboarding/status", response_model=dict)
 def get_onboarding_status(
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_roles("owner")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Get onboarding status for the organization"""
@@ -4910,7 +4952,7 @@ def get_onboarding_status(
 
 @router.get("/onboarding/checklist", response_model=list[OnboardingChecklistItem])
 def get_onboarding_checklist(
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_roles("owner")),
     database: Session = Depends(get_db),
 ) -> list[OnboardingChecklistItem]:
     """Get detailed onboarding checklist"""
@@ -5051,7 +5093,7 @@ def onboarding_bootstrap(
 @router.post("/onboarding/mark-step-complete", response_model=dict)
 def mark_onboarding_step_complete(
     payload: dict,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_roles("owner")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Mark an onboarding step as complete"""
@@ -5307,9 +5349,14 @@ def get_dashboard_metrics(
         raise HTTPException(status_code=404, detail="Organization not found")
     
     if metric_type == "work_orders":
-        statuses = database.query(WorkOrder.status).filter(
+        statement = database.query(WorkOrder.status).filter(
             WorkOrder.organization_id == org.id
-        ).all()
+        )
+        if user.role in {"mechanic", "technician"}:
+            statement = statement.filter(WorkOrder.assigned_user_id == user.id)
+        elif user.role == "driver":
+            return {"metric_type": "work_orders", "data": {}}
+        statuses = statement.all()
         
         status_counts = {}
         for (status,) in statuses:
@@ -5321,9 +5368,23 @@ def get_dashboard_metrics(
         }
     
     elif metric_type == "vehicle_health":
-        vehicles = database.query(Vehicle).filter(
+        statement = database.query(Vehicle).filter(
             Vehicle.organization_id == org.id
-        ).all()
+        )
+        if user.role == "driver":
+            assigned_vehicle_ids = select(VehicleAssignment.vehicle_id).where(
+                VehicleAssignment.organization_id == org.id,
+                VehicleAssignment.driver_id == user.id,
+                VehicleAssignment.active.is_(True),
+            )
+            statement = statement.where(Vehicle.id.in_(assigned_vehicle_ids))
+        elif user.role in {"mechanic", "technician"}:
+            assigned_vehicle_ids = select(WorkOrder.vehicle_id).where(
+                WorkOrder.organization_id == org.id,
+                WorkOrder.assigned_user_id == user.id,
+            )
+            statement = statement.where(Vehicle.id.in_(assigned_vehicle_ids))
+        vehicles = statement.all()
         
         health_distribution = {
             "excellent": 0,
@@ -5348,6 +5409,8 @@ def get_dashboard_metrics(
         }
     
     elif metric_type == "expenses":
+        if user.role not in {"owner", "accountant"}:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Finance metrics are restricted")
         # Sum expenses by category
         expenses = database.query(
             Expense.category,
