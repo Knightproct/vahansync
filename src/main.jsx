@@ -229,6 +229,7 @@ function AuthenticatedApp() {
     {page === 'members' && <MembersPage token={token} data={data} refresh={refresh} />}
     {page === 'billing' && <BillingPage token={token} data={data} refresh={refresh} />}
     {page === 'audit' && <AuditPage token={token} entries={data.audit} summary={data.operations} />}
+    {page === 'settings' && <OrganizationSettingsPage token={token} refresh={refresh} />}
     {page === 'vehicles' && <VehiclesPage token={token} data={data} refresh={refresh} query={filteredQuery} />}
     {page === 'maintenance' && <MaintenancePage token={token} data={data} refresh={refresh} query={filteredQuery} />}
     {page === 'compliance' && <CompliancePage token={token} data={data} refresh={refresh} query={filteredQuery} />}
@@ -247,7 +248,7 @@ function AuthenticatedApp() {
     {page === 'driver-behavior' && <DriverBehaviorWorkspace token={token} data={data} refresh={refresh} />}
     {page === 'fuel-tracking' && <FuelTrackingWorkspace token={token} data={data} refresh={refresh} />}
     {page === 'compliance-versions' && <ComplianceVersioningWorkspace token={token} data={data} refresh={refresh} />}
-    {page === 'notifications' && <NotificationsPage token={token} data={data} refresh={refresh} />}
+    {page === 'notifications' && <NotificationsPage token={token} data={data} refresh={refresh} role={user.role} />}
     {page === 'profile' && <ProfilePage token={token} user={user} refresh={(message, updated) => { if (updated) setUser(updated); refresh(message) }} />}
   </div></main>{notice && <div className="toast">{notice}</div>}</div>
 }
@@ -355,6 +356,68 @@ function ProfilePage({ token, user, refresh }) {
     }
   }
   return <PageFrame eyebrow="Account control" title="Profile & account" description="Keep your identity and mobile contact current for workspace access and consent-aware notifications."><div className="split-grid"><FormCard title="Personal profile" description="Changes apply to your VahanSync member record immediately."><form className="stack-form" onSubmit={save}><Field label="Full name" value={form.full_name} onChange={(value) => setForm({ ...form, full_name: value })} required /><Field label="Work email" value={user.email} onChange={() => {}} type="email" disabled /><Field label="Mobile number" type="tel" value={form.mobile_phone} onChange={(value) => setForm({ ...form, mobile_phone: value })} placeholder="+91 98765 43210" /><button className="primary-button">Save profile</button></form></FormCard><DataPanel title="Access details" eyebrow="Read-only identity"><div className="detail-list"><span><small>Workspace role</small><strong>{roleNames[user.role]}</strong></span><span><small>Organisation</small><strong>{user.organization_name}</strong></span><span><small>Member ID</small><strong>#{user.id}</strong></span></div></DataPanel></div></PageFrame>
+}
+
+function OrganizationSettingsPage({ token, refresh }) {
+  const [settings, setSettings] = useState(null)
+  const [quota, setQuota] = useState(null)
+  const [form, setForm] = useState({ name: '', timezone: 'Asia/Kolkata', default_currency: 'INR' })
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    Promise.all([getOrganizationSettings(token), getOrganizationQuota(token)])
+      .then(([organizationSettings, organizationQuota]) => {
+        if (!active) return
+        setSettings(organizationSettings)
+        setQuota(organizationQuota)
+        setForm({
+          name: organizationSettings?.name || '',
+          timezone: organizationSettings?.timezone || 'Asia/Kolkata',
+          default_currency: organizationSettings?.default_currency || 'INR',
+        })
+      })
+      .catch((error) => refresh(error.message))
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [token])
+
+  async function save(event) {
+    event.preventDefault()
+    setSaving(true)
+    try {
+      const updated = await updateOrganizationSettings(token, form)
+      setSettings(updated)
+      refresh('Organisation settings saved.')
+    } catch (error) {
+      refresh(error.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) return <div className="page-frame"><h2>Loading organisation settings…</h2></div>
+
+  return <PageFrame eyebrow="02 · Governance" title="Organisation settings" description="Control tenant defaults and monitor the capacity available to your operating teams.">
+    <div className="split-grid">
+      <FormCard title="Tenant defaults" description="These values are applied to new operational records unless overridden by a workflow.">
+        <form className="stack-form" onSubmit={save}>
+          <Field label="Organisation name" value={form.name} onChange={(value) => setForm({ ...form, name: value })} required />
+          <SelectField label="Timezone" value={form.timezone} onChange={(value) => setForm({ ...form, timezone: value })} options={['Asia/Kolkata', 'UTC', 'Asia/Dubai', 'Asia/Singapore'].map((value) => [value, value])} />
+          <SelectField label="Default currency" value={form.default_currency} onChange={(value) => setForm({ ...form, default_currency: value })} options={['INR', 'USD', 'AED', 'SGD'].map((value) => [value, value])} />
+          <button className="primary-button" disabled={saving}>{saving ? 'Saving…' : 'Save settings'}</button>
+        </form>
+      </FormCard>
+      <DataPanel title="Capacity" eyebrow="Current plan quota">
+        <div className="detail-list">
+          <span><small>Vehicles used</small><strong>{quota?.vehicles_used ?? '—'} / {quota?.vehicles_limit ?? '—'}</strong></span>
+          <span><small>Members used</small><strong>{quota?.members_used ?? '—'} / {quota?.members_limit ?? '—'}</strong></span>
+          <span><small>Subscription</small><strong>{settings?.subscription_status || quota?.plan_code || '—'}</strong></span>
+        </div>
+      </DataPanel>
+    </div>
+  </PageFrame>
 }
 
 function BillingPage({ token, data, refresh }) {
@@ -501,10 +564,47 @@ function FinancePageLegacy({ token, data, refresh }) {
   return <PageFrame eyebrow="01 · Finance control" title="Ledger & costs" description="Record operating spend with GST context, reconcile the evidence, and keep vehicle cost visible to the organisation."><div className="stat-grid"><Metric label="Pending review" value={data.expenses.filter((item) => item.status === 'Pending').length} detail="expense records" tone="amber" /><Metric label="Approved spend" value={money(data.expenses.filter((item) => item.status === 'Approved').reduce((sum, item) => sum + item.amount_paise, 0))} detail="current loaded ledger" tone="green" /><Metric label="GST captured" value={money(data.expenses.reduce((sum, item) => sum + item.gst_amount_paise, 0))} detail="tax context" tone="blue" /></div><div className="three-grid"><FormCard title="Expense" description="GST-ready operational cost."><form className="stack-form" onSubmit={addExpense}><SelectField label="Vehicle" value={expense.vehicle_id} onChange={(value) => setExpense({ ...expense, vehicle_id: value })} options={[['', 'Organisation expense'], ...data.vehicles.map((vehicle) => [String(vehicle.id), vehicle.registration_number])]} /><Field label="Category" value={expense.category} onChange={(value) => setExpense({ ...expense, category: value })} required /><Field label="Description" value={expense.description} onChange={(value) => setExpense({ ...expense, description: value })} required /><Field label="Amount (paise)" type="number" value={expense.amount_paise} onChange={(value) => setExpense({ ...expense, amount_paise: value })} required /><Field label="GST (paise)" type="number" value={expense.gst_amount_paise} onChange={(value) => setExpense({ ...expense, gst_amount_paise: value })} /><Field label="Incurred on" type="date" value={expense.incurred_on} onChange={(value) => setExpense({ ...expense, incurred_on: value })} /><button className="primary-button">Submit expense</button></form></FormCard><FormCard title="Fuel log" description="Capture litres, rate, and odometer together."><form className="stack-form" onSubmit={addFuel}><SelectField label="Vehicle" value={fuel.vehicle_id} onChange={(value) => setFuel({ ...fuel, vehicle_id: value })} options={[['', 'Select vehicle'], ...data.vehicles.map((vehicle) => [String(vehicle.id), vehicle.registration_number])]} required /><Field label="Station" value={fuel.station} onChange={(value) => setFuel({ ...fuel, station: value })} /><Field label="Fuel type" value={fuel.fuel_type} onChange={(value) => setFuel({ ...fuel, fuel_type: value })} required /><Field label="Litres (milli)" type="number" value={fuel.litres_milli} onChange={(value) => setFuel({ ...fuel, litres_milli: value })} required /><Field label="Rate per litre (paise)" type="number" value={fuel.price_per_litre_paise} onChange={(value) => setFuel({ ...fuel, price_per_litre_paise: value })} required /><Field label="Odometer (km)" type="number" value={fuel.odometer_km} onChange={(value) => setFuel({ ...fuel, odometer_km: value })} required /><Field label="Date" type="date" value={fuel.incurred_on} onChange={(value) => setFuel({ ...fuel, incurred_on: value })} /><button className="primary-button">Record fuel</button></form></FormCard><FormCard title="Toll" description="FASTag and plaza context for route cost."><form className="stack-form" onSubmit={addToll}><SelectField label="Vehicle" value={toll.vehicle_id} onChange={(value) => setToll({ ...toll, vehicle_id: value })} options={[['', 'Select vehicle'], ...data.vehicles.map((vehicle) => [String(vehicle.id), vehicle.registration_number])]} required /><Field label="Plaza" value={toll.plaza} onChange={(value) => setToll({ ...toll, plaza: value })} required /><Field label="Amount (paise)" type="number" value={toll.amount_paise} onChange={(value) => setToll({ ...toll, amount_paise: value })} required /><Field label="Date" type="date" value={toll.incurred_on} onChange={(value) => setToll({ ...toll, incurred_on: value })} /><button className="primary-button">Record toll</button></form></FormCard></div><DataPanel title="Expense approval queue" eyebrow={`${data.expenses.length} records`}><Table headers={['Date', 'Category', 'Vehicle', 'Amount', 'Status', 'Action']} rows={data.expenses.map((item) => [dateText(item.incurred_on), item.category, item.vehicle_id ? `#${item.vehicle_id}` : 'Organisation', money(item.amount_paise), <span className={`status ${item.status === 'Approved' ? 'good' : item.status === 'Rejected' ? 'bad' : 'warn'}`}>{item.status}</span>, item.status === 'Pending' ? <button className="table-action" onClick={() => approve(item)}>Reconcile</button> : '—'])} empty="No expense records have been submitted." /></DataPanel></PageFrame>
 }
 
-function NotificationsPage({ token, data, refresh }) {
+function NotificationsPage({ token, data, refresh, role }) {
+  const [selected, setSelected] = useState([])
+  const [source, setSource] = useState(null)
+  const [pending, setPending] = useState(null)
+
+  useEffect(() => {
+    let active = true
+    getPendingNotifications(token).then((result) => {
+      if (active) setPending(result)
+    }).catch((error) => refresh(error.message))
+    return () => { active = false }
+  }, [token])
+
   async function mark(item, status) { try { if (status === 'resolved') await resolveNotification(token, item.id); else await updateNotification(token, item.id, status); refresh('Notification updated.') } catch (error) { refresh(error.message) } }
   async function savePreference(preference) { try { await updateNotificationPreference(token, preference); refresh('Notification preference saved.') } catch (error) { refresh(error.message) } }
-  return <PageFrame eyebrow="01 · Shared control" title="Notifications" description="Every member receives durable in-app delivery. SMS and WhatsApp remain explicit, consent-aware provider boundaries."><div className="notification-banner"><div><span className="overline">Delivery centre</span><h3>{data.notifications.filter((item) => item.status === 'unread').length} unread operational alerts</h3><p>Mobile delivery requires a saved mobile number and configured provider credentials.</p></div><button className="secondary-button" onClick={async () => { try { await dispatchQueuedSms(token); refresh('Queued SMS delivery attempted.') } catch (error) { refresh(error.message) } }}>Dispatch queued SMS</button></div><div className="split-grid"><DataPanel title="In-app alert inbox" eyebrow={`${data.notifications.length} alerts`}><div className="notification-list">{data.notifications.map((item) => <article key={item.id}><div><span className={`severity ${item.severity}`}>{item.severity}</span><strong>{item.title}</strong><p>{item.detail}</p><small>{dateText(item.created_at)} · {item.entity_type} #{item.entity_id}</small></div><div className="row-actions">{item.status === 'unread' && <button className="table-action" onClick={() => mark(item, 'read')}>Mark read</button>}{item.status !== 'resolved' && <button className="table-action" onClick={() => mark(item, 'resolved')}>Resolve</button>}</div></article>)}{!data.notifications.length && <EmptyState visible title="No alerts" text="Operational alerts generated by the backend will appear here." />}</div></DataPanel><DataPanel title="Channel preferences" eyebrow="Member delivery policy"><div className="preference-list">{data.notificationPreferences.map((item) => <div className="preference-row" key={item.notification_type}><span><strong>{item.notification_type}</strong><small>Choose how this alert reaches you.</small></span><label><input type="checkbox" checked={item.in_app} onChange={(event) => savePreference({ ...item, in_app: event.target.checked })} /> In-app</label><label><input type="checkbox" checked={item.sms} onChange={(event) => savePreference({ ...item, sms: event.target.checked })} /> SMS</label><label><input type="checkbox" checked={item.whatsapp} onChange={(event) => savePreference({ ...item, whatsapp: event.target.checked })} /> WhatsApp</label></div>)}{!data.notificationPreferences.length && <p className="empty-copy">Preferences will be created when notification types are first provisioned.</p>}</div></DataPanel></div><DataPanel title="Delivery attempts" eyebrow={`${data.deliveries.length} records`}><Table headers={['Channel', 'User', 'Status', 'Provider message', 'Sent']} rows={data.deliveries.map((item) => [item.channel, `User #${item.user_id}`, item.status, item.provider_message_id || '—', dateText(item.sent_at)])} empty="No delivery attempts recorded." /></DataPanel></PageFrame>
+  async function inspect(item) {
+    try {
+      setSource(await getNotificationSourceDetail(token, item.id))
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+  async function escalate(item) {
+    try {
+      await escalateNotification(token, item.id, { severity: 'CRITICAL', reason: 'Escalated from notification workspace' })
+      refresh('Notification escalated.')
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+  async function resolveSelected() {
+    if (!selected.length) return
+    try {
+      await bulkResolveNotifications(token, { notification_ids: selected })
+      setSelected([])
+      refresh('Selected notifications resolved.')
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+  return <PageFrame eyebrow="01 · Shared control" title="Notifications" description="Every member receives durable in-app delivery. SMS and WhatsApp remain explicit, consent-aware provider boundaries."><div className="notification-banner"><div><span className="overline">Delivery centre</span><h3>{data.notifications.filter((item) => item.status === 'unread').length} unread operational alerts</h3><p>{pending?.total_pending ?? 0} pending notifications across all severities.</p></div><div className="row-actions"><button className="secondary-button" disabled={!selected.length} onClick={resolveSelected}>Resolve selected</button><button className="secondary-button" onClick={async () => { try { await dispatchQueuedSms(token); refresh('Queued SMS delivery attempted.') } catch (error) { refresh(error.message) } }}>Dispatch queued SMS</button></div></div><div className="split-grid"><DataPanel title="In-app alert inbox" eyebrow={`${data.notifications.length} alerts`}><div className="notification-list">{data.notifications.map((item) => <article key={item.id}><div><label className="checkbox-row"><input type="checkbox" checked={selected.includes(item.id)} onChange={(event) => setSelected(event.target.checked ? [...selected, item.id] : selected.filter((id) => id !== item.id))} /><span><span className={`severity ${item.severity}`}>{item.severity}</span><strong>{item.title}</strong><p>{item.detail}</p><small>{dateText(item.created_at)} · {item.entity_type} #{item.entity_id}</small></span></label></div><div className="row-actions"><button className="table-action" onClick={() => inspect(item)}>Inspect source</button>{item.status === 'unread' && <button className="table-action" onClick={() => mark(item, 'read')}>Mark read</button>}{item.status !== 'resolved' && <button className="table-action" onClick={() => mark(item, 'resolved')}>Resolve</button>}{['owner', 'fleet_manager'].includes(role) && <button className="table-action" onClick={() => escalate(item)}>Escalate</button>}</div></article>)}{!data.notifications.length && <EmptyState visible title="No alerts" text="Operational alerts generated by the backend will appear here." />}</div></DataPanel><DataPanel title="Channel preferences" eyebrow="Member delivery policy"><div className="preference-list">{data.notificationPreferences.map((item) => <div className="preference-row" key={item.notification_type}><span><strong>{item.notification_type}</strong><small>Choose how this alert reaches you.</small></span><label><input type="checkbox" checked={item.in_app} onChange={(event) => savePreference({ ...item, in_app: event.target.checked })} /> In-app</label><label><input type="checkbox" checked={item.sms} onChange={(event) => savePreference({ ...item, sms: event.target.checked })} /> SMS</label><label><input type="checkbox" checked={item.whatsapp} onChange={(event) => savePreference({ ...item, whatsapp: event.target.checked })} /> WhatsApp</label></div>)}{!data.notificationPreferences.length && <p className="empty-copy">Preferences will be created when notification types are first provisioned.</p>}</div></DataPanel></div>{source && <DataPanel title="Notification source" eyebrow={source.source?.type || 'Linked record'}><div className="detail-list"><span><small>Title</small><strong>{source.title}</strong></span><span><small>Detail</small><strong>{source.detail}</strong></span><span><small>Status</small><strong>{source.status}</strong></span><span><small>Source</small><strong>{source.source?.registration || source.source?.title || `#${source.source?.id || '—'}`}</strong></span></div></DataPanel>}<DataPanel title="Delivery attempts" eyebrow={`${data.deliveries.length} records`}><Table headers={['Channel', 'User', 'Status', 'Provider message', 'Sent']} rows={data.deliveries.map((item) => [item.channel, `User #${item.user_id}`, item.status, item.provider_message_id || '—', dateText(item.sent_at)])} empty="No delivery attempts recorded." /></DataPanel></PageFrame>
 }
 
 function PageFrame({ eyebrow, title, description, children }) { return <div className="page-frame"><div className="page-intro"><span className="overline">{eyebrow}</span><h2>{title}</h2><p>{description}</p></div>{children}</div> }
@@ -926,6 +1026,7 @@ root.render(<App />)
 function TriageWorkspace({ token, data, refresh }) {
   const [triageData, setTriageData] = useState([])
   const [triageStats, setTriageStats] = useState(null)
+  const [assignableMembers, setAssignableMembers] = useState([])
   const [selectedIssue, setSelectedIssue] = useState(null)
   const [escalateForm, setEscalateForm] = useState({ priority: 'high', reason: '', assignee: '' })
   const [loading, setLoading] = useState(true)
@@ -935,10 +1036,11 @@ function TriageWorkspace({ token, data, refresh }) {
     let active = true
     async function load() {
       try {
-        const [queue, stats] = await Promise.all([getTriageQueue(token), getTriageStats(token)])
+        const [queue, stats, members] = await Promise.all([getTriageQueue(token), getTriageStats(token), getAssignableMembers(token)])
         if (active) {
           setTriageData(Array.isArray(queue) ? queue : queue?.queue || queue?.data || [])
           setTriageStats(stats)
+          setAssignableMembers(members || [])
         }
       } catch (error) {
         refresh(error.message)
@@ -953,7 +1055,7 @@ function TriageWorkspace({ token, data, refresh }) {
 
   async function escalate(issue) {
     try {
-      await escalateTriageIssue(token, issue.id, { ...escalateForm, issue_id: issue.id })
+      await escalateTriageIssue(token, issue.id, { ...escalateForm, assigned_user_id: escalateForm.assignee ? Number(escalateForm.assignee) : null, issue_id: issue.id })
       refresh('Issue escalated successfully.')
       setSelectedIssue(null)
       setEscalateForm({ priority: 'high', reason: '', assignee: '' })
@@ -980,6 +1082,50 @@ function TriageWorkspace({ token, data, refresh }) {
     }
   }
 
+  async function update(issue, status = issue.status) {
+    try {
+      await updateTriageIssue(token, issue.id, { priority: escalateForm.priority, status })
+      refresh('Issue updated.')
+      setSelectedIssue(null)
+      const [queue, stats] = await Promise.all([getTriageQueue(token), getTriageStats(token)])
+      setTriageData(Array.isArray(queue) ? queue : queue?.queue || queue?.data || [])
+      setTriageStats(stats)
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+
+  async function createWorkOrder(issue) {
+    try {
+      await createWorkOrderFromIssue(token, issue.id, {
+        title: issue.title,
+        description: issue.description || issue.detail,
+        priority: issue.priority,
+      })
+      refresh('Work order created from issue.')
+      setSelectedIssue(null)
+      const [queue, stats] = await Promise.all([getTriageQueue(token), getTriageStats(token)])
+      setTriageData(Array.isArray(queue) ? queue : queue?.queue || queue?.data || [])
+      setTriageStats(stats)
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+
+  async function assign(issue, assignedUserId) {
+    if (!assignedUserId) return
+    try {
+      await assignTriageIssue(token, issue.id, { assigned_user_id: Number(assignedUserId) })
+      refresh('Issue assigned.')
+      setSelectedIssue(null)
+      const [queue, stats] = await Promise.all([getTriageQueue(token), getTriageStats(token)])
+      setTriageData(Array.isArray(queue) ? queue : queue?.queue || queue?.data || [])
+      setTriageStats(stats)
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+
   if (loading) return <div className="page-frame"><h2>Loading triage queue…</h2></div>
 
   return (
@@ -995,11 +1141,14 @@ function TriageWorkspace({ token, data, refresh }) {
           <form className="form-grid" onSubmit={(e) => { e.preventDefault(); escalate(selectedIssue) }}>
             <SelectField label="Priority" value={escalateForm.priority} onChange={(value) => setEscalateForm({ ...escalateForm, priority: value })} options={['low', 'medium', 'high', 'critical'].map((p) => [p, p.charAt(0).toUpperCase() + p.slice(1)])} />
             <Field label="Reason" value={escalateForm.reason} onChange={(value) => setEscalateForm({ ...escalateForm, reason: value })} required />
-            <Field label="Assign to" value={escalateForm.assignee} onChange={(value) => setEscalateForm({ ...escalateForm, assignee: value })} />
+            <SelectField label="Assign to" value={escalateForm.assignee} onChange={(value) => setEscalateForm({ ...escalateForm, assignee: value })} options={[['', 'Select mechanic or technician'], ...assignableMembers.map((member) => [String(member.id), member.full_name])]} />
             <div className="row-actions">
               <button className="primary-button">Escalate to work order</button>
               <button type="button" className="secondary-button" onClick={() => setSelectedIssue(null)}>Cancel</button>
               <button type="button" className="secondary-button" onClick={() => resolve(selectedIssue)}>Mark resolved</button>
+              <button type="button" className="secondary-button" onClick={() => update(selectedIssue, 'IN_PROGRESS')}>Save status</button>
+              <button type="button" className="secondary-button" onClick={() => createWorkOrder(selectedIssue)}>Create work order</button>
+              <button type="button" className="secondary-button" disabled={!escalateForm.assignee} onClick={() => assign(selectedIssue, escalateForm.assignee)}>Assign issue</button>
             </div>
           </form>
         </FormCard>
@@ -1305,8 +1454,10 @@ function ActivityFeedWorkspace({ token, data, refresh }) {
 function MaintenancePlanningWorkspace({ token, data, refresh }) {
   const [plans, setPlans] = useState([])
   const [forecast, setForecast] = useState([])
+  const [templates, setTemplates] = useState([])
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ vehicle_id: '', name: '', interval_km: '', interval_days: '', next_due_km: '', next_due_on: today() })
+  const [templateForm, setTemplateForm] = useState({ name: '', description: '', interval_km: '', interval_days: '' })
   const [schedule, setSchedule] = useState({ plan_id: '', scheduled_date: today(), mechanic_id: '', notes: '' })
   const [loading, setLoading] = useState(true)
 
@@ -1315,10 +1466,11 @@ function MaintenancePlanningWorkspace({ token, data, refresh }) {
     let active = true
     async function load() {
       try {
-        const [planList, forecastData] = await Promise.all([getMaintenancePlans(token), getMaintenanceForecast(token)])
+        const [planList, forecastData, templateList] = await Promise.all([getMaintenancePlans(token), getMaintenanceForecast(token), listMaintenanceTemplates(token)])
         if (active) {
           setPlans(planList || [])
           setForecast(forecastData || [])
+          setTemplates(templateList || [])
         }
       } catch (error) {
         refresh(error.message)
@@ -1361,6 +1513,23 @@ function MaintenancePlanningWorkspace({ token, data, refresh }) {
       })
       refresh('Plan scheduled successfully.')
       setSchedule({ plan_id: '', scheduled_date: today(), mechanic_id: '', notes: '' })
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+
+  async function createTemplate(event) {
+    event.preventDefault()
+    try {
+      await createMaintenanceTemplate(token, {
+        ...templateForm,
+        interval_km: templateForm.interval_km ? Number(templateForm.interval_km) : null,
+        interval_days: templateForm.interval_days ? Number(templateForm.interval_days) : null,
+      })
+      const templateList = await listMaintenanceTemplates(token)
+      setTemplates(templateList || [])
+      setTemplateForm({ name: '', description: '', interval_km: '', interval_days: '' })
+      refresh('Maintenance template created.')
     } catch (error) {
       refresh(error.message)
     }
@@ -1419,6 +1588,29 @@ function MaintenancePlanningWorkspace({ token, data, refresh }) {
           empty="No maintenance plans created."
         />
       </DataPanel>
+
+      <div className="split-grid">
+        <FormCard title="Create reusable template" description="Save common service intervals for faster vehicle onboarding.">
+          <form className="stack-form" onSubmit={createTemplate}>
+            <Field label="Template name" value={templateForm.name} onChange={(value) => setTemplateForm({ ...templateForm, name: value })} required />
+            <TextField label="Description" value={templateForm.description} onChange={(value) => setTemplateForm({ ...templateForm, description: value })} />
+            <Field label="Interval km" type="number" value={templateForm.interval_km} onChange={(value) => setTemplateForm({ ...templateForm, interval_km: value })} />
+            <Field label="Interval days" type="number" value={templateForm.interval_days} onChange={(value) => setTemplateForm({ ...templateForm, interval_days: value })} />
+            <button className="primary-button">Save template</button>
+          </form>
+        </FormCard>
+        <DataPanel title="Maintenance templates" eyebrow={`${templates.length} reusable templates`}>
+          <Table
+            headers={['Template', 'Description', 'Interval']}
+            rows={templates.map((template) => [
+              <strong>{template.name}</strong>,
+              template.description || '—',
+              template.interval_km ? `${template.interval_km} km` : template.interval_days ? `${template.interval_days} days` : '—',
+            ])}
+            empty="No reusable templates created."
+          />
+        </DataPanel>
+      </div>
 
       {forecast.length > 0 && (
         <DataPanel title="Forecast horizon" eyebrow={`${forecast.length} upcoming services`}>
