@@ -1866,8 +1866,7 @@ def complete_work_order(
     work_order.status = "Ready for review"
     work_order.completed_at = utc_now()
     
-    # Fixed Bug 21: Sync inventory when work order is completed - deduct used parts
-    from sqlalchemy import and_
+    # Deduct reserved parts when the repair is completed.
     part_usages = database.scalars(select(WorkOrderPartUsage).where(
         WorkOrderPartUsage.work_order_id == work_order_id,
         WorkOrderPartUsage.organization_id == user.organization_id
@@ -1877,8 +1876,8 @@ def complete_work_order(
             Part.id == part_usage.part_id,
             Part.organization_id == user.organization_id
         ))
-        if part and part_usage.quantity_used and part_usage.quantity_used > 0:
-            delta = -part_usage.quantity_used
+        if part and part_usage.quantity > 0:
+            delta = -part_usage.quantity
             if part.quantity_on_hand + delta < 0:
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Insufficient inventory for part {part.name}")
             part.quantity_on_hand += delta
@@ -1886,7 +1885,7 @@ def complete_work_order(
                 organization_id=user.organization_id,
                 part_id=part.id,
                 transaction_type="issue",
-                quantity=part_usage.quantity_used,
+                quantity=part_usage.quantity,
                 created_by=user.id,
                 notes=f"Used in work order #{work_order.id}"
             ))
@@ -2088,9 +2087,10 @@ def record_work_order_part(
     ))
     if work_order is None or part is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Work order or part not found")
+    if payload.quantity <= 0:
+        raise HTTPException(status_code=400, detail="Part quantity must be positive")
     if part.quantity_on_hand < payload.quantity:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Insufficient stock for this work order")
-    part.quantity_on_hand -= payload.quantity
     usage = WorkOrderPartUsage(
         organization_id=user.organization_id,
         work_order_id=work_order_id,
@@ -5550,6 +5550,8 @@ def reserve_part_for_work_order(
     if not part or part.organization_id != user.organization_id:
         raise HTTPException(status_code=404, detail="Part not found")
     
+    if payload.quantity <= 0:
+        raise HTTPException(status_code=400, detail="Part quantity must be positive")
     if part.quantity_on_hand < payload.quantity:
         raise HTTPException(status_code=400, detail="Insufficient inventory")
     
