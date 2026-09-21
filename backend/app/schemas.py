@@ -663,6 +663,7 @@ class ExpenseRead(ExpenseCreate):
 
     id: int
     organization_id: int
+    created_by: int | None
     approved_by: int | None
     approved_at: datetime | None
     created_at: datetime

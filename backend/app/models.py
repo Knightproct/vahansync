@@ -469,6 +469,7 @@ class Expense(Base):
     payment_mode: Mapped[Optional[str]] = mapped_column(String(40))
     payment_reference: Mapped[Optional[str]] = mapped_column(String(120))
     status: Mapped[str] = mapped_column(String(30), default="Approved", nullable=False)
+    created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), index=True)
     approved_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
     approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)

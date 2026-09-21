@@ -3103,7 +3103,7 @@ def create_expense(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="GST components must equal the GST amount")
     if payload.igst_amount_paise and (payload.cgst_amount_paise or payload.sgst_amount_paise):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="IGST cannot be combined with CGST or SGST")
-    expense = Expense(organization_id=user.organization_id, **payload.model_dump())
+    expense = Expense(organization_id=user.organization_id, created_by=user.id, **payload.model_dump())
     if expense.status == "Approved":
         expense.approved_by = user.id
         expense.approved_at = utc_now()
