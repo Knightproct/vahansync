@@ -5172,6 +5172,77 @@ def get_dashboard_summary(
     org = database.get(Organization, user.organization_id)
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
+
+    if user.role not in {"owner", "fleet_manager"}:
+        assigned_vehicle_ids = select(Vehicle.id).where(
+            Vehicle.organization_id == org.id,
+            Vehicle.assigned_driver_id == user.id,
+        )
+        assigned_work_orders = select(WorkOrder.id).where(
+            WorkOrder.organization_id == org.id,
+            WorkOrder.assigned_user_id == user.id,
+        )
+        if user.role in {"mechanic", "technician"}:
+            assigned_vehicle_ids = select(WorkOrder.vehicle_id).where(
+                WorkOrder.organization_id == org.id,
+                WorkOrder.assigned_user_id == user.id,
+            )
+        scoped_vehicle_count = database.scalar(
+            select(func.count(Vehicle.id)).where(Vehicle.id.in_(assigned_vehicle_ids))
+        ) or 0
+        scoped_work_orders = database.query(WorkOrder).filter(
+            WorkOrder.id.in_(assigned_work_orders)
+        )
+        scoped_open = scoped_work_orders.filter(WorkOrder.status == "Open").count()
+        scoped_in_progress = scoped_work_orders.filter(
+            WorkOrder.status.in_(["In progress", "In Progress"])
+        ).count()
+        scoped_completed_today = scoped_work_orders.filter(
+            WorkOrder.status == "Completed",
+            WorkOrder.completed_at >= datetime.now(timezone.utc).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            ),
+        ).count()
+        scoped_notifications = database.scalar(
+            select(func.count(OperationalNotification.id)).join(
+                NotificationDelivery,
+                NotificationDelivery.notification_id == OperationalNotification.id,
+            ).where(
+                OperationalNotification.organization_id == org.id,
+                NotificationDelivery.user_id == user.id,
+                NotificationDelivery.channel == "in_app",
+                OperationalNotification.status == "unread",
+            )
+        ) or 0
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "organization_id": org.id,
+            "organization_name": org.name,
+            "fleet_overview": {
+                "total_vehicles": scoped_vehicle_count,
+                "active_vehicles": 0,
+                "idle_vehicles": scoped_vehicle_count,
+                "avg_fleet_health": 0,
+                "active_drivers": 1 if user.role == "driver" and scoped_vehicle_count else 0,
+            },
+            "work_orders": {
+                "open": scoped_open,
+                "in_progress": scoped_in_progress,
+                "completed_today": scoped_completed_today,
+            },
+            "alerts_and_notifications": {
+                "unread_notifications": scoped_notifications,
+                "critical_alerts": 0,
+            },
+            "inventory": {
+                "low_stock_items": 0,
+                "total_items": 0,
+            },
+            "maintenance": {"upcoming_tasks": 0},
+            "fuel_efficiency": {"avg_km_per_liter": 0.0},
+            "compliance": {"expired_documents": 0, "expiring_soon": 0},
+            "recent_activity": {"work_orders": [], "notifications": []},
+        }
     
     # Count vehicles
     vehicle_count = database.query(Vehicle).filter(
