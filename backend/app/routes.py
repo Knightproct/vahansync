@@ -1126,7 +1126,6 @@ def update_vehicle(
     database: Session = Depends(get_db),
 ) -> Vehicle:
     # Fixed Bug 15: Add row-level locking for atomic status transitions
-    from sqlalchemy.orm import with_for_update
     vehicle = database.scalar(select(Vehicle).where(
         Vehicle.id == vehicle_id,
         Vehicle.organization_id == user.organization_id,
@@ -2196,7 +2195,6 @@ def create_inventory_transaction(
     database: Session = Depends(get_db),
 ) -> Part:
     # Fixed Bug 14: Add row-level locking to prevent race condition on inventory updates
-    from sqlalchemy.orm import with_for_update
     part = database.scalar(select(Part).where(Part.id == payload.part_id, Part.organization_id == user.organization_id).with_for_update())
     if part is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Part not found in this organization")
