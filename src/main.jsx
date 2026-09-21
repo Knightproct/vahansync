@@ -36,30 +36,13 @@ import {
   getPendingNotifications, bulkResolveNotifications, getAuditLogsAdvanced,
 } from './api'
 import { supabase } from './supabase'
+import { navigateToWorkspace, navByRole, roleNames, workspaceForRole, workspaceFromLocation } from './navigation'
 
 const routeQuery = new URLSearchParams(window.location.search)
 const route = window.location.pathname === '/'
   ? ({ app: '/app', signup: '/signup', invite: '/invite' }[routeQuery.get('page')] || '/')
   : window.location.pathname
 const invitationToken = routeQuery.get('token') || ''
-const roleNames = {
-  owner: 'Owner / Superadmin',
-  fleet_manager: 'Fleet Manager',
-  inventory_manager: 'Inventory Manager',
-  mechanic: 'Mechanic',
-  technician: 'Technician',
-  driver: 'Driver',
-  accountant: 'Accountant',
-}
-const navByRole = {
-  owner: [['command', 'Command centre', '⌂'], ['members', 'Members & invitations', '♙'], ['billing', 'Billing & plans', '₹'], ['audit', 'Audit trail', '≋'], ['triage', 'Triage queue', '⚠'], ['reports', 'Reports', '📊'], ['finance', 'Financial dashboard', '₹'], ['activity', 'Activity feed', '◈'], ['telematics', 'GPS & telematics', '⛛'], ['driver-behavior', 'Driver behavior', '👤'], ['fuel-tracking', 'Fuel tracking', '⛽'], ['compliance-versions', 'Compliance vault', '🔐'], ['notifications', 'Notifications', '◌'], ['profile', 'Profile & account', '◎']],
-  fleet_manager: [['fleet', 'Fleet command', '⌂'], ['vehicles', 'Vehicle register', '▣'], ['maintenance', 'Maintenance board', '◆'], ['maintenance-planning', 'Maintenance planning', '📅'], ['compliance', 'Compliance vault', '▤'], ['telematics', 'GPS & telematics', '⛛'], ['driver-behavior', 'Driver behavior', '👤'], ['fuel-tracking', 'Fuel tracking', '⛽'], ['triage', 'Triage queue', '⚠'], ['reports', 'Reports', '📊'], ['activity', 'Activity feed', '◈'], ['notifications', 'Notifications', '◌'], ['profile', 'Profile & account', '◎']],
-  inventory_manager: [['command', 'Workshop command', '⌂'], ['inventory', 'Parts & stock', '▦'], ['procurement', 'Procurement', '◇'], ['vendors', 'Vendor directory', '🤝'], ['fuel-tracking', 'Fuel tracking', '⛽'], ['notifications', 'Notifications', '◌'], ['profile', 'Profile & account', '◎']],
-  technician: [['command', 'Repair command', '⌂'], ['work', 'Assigned work', '◆'], ['fuel-tracking', 'Fuel tracking', '⛽'], ['notifications', 'Notifications', '◌'], ['profile', 'Profile & account', '◎']],
-  mechanic: [['command', 'Workshop command', '⌂'], ['work', 'Assigned work', '◆'], ['fuel-tracking', 'Fuel tracking', '⛽'], ['notifications', 'Notifications', '◌'], ['profile', 'Profile & account', '◎']],
-  driver: [['command', 'Driver home', '⌂'], ['checks', 'Daily checks', '✓'], ['driver-behavior', 'Driver behavior', '👤'], ['fuel-tracking', 'Fuel tracking', '⛽'], ['notifications', 'Notifications', '◌'], ['profile', 'Profile & account', '◎']],
-  accountant: [['command', 'Finance command', '⌂'], ['finance', 'Financial dashboard', '₹'], ['activity', 'Activity feed', '◈'], ['fuel-tracking', 'Fuel tracking', '⛽'], ['notifications', 'Notifications', '◌'], ['profile', 'Profile & account', '◎']],
-}
 const today = () => new Date().toISOString().slice(0, 10)
 const money = (paise = 0) => `₹${(Number(paise) / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
 const dateText = (value) => value ? new Date(value).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
@@ -108,13 +91,29 @@ function AuthPage({ mode, token }) {
 function AuthenticatedApp() {
   const [token, setToken] = useState(() => sessionStorage.getItem('vahana:access-token'))
   const [user, setUser] = useState(null)
-  const [page, setPage] = useState('command')
+  const [page, setPage] = useState(workspaceFromLocation)
   const [query, setQuery] = useState('')
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [refreshKey, setRefreshKey] = useState(0)
   const [data, setData] = useState({})
+
+  useEffect(() => {
+    const syncWorkspace = () => setPage(workspaceFromLocation())
+    window.addEventListener('popstate', syncWorkspace)
+    return () => window.removeEventListener('popstate', syncWorkspace)
+  }, [])
+
+  useEffect(() => {
+    if (!user) return
+    const workspace = workspaceForRole(page, user.role)
+    if (workspace !== page) navigate(workspace)
+  }, [page, user])
+
+  function navigate(workspace) {
+    navigateToWorkspace(workspace)
+  }
 
   useEffect(() => {
     if (!supabase) return
@@ -225,8 +224,8 @@ function AuthenticatedApp() {
 
   const nav = navByRole[user.role] || navByRole.owner
   const filteredQuery = query.trim().toLowerCase()
-  return <div className="app-shell"><aside className="sidebar"><div className="sidebar-brand"><span className="brand-symbol">V</span><div><strong>VahanSync</strong><small>Operations OS</small></div></div><div className="tenant-switch"><span className="status-dot" /><div><small>Organisation</small><strong>{user.organization_name}</strong></div><span>⌄</span></div><nav className="primary-nav"><span className="nav-caption">Your workspace</span>{nav.map(([id, label, icon]) => <button key={id} className={page === id ? 'nav-item active' : 'nav-item'} onClick={() => setPage(id)}><span className="nav-icon">{icon}</span>{label}{id === 'notifications' && data.notifications?.some((item) => item.status === 'unread') && <i className="nav-badge" />}</button>)}</nav><div className="sidebar-bottom"><div className="user-card"><span className="avatar">{initials(user.full_name)}</span><div><strong>{user.full_name}</strong><small>{roleNames[user.role]}</small></div></div><button className="signout" onClick={signOut}>↪ Sign out</button></div></aside><main className="main-area"><header className="topbar"><div><span className="breadcrumb">VahanSync <b>/</b> {nav.find(([id]) => id === page)?.[1] || 'Workspace'}</span><h1>{pageTitle(page, user.role)}</h1></div><div className="topbar-actions"><label className="global-search"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search this workspace" /></label><span className="live-pill"><i /> Live data</span><button className="avatar avatar-button" onClick={() => setPage('notifications')}>{initials(user.full_name)}</button></div></header><div className="content">
-    {page === 'command' && <><CommandPage role={user.role} data={data} onNavigate={setPage} />{['owner', 'fleet_manager'].includes(user.role) && <FleetAnalyticsPanel analytics={data.analytics} />}</>}
+  return <div className="app-shell"><aside className="sidebar"><div className="sidebar-brand"><span className="brand-symbol">V</span><div><strong>VahanSync</strong><small>Operations OS</small></div></div><div className="tenant-switch"><span className="status-dot" /><div><small>Organisation</small><strong>{user.organization_name}</strong></div><span>⌄</span></div><nav className="primary-nav"><span className="nav-caption">Your workspace</span>{nav.map(([id, label, icon]) => <button key={id} className={page === id ? 'nav-item active' : 'nav-item'} onClick={() => navigate(id)}><span className="nav-icon">{icon}</span>{label}{id === 'notifications' && data.notifications?.some((item) => item.status === 'unread') && <i className="nav-badge" />}</button>)}</nav><div className="sidebar-bottom"><div className="user-card"><span className="avatar">{initials(user.full_name)}</span><div><strong>{user.full_name}</strong><small>{roleNames[user.role]}</small></div></div><button className="signout" onClick={signOut}>↪ Sign out</button></div></aside><main className="main-area"><header className="topbar"><div><span className="breadcrumb">VahanSync <b>/</b> {nav.find(([id]) => id === page)?.[1] || 'Workspace'}</span><h1>{pageTitle(page, user.role)}</h1></div><div className="topbar-actions"><label className="global-search"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search this workspace" /></label><span className="live-pill"><i /> Live data</span><button className="avatar avatar-button" onClick={() => navigate('notifications')}>{initials(user.full_name)}</button></div></header><div className="content">
+    {page === 'command' && <><CommandPage role={user.role} data={data} onNavigate={navigate} />{['owner', 'fleet_manager'].includes(user.role) && <FleetAnalyticsPanel analytics={data.analytics} />}</>}
     {page === 'members' && <MembersPage token={token} data={data} refresh={refresh} />}
     {page === 'billing' && <BillingPage token={token} data={data} refresh={refresh} />}
     {page === 'audit' && <AuditPage token={token} entries={data.audit} summary={data.operations} />}
