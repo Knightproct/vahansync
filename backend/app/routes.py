@@ -1400,7 +1400,7 @@ def complete_component_service(
     component_id: int,
     odometer_km: int,
     request: Request,
-    user: User = Depends(require_permission("maintenance")),
+    user: User = Depends(require_roles("owner", "fleet_manager", "mechanic")),
     database: Session = Depends(get_db),
 ) -> VehicleComponent:
     statement = select(VehicleComponent).where(
