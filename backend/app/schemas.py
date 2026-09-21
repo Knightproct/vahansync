@@ -928,7 +928,7 @@ class AssignableMemberRead(BaseModel):
 class WorkOrderAssignmentCreate(BaseModel):
     """Request to assign a work order to a mechanic/technician"""
     mechanic_id: int | None = None
-    work_order_id: int
+    work_order_id: int | None = None
 
 
 class WorkOrderAssignmentRead(BaseModel):
@@ -941,8 +941,8 @@ class WorkOrderAssignmentRead(BaseModel):
     work_order_id: int
     assigned_mechanic_id: int | None
     assigned_mechanic_name: str | None
-    assigned_at: datetime | None
-    status: str | None = "pending"
+    assigned_at: datetime | None = None
+    status: str | None = None
 
 
 class WorkOrderAssignmentUpdate(BaseModel):

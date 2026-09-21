@@ -4250,8 +4250,11 @@ def assign_work_order(
         "id": work_order.id,
         "title": work_order.title,
         "vehicle_id": work_order.vehicle_id,
+        "work_order_id": work_order.id,
         "assigned_mechanic_id": work_order.assigned_user_id,
         "assigned_mechanic_name": mechanic_name,
+        "assigned_at": utc_now() if payload.mechanic_id is not None else None,
+        "status": work_order.status,
     }
 
 
