@@ -4139,6 +4139,8 @@ def assign_vehicle_driver(
         driver_id=payload.driver_id,
         active=True,
     )
+    vehicle.assigned_driver_id = driver.id
+    vehicle.driver_name = driver.full_name
     database.add(assignment)
     database.flush()
     
