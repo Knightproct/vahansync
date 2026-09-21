@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select, func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from .config import get_settings
@@ -720,6 +721,36 @@ def update_user_role(
     return member
 
 
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_user(
+    user_id: int,
+    request: Request,
+    user: User = Depends(require_roles("owner")),
+    database: Session = Depends(get_db),
+) -> Response:
+    member = database.scalar(select(User).where(User.id == user_id, User.organization_id == user.organization_id))
+    if member is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    if member.id == user.id or member.role == "owner":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Owner accounts cannot be removed")
+    database.delete(member)
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="user.deleted",
+        entity_type="user",
+        entity_id=str(member.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps({"email": member.email, "role": member.role}),
+    ))
+    try:
+        database.commit()
+    except IntegrityError as error:
+        database.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Member cannot be removed while linked operational records exist") from error
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.get("/subscription/plans", response_model=list[SubscriptionPlanRead])
 def list_subscription_plans() -> list[dict]:
     return list(SUBSCRIPTION_PLANS.values())
@@ -1160,6 +1191,34 @@ def update_vehicle(
     return vehicle
 
 
+@router.delete("/vehicles/{vehicle_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_vehicle(
+    vehicle_id: int,
+    request: Request,
+    user: User = Depends(require_permission("fleet")),
+    database: Session = Depends(get_db),
+) -> Response:
+    vehicle = database.scalar(select(Vehicle).where(Vehicle.id == vehicle_id, Vehicle.organization_id == user.organization_id))
+    if vehicle is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
+    database.delete(vehicle)
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="vehicle.deleted",
+        entity_type="vehicle",
+        entity_id=str(vehicle.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps({"registration_number": vehicle.registration_number}),
+    ))
+    try:
+        database.commit()
+    except IntegrityError as error:
+        database.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Vehicle cannot be deleted while dependent records exist") from error
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.get("/vehicles/{vehicle_id}/assignments", response_model=list[VehicleAssignmentRead])
 def list_vehicle_assignments(
     vehicle_id: int,
@@ -1289,6 +1348,37 @@ def update_component(
     database.commit()
     database.refresh(component)
     return component
+
+
+@router.delete("/components/{component_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_component(
+    component_id: int,
+    request: Request,
+    user: User = Depends(require_permission("maintenance")),
+    database: Session = Depends(get_db),
+) -> Response:
+    component = database.scalar(select(VehicleComponent).where(
+        VehicleComponent.id == component_id,
+        VehicleComponent.organization_id == user.organization_id,
+    ))
+    if component is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Component not found")
+    database.delete(component)
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="component.deleted",
+        entity_type="vehicle_component",
+        entity_id=str(component.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps({"vehicle_id": component.vehicle_id, "name": component.name}),
+    ))
+    try:
+        database.commit()
+    except IntegrityError as error:
+        database.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Component cannot be deleted while linked service records exist") from error
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/components/{component_id}/service-complete", response_model=ComponentRead)
@@ -1584,6 +1674,39 @@ def update_work_order(
     database.commit()
     database.refresh(work_order)
     return work_order
+
+
+@router.delete("/work-orders/{work_order_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_work_order(
+    work_order_id: int,
+    request: Request,
+    user: User = Depends(require_permission("maintenance")),
+    database: Session = Depends(get_db),
+) -> Response:
+    work_order = database.scalar(select(WorkOrder).where(
+        WorkOrder.id == work_order_id,
+        WorkOrder.organization_id == user.organization_id,
+    ))
+    if work_order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Work order not found")
+    if work_order.status not in {"Draft", "Open", "Archived"}:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only draft, open, or archived work orders can be deleted")
+    database.delete(work_order)
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="work_order.deleted",
+        entity_type="work_order",
+        entity_id=str(work_order.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps({"vehicle_id": work_order.vehicle_id, "title": work_order.title}),
+    ))
+    try:
+        database.commit()
+    except IntegrityError as error:
+        database.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Work order cannot be deleted while checklist, evidence, or parts records exist") from error
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/work-orders/{work_order_id}/checklist", response_model=list[WorkOrderChecklistItemRead])

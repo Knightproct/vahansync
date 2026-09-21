@@ -167,6 +167,13 @@ export function updateUserRole(token, userId, role) {
   })
 }
 
+export function deleteUser(token, userId) {
+  return request(`/api/v1/users/${userId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
 export function getVehicles(token) {
   return request('/api/v1/vehicles', {
     headers: { Authorization: `Bearer ${token}` },
@@ -179,6 +186,13 @@ export function updateVehicle(token, vehicleId, payload) {
     headers: { Authorization: `Bearer ${token}` },
     body: JSON.stringify(payload),
   }).then(mapVehicle)
+}
+
+export function deleteVehicle(token, vehicleId) {
+  return request(`/api/v1/vehicles/${vehicleId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  })
 }
 
 export function getCurrentUser(token) {
@@ -322,6 +336,13 @@ export function updateWorkOrder(token, workOrderId, payload) {
   })
 }
 
+export function deleteWorkOrder(token, workOrderId) {
+  return request(`/api/v1/work-orders/${workOrderId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
 export function getComponents(token) {
   return request('/api/v1/components', { headers: { Authorization: `Bearer ${token}` } })
 }
@@ -339,6 +360,13 @@ export function updateComponent(token, componentId, payload) {
     method: 'PATCH',
     headers: { Authorization: `Bearer ${token}` },
     body: JSON.stringify(payload),
+  })
+}
+
+export function deleteComponent(token, componentId) {
+  return request(`/api/v1/components/${componentId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
   })
 }
 
