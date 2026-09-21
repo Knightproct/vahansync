@@ -236,7 +236,7 @@ function AuthenticatedApp() {
     {page === 'compliance' && <CompliancePage token={token} data={data} refresh={refresh} query={filteredQuery} />}
     {page === 'inventory' && <InventoryPage token={token} data={data} refresh={refresh} query={filteredQuery} />}
     {page === 'fleet' && <FleetManagerWorkspace token={token} data={data} refresh={refresh} query={filteredQuery} />}
-    {page === 'work' && (user.role === 'fleet_manager' ? <FleetManagerWorkspace token={token} data={data} refresh={refresh} query={filteredQuery} /> : <MechanicExecutionWorkspace token={token} data={data} refresh={refresh} query={filteredQuery} />)}
+    {page === 'work' && (user.role === 'fleet_manager' ? <FleetManagerWorkspace token={token} data={data} refresh={refresh} query={filteredQuery} /> : <MechanicExecutionWorkspace role={user.role} token={token} data={data} refresh={refresh} query={filteredQuery} />)}
     {page === 'checks' && <DriverPortal token={token} data={data} refresh={refresh} />}
     {page === 'finance' && (user.role === 'accountant' ? <FinancialsWorkspace token={token} data={data} refresh={refresh} /> : <FinancePage token={token} data={data} refresh={refresh} />)}
     {page === 'triage' && <TriageWorkspace token={token} data={data} refresh={refresh} />}
@@ -901,12 +901,13 @@ function FleetManagerWorkspace({ token, data, refresh }) {
 }
 
 // Mechanic Execution Workspace - Work Acceptance and Completion
-function MechanicExecutionWorkspace({ token, data, refresh, query }) {
+function MechanicExecutionWorkspace({ role, token, data, refresh, query }) {
+  const isMechanic = role === 'mechanic'
   const [selected, setSelected] = useState(null)
   const [checklist, setChecklist] = useState([
-    { title: 'Confirm safety isolation', completed: false },
-    { title: 'Diagnosis and affected component confirmed', completed: false },
-    { title: 'Repair quality and handoff evidence checked', completed: false }
+    { title: isMechanic ? 'Confirm safety isolation and workshop setup' : 'Confirm technical diagnosis and test scope', completed: false },
+    { title: isMechanic ? 'Repair quality and affected component confirmed' : 'Technical findings and affected component confirmed', completed: false },
+    { title: isMechanic ? 'Parts, tools, and handoff evidence checked' : 'Validation results and handoff evidence checked', completed: false }
   ])
   const [laborHours, setLaborHours] = useState('0')
   const [repairNotes, setRepairNotes] = useState('')
@@ -975,7 +976,7 @@ function MechanicExecutionWorkspace({ token, data, refresh, query }) {
   const activeRepairs = orders.filter((order) => ['In progress', 'REWORK'].includes(order.status))
 
   return (
-    <PageFrame eyebrow="01 · Field execution" title="Assigned work" description="Execute only the work assigned to you. Record checklist completion, repair notes, and submit for Fleet Manager review.">
+    <PageFrame eyebrow={isMechanic ? '01 · Field execution · Workshop' : '01 · Field execution · Technical'} title={isMechanic ? 'Mechanic workspace' : 'Technician workspace'} description={isMechanic ? 'Execute assigned workshop repairs, record parts and quality checks, and hand off completed work.' : 'Execute assigned technical work, document diagnosis and validation, and hand off completed work.'}>
       <div className="execution-layout">
         <DataPanel title="My queue" eyebrow={`${orders.length} assigned records`}>
           <div className="queue-list">

@@ -73,6 +73,15 @@ ROLE_PERMISSIONS = {
     "accountant": {"finance", "procurement", "notifications"},
 }
 
+ROLE_POLICY_GROUPS = {
+    "governance": {"owner"},
+    "fleet_operations": {"owner", "fleet_manager"},
+    "inventory_control": {"owner", "inventory_manager"},
+    "field_execution": {"mechanic", "technician"},
+    "driver_safety": {"driver"},
+    "finance": {"owner", "accountant"},
+}
+
 
 def require_permission(permission: str):
     def dependency(user: User = Depends(get_current_user)) -> User:

@@ -2548,6 +2548,15 @@ def build_alerts(user: User, database: Session) -> list[dict[str, str | int]]:
     return alerts
 
 
+ALERT_RECIPIENT_ROLES = {
+    "document_expiry": {"owner", "fleet_manager"},
+    "stock_reorder": {"owner", "inventory_manager"},
+    "component_due": {"owner", "fleet_manager"},
+    "driver_safety": {"fleet_manager"},
+    "maintenance_due": {"owner", "fleet_manager"},
+}
+
+
 @router.get("/alerts")
 def list_alerts(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[dict[str, str | int]]:
     return build_alerts(user, database)
@@ -2770,7 +2779,10 @@ def sync_notifications(user: User, database: Session) -> None:
         )
         database.add(notification)
         database.flush()
-        recipients = database.scalars(select(User).where(User.organization_id == user.organization_id)).all()
+        recipients = database.scalars(select(User).where(
+            User.organization_id == user.organization_id,
+            User.role.in_(ALERT_RECIPIENT_ROLES.get(str(alert["type"]), {"owner"})),
+        )).all()
         for recipient in recipients:
             preference = database.scalar(select(NotificationPreference).where(
                 NotificationPreference.organization_id == user.organization_id,
