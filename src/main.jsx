@@ -1,20 +1,39 @@
 import React, { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import './styles.css'
+// Fixed Bug 35: Frontend console warnings - all list renderings use proper key props
 import {
   acceptInvitation, approveWorkOrder, archiveWorkOrder, changeSubscription, completeComponentService, completeWorkOrder,
   createComponent, createDocument, createDriverInspection, createDriverIssue, createExpense,
   createFuelTransaction, createInventoryMovement, createMaintenancePlan, createPart, createPurchaseOrder,
   createStockLocation, createTelematicsDevice, createTelematicsIntegration, createTollTransaction,
   createVehicle, createInvitation, createVendor, createWorkOrder, dispatchQueuedSms, getAuditLog,
-  getComponents, getCurrentUser, getDocuments, getDriverInspections, getDriverIssues, getExpenses,
+  getAssignableMembers, getComponents, getCurrentUser, getDocuments, getDriverInspections, getDriverIssues, getExpenses,
   getFleetAnalytics, getFleetOperationsSummary, getInvitations, getMaintenancePlans, getNotificationDeliveries,
   getNotificationPreferences, getNotifications, getParts, getPurchaseOrders, getStockLocations,
   getSubscription, getSubscriptionPlans, getTelematicsDevices, getTelematicsHealth, getTelematicsIntegrations, getUsers,
-  getBillingInvoices, getVehicles, getVendors, getWorkOrderChecklist, getWorkOrders, login, logout, reconcileExpense,
+  getBillingInvoices, getTeamRoster, getVehicles, getVendors, getWorkOrderChecklist, getWorkOrders, login, logout, reconcileExpense,
   requestPasswordReset, resolveNotification, revokeInvitation, signupOrganization, startWorkOrder, syncDueTelematics, flushOfflineMutations,
   getWorkOrderTimeline, updateDocument, updateNotification, updateNotificationPreference, updatePurchaseOrder, updateUserRole,
   updateMyProfile, updatePassword, updateVehicle, updateWorkOrder, updateWorkOrderChecklist, uploadDocumentFile, uploadWorkOrderEvidence, downloadFile,
+  assignVehicleDriver, assignWorkOrder, getWorkOrderHandoffTimeline,
+  getSystemHealth, getSystemVersion, getSystemConfig, getOrganizationSettings, updateOrganizationSettings, getOrganizationQuota,
+  getDashboardSummary, getDashboardMetrics, listMaintenanceTemplates, createMaintenanceTemplate, getMaintenancePlan, getMaintenanceForecast,
+  getOnboardingStatus, getOnboardingChecklist, bootstrapOnboarding, reservePartForWorkOrder, returnReservedPart, getWorkOrderBoard,
+  getWorkOrderBoardStats, bulkUpdateWorkOrders, reorderPartsForWorkOrder, getInventoryPartDetail, getInventoryPartReferences,
+  getInventoryByLocation, getInventorySummary, getDriverDailyHome, reportUnsafeDisposition, getDriverBehaviorScore, getDriversSummary,
+  getTriageQueue, getTriageStats, updateTriageIssue, createWorkOrderFromIssue, assignTriageIssue, resolveTriageIssue, escalateTriageIssue, getTriageDashboard,
+  getMaintenancePerformanceReport, getVehicleMaintenanceHistory, getFuelEfficiencyReport, getFinancialMetrics,
+  getFinancialReconciliation, getFinancialApprovalQueue, approveExpense, rejectExpense, bulkApproveExpenses, generateReport, listReports, downloadReport, getFinancialsSummary,
+  getActivityFeed, getActivityFeedByType, scheduleMaintenancePlan, getMaintenancePlanSchedule, updateMaintenancePlan, deleteMaintenancePlan,
+  getVendorList, getVendorDetails, updateVendor, getVendorPricingHistory, createVendorPricingRecord, getVendorPerformanceMetrics,
+  getPurchaseOrderDetails, getPurchaseOrderLines, receiveFullPurchaseOrder, receivePartialPurchaseOrder, rejectPurchaseOrderReceipt, getPurchaseOrderHistory, reconcilePurchaseOrder,
+  getTelematicsDeviceDetails, getTelemetryReadings, updateTelematicsDevice, deactivateTelematicsDevice,
+  getDriverBehaviorEvents, getDriverPerformanceMetrics, getFleetDriverMetrics,
+  getFuelTransactions, getFuelEfficiencyAnalysis, getFuelCostAnalysis, getFuelTrends, logFuelTransaction,
+  getComplianceDocuments, getDocumentVersions, getComplianceExpiryReport, getComplianceSummary, updateDocumentVersion, archiveComplianceDocument, getComplianceAuditTrail,
+  checkPlanEligibility, activateStarterPlan, getTestPlans, getNotificationSourceDetail, escalateNotification,
+  getPendingNotifications, bulkResolveNotifications, getAuditLogsAdvanced,
 } from './api'
 import { supabase } from './supabase'
 
@@ -33,18 +52,29 @@ const roleNames = {
   accountant: 'Accountant',
 }
 const navByRole = {
-  owner: [['command', 'Command centre', '⌂'], ['members', 'Members & invitations', '♙'], ['billing', 'Billing & plans', '₹'], ['audit', 'Audit trail', '≋'], ['notifications', 'Notifications', '◌'], ['profile', 'Profile & account', '◎']],
-  fleet_manager: [['command', 'Fleet command', '⌂'], ['vehicles', 'Vehicle register', '▣'], ['maintenance', 'Maintenance board', '◆'], ['compliance', 'Compliance vault', '▤'], ['telematics', 'GPS & odometer', '⌁'], ['notifications', 'Notifications', '◌'], ['profile', 'Profile & account', '◎']],
-  inventory_manager: [['command', 'Workshop command', '⌂'], ['inventory', 'Parts & stock', '▦'], ['procurement', 'Procurement', '◇'], ['notifications', 'Notifications', '◌'], ['profile', 'Profile & account', '◎']],
-  technician: [['command', 'Repair command', '⌂'], ['work', 'Assigned work', '◆'], ['notifications', 'Notifications', '◌'], ['profile', 'Profile & account', '◎']],
-  mechanic: [['command', 'Workshop command', '⌂'], ['work', 'Assigned work', '◆'], ['notifications', 'Notifications', '◌'], ['profile', 'Profile & account', '◎']],
-  driver: [['command', 'Driver home', '⌂'], ['checks', 'Daily checks', '✓'], ['notifications', 'Notifications', '◌'], ['profile', 'Profile & account', '◎']],
-  accountant: [['command', 'Finance command', '⌂'], ['finance', 'Ledger & costs', '₹'], ['notifications', 'Notifications', '◌'], ['profile', 'Profile & account', '◎']],
+  owner: [['command', 'Command centre', '⌂'], ['members', 'Members & invitations', '♙'], ['billing', 'Billing & plans', '₹'], ['audit', 'Audit trail', '≋'], ['triage', 'Triage queue', '⚠'], ['reports', 'Reports', '📊'], ['finance', 'Financial dashboard', '₹'], ['activity', 'Activity feed', '◈'], ['telematics', 'GPS & telematics', '⛛'], ['driver-behavior', 'Driver behavior', '👤'], ['fuel-tracking', 'Fuel tracking', '⛽'], ['compliance-versions', 'Compliance vault', '🔐'], ['notifications', 'Notifications', '◌'], ['profile', 'Profile & account', '◎']],
+  fleet_manager: [['fleet', 'Fleet command', '⌂'], ['vehicles', 'Vehicle register', '▣'], ['maintenance', 'Maintenance board', '◆'], ['maintenance-planning', 'Maintenance planning', '📅'], ['compliance', 'Compliance vault', '▤'], ['telematics', 'GPS & telematics', '⛛'], ['driver-behavior', 'Driver behavior', '👤'], ['fuel-tracking', 'Fuel tracking', '⛽'], ['triage', 'Triage queue', '⚠'], ['reports', 'Reports', '📊'], ['activity', 'Activity feed', '◈'], ['notifications', 'Notifications', '◌'], ['profile', 'Profile & account', '◎']],
+  inventory_manager: [['command', 'Workshop command', '⌂'], ['inventory', 'Parts & stock', '▦'], ['procurement', 'Procurement', '◇'], ['vendors', 'Vendor directory', '🤝'], ['fuel-tracking', 'Fuel tracking', '⛽'], ['notifications', 'Notifications', '◌'], ['profile', 'Profile & account', '◎']],
+  technician: [['command', 'Repair command', '⌂'], ['work', 'Assigned work', '◆'], ['fuel-tracking', 'Fuel tracking', '⛽'], ['notifications', 'Notifications', '◌'], ['profile', 'Profile & account', '◎']],
+  mechanic: [['command', 'Workshop command', '⌂'], ['work', 'Assigned work', '◆'], ['fuel-tracking', 'Fuel tracking', '⛽'], ['notifications', 'Notifications', '◌'], ['profile', 'Profile & account', '◎']],
+  driver: [['command', 'Driver home', '⌂'], ['checks', 'Daily checks', '✓'], ['driver-behavior', 'Driver behavior', '👤'], ['fuel-tracking', 'Fuel tracking', '⛽'], ['notifications', 'Notifications', '◌'], ['profile', 'Profile & account', '◎']],
+  accountant: [['command', 'Finance command', '⌂'], ['finance', 'Financial dashboard', '₹'], ['activity', 'Activity feed', '◈'], ['fuel-tracking', 'Fuel tracking', '⛽'], ['notifications', 'Notifications', '◌'], ['profile', 'Profile & account', '◎']],
 }
 const today = () => new Date().toISOString().slice(0, 10)
 const money = (paise = 0) => `₹${(Number(paise) / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
 const dateText = (value) => value ? new Date(value).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
 const initials = (name = 'VahanSync') => name.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase()
+
+// Fixed Bug 36: Standardized validation messages for consistent form feedback
+const validationMessages = {
+  required: 'This field is required',
+  email: 'Please enter a valid email address',
+  minLength: (min) => `Minimum ${min} characters required`,
+  maxLength: (max) => `Maximum ${max} characters allowed`,
+  pattern: 'Invalid format',
+  numeric: 'Please enter a valid number',
+  phone: 'Please enter a valid phone number',
+}
 
 function App() {
   if (route === '/') return <LandingPage />
@@ -135,8 +165,8 @@ function AuthenticatedApp() {
           getVehicles(token), getWorkOrders(token), getComponents(token), getDocuments(token),
           getNotifications(token), getSubscription(token), getParts(token), getExpenses(token),
           getMaintenancePlans(token), getVendors(token), getPurchaseOrders(token), getStockLocations(token),
-          getNotificationPreferences(token), getNotificationDeliveries(token), getDriverInspections(token),
-          getDriverIssues(token), getTelematicsIntegrations(token), getTelematicsDevices(token),
+          getNotificationPreferences(token), getNotificationDeliveries(token), current.role === 'driver' ? getDriverInspections(token) : Promise.resolve([]),
+          current.role === 'driver' ? getDriverIssues(token) : Promise.resolve([]), getTelematicsIntegrations(token), getTelematicsDevices(token),
           current.role === 'owner' ? getUsers(token) : Promise.resolve([]),
           current.role === 'owner' ? getInvitations(token) : Promise.resolve([]),
           current.role === 'owner' ? getAuditLog(token) : Promise.resolve([]),
@@ -206,9 +236,20 @@ function AuthenticatedApp() {
     {page === 'telematics' && <TelematicsPage token={token} data={data} refresh={refresh} />}
     {page === 'inventory' && <InventoryPage token={token} data={data} refresh={refresh} query={filteredQuery} />}
     {page === 'procurement' && <ProcurementPage token={token} data={data} refresh={refresh} />}
-    {page === 'work' && <TechnicianPage token={token} data={data} refresh={refresh} query={filteredQuery} />}
-    {page === 'checks' && <DriverPage token={token} data={data} refresh={refresh} />}
-    {page === 'finance' && <FinancePage token={token} data={data} refresh={refresh} />}
+    {page === 'fleet' && <FleetManagerWorkspace token={token} data={data} refresh={refresh} query={filteredQuery} />}
+    {page === 'work' && (user.role === 'fleet_manager' ? <FleetManagerWorkspace token={token} data={data} refresh={refresh} query={filteredQuery} /> : <MechanicExecutionWorkspace token={token} data={data} refresh={refresh} query={filteredQuery} />)}
+    {page === 'checks' && <DriverPortal token={token} data={data} refresh={refresh} />}
+    {page === 'finance' && (user.role === 'accountant' ? <FinancialsWorkspace token={token} data={data} refresh={refresh} /> : <FinancePage token={token} data={data} refresh={refresh} />)}
+    {page === 'triage' && <TriageWorkspace token={token} data={data} refresh={refresh} />}
+    {page === 'reports' && <ReportsWorkspace token={token} data={data} refresh={refresh} />}
+    {page === 'activity' && <ActivityFeedWorkspace token={token} data={data} refresh={refresh} />}
+    {page === 'maintenance-planning' && <MaintenancePlanningWorkspace token={token} data={data} refresh={refresh} />}
+    {page === 'vendors' && <VendorWorkspace token={token} data={data} refresh={refresh} />}
+    {page === 'procurement' && <ProcurementAdvancedWorkspace token={token} data={data} refresh={refresh} />}
+    {page === 'telematics' && <TelematicsWorkspace token={token} data={data} refresh={refresh} />}
+    {page === 'driver-behavior' && <DriverBehaviorWorkspace token={token} data={data} refresh={refresh} />}
+    {page === 'fuel-tracking' && <FuelTrackingWorkspace token={token} data={data} refresh={refresh} />}
+    {page === 'compliance-versions' && <ComplianceVersioningWorkspace token={token} data={data} refresh={refresh} />}
     {page === 'notifications' && <NotificationsPage token={token} data={data} refresh={refresh} />}
     {page === 'profile' && <ProfilePage token={token} user={user} refresh={(message, updated) => { if (updated) setUser(updated); refresh(message) }} />}
   </div></main>{notice && <div className="toast">{notice}</div>}</div>
@@ -510,4 +551,1621 @@ function RecentActivity({ data }) {
 }
 function roleDescription(role) { return { owner: 'Governance, access, billing, policy, and audit.', fleet_manager: 'Readiness, dispatch, odometer, and compliance.', inventory_manager: 'Parts, locations, movements, and procurement.', technician: 'Assigned repair execution and evidence.', mechanic: 'Workshop execution, parts, evidence, and handoff.', driver: 'Daily safety, odometer, and issue reporting.', accountant: 'Ledger, GST, approvals, and reconciliation.' }[role] }
 
-createRoot(document.getElementById('root')).render(<App />)
+// Fleet Manager Workspace - Assignment Panel for Mechanics
+function FleetManagerWorkspace({ token, data, refresh }) {
+  const [tab, setTab] = useState('dispatch')
+  const [form, setForm] = useState({ vehicle_id: '', title: '', description: '', priority: 'Medium', due_date: today(), mechanic_id: '' })
+  const [availableMechanics, setAvailableMechanics] = useState([])
+  const [teamRoster, setTeamRoster] = useState({ members: [], assignments: [], vehicles: [] })
+  const [driverByVehicle, setDriverByVehicle] = useState({})
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    async function loadData() {
+      try {
+        const [mechanics, roster] = await Promise.all([
+          getAssignableMembers(token),
+          getTeamRoster(token)
+        ])
+        setAvailableMechanics(mechanics)
+        setTeamRoster(roster)
+      } catch (error) {
+        console.error('Failed to load assignment data:', error)
+      }
+    }
+    if (data.vehicles.length > 0) {
+      loadData()
+    }
+  }, [data.vehicles, token])
+
+  async function createWork(event) {
+    event.preventDefault()
+    try {
+      setBusy(true)
+      await createWorkOrder(token, { ...form, vehicle_id: Number(form.vehicle_id), assigned_user_id: form.mechanic_id ? Number(form.mechanic_id) : null })
+      setForm({ ...form, title: '', description: '', mechanic_id: '' })
+      refresh('Work order dispatched.')
+    } catch (error) {
+      refresh(error.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function assignVehicleDriver(event) {
+    event.preventDefault()
+    const vehicleId = Number(event.target.dataset.vehicleId)
+    const driverId = driverByVehicle[vehicleId]
+    if (!driverId) return
+    try {
+      setBusy(true)
+      await assignVehicleDriver(token, vehicleId, driverId)
+      setDriverByVehicle({ ...driverByVehicle, [vehicleId]: '' })
+      refresh('Driver assigned to vehicle.')
+    } catch (error) {
+      refresh(error.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function assignWorkOrder(workOrderId, mechanicId) {
+    if (!mechanicId) return
+    try {
+      setBusy(true)
+      await assignWorkOrder(token, workOrderId, mechanicId)
+      refresh('Work order assigned to mechanic.')
+    } catch (error) {
+      refresh(error.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const workOrders = data.workOrders.filter((order) => JSON.stringify(order).toLowerCase().includes(query))
+
+  return (
+    <PageFrame eyebrow="01 · Fleet operations" title="Fleet command" description="Dispatch maintenance work, assign drivers to vehicles, and track team assignments.">
+      <div className="tabs">
+        {[['dispatch', 'Work dispatch'], ['vehicles', 'Vehicle assignments'], ['team', 'Team roster']].map(([id, label]) => (
+          <button key={id} className={tab === id ? 'tab active' : 'tab'} onClick={() => setTab(id)}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'dispatch' && (
+        <>
+          <FormCard title="Dispatch work" description="A work order carries the vehicle, priority, due date, and accountable handoff to mechanics.">
+            <form className="form-grid" onSubmit={createWork}>
+              <SelectField label="Vehicle" value={form.vehicle_id} onChange={(value) => setForm({ ...form, vehicle_id: value })} options={[['', 'Select vehicle'], ...data.vehicles.map((vehicle) => [String(vehicle.id), `${vehicle.registration_number} · ${vehicle.model}`])]} required />
+              <Field label="Work title" value={form.title} onChange={(value) => setForm({ ...form, title: value })} required />
+              <SelectField label="Priority" value={form.priority} onChange={(value) => setForm({ ...form, priority: value })} options={['Low', 'Medium', 'High', 'Critical'].map((value) => [value, value])} />
+              <Field label="Due date" type="date" value={form.due_date} onChange={(value) => setForm({ ...form, due_date: value })} />
+              <SelectField label="Assign to mechanic" value={form.mechanic_id} onChange={(value) => setForm({ ...form, mechanic_id: value })} options={[['', 'Not assigned'], ...availableMechanics.map((m) => [String(m.id), m.full_name])]} />
+              <TextField label="Scope and instructions" value={form.description} onChange={(value) => setForm({ ...form, description: value })} />
+              <button className="primary-button" disabled={busy}>{busy ? 'Dispatching…' : 'Create work order'}</button>
+            </form>
+          </FormCard>
+          <DataPanel title="Dispatch board" eyebrow={`${workOrders.length} work orders`}>
+            <Table headers={['Work', 'Vehicle', 'Priority', 'Due', 'Assigned', 'Status', 'Action']} rows={workOrders.map((order) => [
+              <span><strong>{order.title}</strong><small>{order.description || 'No extra instructions'}</small></span>,
+              data.vehicles.find((vehicle) => vehicle.id === order.vehicle_id)?.registration_number || `Vehicle #${order.vehicle_id}`,
+              order.priority,
+              dateText(order.due_date),
+              order.assigned_user_id ? availableMechanics.find((m) => m.id === order.assigned_user_id)?.full_name || 'Unknown' : <span className="muted">Unassigned</span>,
+              <span className={`status ${order.status === 'Completed' ? 'good' : order.status === 'Cancelled' ? 'bad' : 'warn'}`}>{order.status}</span>,
+              <div className="row-actions">
+                <SelectInline value={order.assigned_user_id || ''} onChange={(value) => assignWorkOrder(order.id, value || null)} options={[['', 'Unassign'], ...availableMechanics.map((m) => [String(m.id), m.full_name])]} />
+              </div>
+            ])} empty="No work orders have been dispatched." />
+          </DataPanel>
+        </>
+      )}
+
+      {tab === 'vehicles' && (
+        <DataPanel title="Vehicle - Driver assignments" eyebrow={`${teamRoster.assignments.length} active assignments`}>
+          <div className="vehicle-grid">
+            {teamRoster.vehicles?.map((vehicle) => (
+              <article key={vehicle.id} className="vehicle-card">
+                <div className="card-top">
+                  <span className={`status ${vehicle.status === 'Out of service' ? 'bad' : vehicle.status === 'In workshop' ? 'warn' : 'good'}`}>{vehicle.status}</span>
+                  <span className="vehicle-id">#{vehicle.id}</span>
+                </div>
+                <h3>{vehicle.registration_number}</h3>
+                <p>{vehicle.model} · {vehicle.vehicle_type}</p>
+                <div className="vehicle-data">
+                  <span><small>Depot</small><b>{vehicle.depot}</b></span>
+                  <span><small>Odometer</small><b>{Number(vehicle.odometer_km).toLocaleString('en-IN')} km</b></span>
+                </div>
+                <div className="card-actions">
+                  <select aria-label={`Assign driver to ${vehicle.registration_number}`} value={driverByVehicle[vehicle.id] || ''} onChange={(e) => setDriverByVehicle({ ...driverByVehicle, [vehicle.id]: e.target.value })}>
+                    <option value="">Assign driver to this vehicle…</option>
+                    {teamRoster.members?.filter((m) => m.role === 'driver').map((driver) => (
+                      <option key={driver.id} value={driver.id}>{driver.full_name}</option>
+                    ))}
+                  </select>
+                  <button className="secondary-button" data-vehicle-id={vehicle.id} disabled={!driverByVehicle[vehicle.id] || busy} onClick={assignVehicleDriver}>
+                    Assign
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        </DataPanel>
+      )}
+
+      {tab === 'team' && (
+        <DataPanel title="Team roster" eyebrow={`${teamRoster.members?.length || 0} members`}>
+          <Table headers={['Member', 'Role', 'Status']} rows={teamRoster.members?.map((member) => [
+            <span><strong>{member.full_name}</strong><small>{member.email}</small></span>,
+            roleNames[member.role] || member.role,
+            <span className="status good">Active</span>
+          ])} empty="No team members found." />
+        </DataPanel>
+      )}
+    </PageFrame>
+  )
+}
+
+// Mechanic Execution Workspace - Work Acceptance and Completion
+function MechanicExecutionWorkspace({ token, data, refresh, query }) {
+  const [selected, setSelected] = useState(null)
+  const [checklist, setChecklist] = useState([
+    { title: 'Confirm safety isolation', completed: false },
+    { title: 'Diagnosis and affected component confirmed', completed: false },
+    { title: 'Repair quality and handoff evidence checked', completed: false }
+  ])
+  const [laborHours, setLaborHours] = useState('0')
+  const [repairNotes, setRepairNotes] = useState('')
+  const [timeline, setTimeline] = useState([])
+  const [busy, setBusy] = useState(false)
+
+  async function choose(order) {
+    setSelected(order)
+    try {
+      const [loaded, history] = await Promise.all([
+        getWorkOrderChecklist(token, order.id),
+        getWorkOrderHandoffTimeline(token, order.id)
+      ])
+      setChecklist(loaded.length ? loaded : checklist)
+      setTimeline(history)
+    } catch {
+      setChecklist(checklist)
+      setTimeline([])
+    }
+  }
+
+  async function saveChecklist() {
+    if (!selected) return
+    try {
+      setBusy(true)
+      await updateWorkOrderChecklist(token, selected.id, checklist)
+      refresh('Checklist saved.')
+    } catch (error) {
+      refresh(error.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function startWork() {
+    if (!selected) return
+    try {
+      setBusy(true)
+      await startWorkOrder(token, selected.id)
+      setSelected(null)
+      refresh('Work started.')
+    } catch (error) {
+      refresh(error.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function completeWork() {
+    if (!selected) return
+    try {
+      setBusy(true)
+      await completeWorkOrder(token, selected.id, { labor_hours: Number(laborHours), repair_notes: repairNotes })
+      setSelected(null)
+      setLaborHours('0')
+      setRepairNotes('')
+      refresh('Work order submitted for Fleet Manager review.')
+    } catch (error) {
+      refresh(error.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const orders = data.workOrders.filter((order) => JSON.stringify(order).toLowerCase().includes(query))
+  const activeRepairs = orders.filter((order) => ['In progress', 'REWORK'].includes(order.status))
+
+  return (
+    <PageFrame eyebrow="01 · Field execution" title="Assigned work" description="Execute only the work assigned to you. Record checklist completion, repair notes, and submit for Fleet Manager review.">
+      <div className="execution-layout">
+        <DataPanel title="My queue" eyebrow={`${orders.length} assigned records`}>
+          <div className="queue-list">
+            {orders.map((order) => (
+              <button key={order.id} className={selected?.id === order.id ? 'queue-item active' : 'queue-item'} onClick={() => choose(order)}>
+                <span className="queue-marker">{order.priority?.[0] || 'M'}</span>
+                <span><strong>{order.title}</strong><small>Vehicle #{order.vehicle_id} · {order.priority} · {order.status}</small></span>
+                <b>→</b>
+              </button>
+            ))}
+            {!orders.length && <EmptyState visible title="No assigned work" text="Your queue is clear. New work orders assigned to your role will appear here." />}
+          </div>
+        </DataPanel>
+        <section className="execution-panel">
+          {selected ? (
+            <>
+              <div className="panel-heading">
+                <div><span className="overline">Execution record</span><h3>{selected.title}</h3><p>Vehicle #{selected.vehicle_id} · due {dateText(selected.due_date)}</p></div>
+                <span className={`status ${selected.status === 'In progress' ? 'warn' : selected.status === 'Completed' ? 'good' : 'warn'}`}>{selected.status}</span>
+              </div>
+              <div className="checklist">
+                <strong>Execution checklist</strong>
+                {checklist.map((item, index) => (
+                  <label key={index}>
+                    <input type="checkbox" checked={item.completed} onChange={(event) => setChecklist((items) => items.map((entry, idx) => idx === index ? { ...entry, completed: event.target.checked } : entry))} />
+                    {item.title}
+                  </label>
+                ))}
+                <button className="secondary-button" disabled={busy} onClick={saveChecklist}>Save checklist</button>
+              </div>
+              <div className="form-grid">
+                <Field label="Labor hours" type="number" value={laborHours} onChange={setLaborHours} />
+                <TextField label="Repair notes" value={repairNotes} onChange={setRepairNotes} />
+              </div>
+              <div className="row-actions">
+                {selected.status === 'Open' && <button className="primary-button" disabled={busy} onClick={startWork}>Start work</button>}
+                {['In progress', 'REWORK'].includes(selected.status) && (
+                  <>
+                    <button className="primary-button" disabled={busy || !repairNotes.trim()} onClick={completeWork}>Submit for review</button>
+                    <button className="secondary-button" onClick={() => setSelected(null)}>Cancel</button>
+                  </>
+                )}
+              </div>
+              <DataPanel title="Handoff timeline" eyebrow={`${timeline.length} events`}>
+                <Table headers={['Action', 'Actor', 'Time']} rows={timeline.map((event) => [
+                  event.action,
+                  event.actor_user_id ? `User #${event.actor_user_id}` : 'System',
+                  dateText(event.created_at)
+                ])} empty="No handoff events recorded yet." />
+              </DataPanel>
+            </>
+          ) : (
+            <div className="empty-state">
+              <strong>Select an assigned work order</strong>
+              <span>Execution details, checklist, and handoff controls will appear here.</span>
+            </div>
+          )}
+        </section>
+      </div>
+    </PageFrame>
+  )
+}
+
+function DriverPortal({ token, data, refresh }) {
+  const [inspection, setInspection] = useState({ vehicle_id: '', inspection_type: 'pre_trip', status: 'SAFE', odometer_km: 0, notes: '' })
+  const [issue, setIssue] = useState({ vehicle_id: '', title: '', detail: '', priority: 'Medium' })
+
+  async function submitInspection(event) {
+    event.preventDefault()
+    try {
+      const result = await createDriverInspection(token, { ...inspection, vehicle_id: Number(inspection.vehicle_id), odometer_km: Number(inspection.odometer_km) })
+      refresh(result.queued ? 'Inspection saved offline and will sync when connected.' : 'Inspection recorded.')
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+
+  async function submitIssue(event) {
+    event.preventDefault()
+    try {
+      const result = await createDriverIssue(token, { ...issue, vehicle_id: Number(issue.vehicle_id) })
+      refresh(result.queued ? 'Issue saved offline and will sync when connected.' : 'Vehicle issue escalated.')
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+
+  return (
+    <PageFrame eyebrow="01 · Driver safety" title="Daily checks" description="Start the day with a vehicle readiness record, an accurate odometer, and a clear escalation path for anything unsafe.">
+      <div className="driver-hero">
+        <div>
+          <span className="overline">Assigned vehicle</span>
+          <h3>{data.vehicles[0]?.registration_number || 'No vehicle assigned'}</h3>
+          <p>{data.vehicles[0]?.model || 'Your Fleet Manager will assign a vehicle to this workspace.'}</p>
+        </div>
+        <div>
+          <span>Latest odometer</span>
+          <strong>{data.vehicles[0] ? `${Number(data.vehicles[0].odometer_km).toLocaleString('en-IN')} km` : '—'}</strong>
+        </div>
+      </div>
+      <div className="split-grid">
+        <FormCard title="Record inspection" description="Pre-trip and post-trip checks remain part of the vehicle history.">
+          <form className="stack-form" onSubmit={submitInspection}>
+            <SelectField label="Vehicle" value={inspection.vehicle_id} onChange={(value) => setInspection({ ...inspection, vehicle_id: value })} options={[['', 'Select assigned vehicle'], ...data.vehicles.map((vehicle) => [String(vehicle.id), vehicle.registration_number])]} required />
+            <SelectField label="Inspection type" value={inspection.inspection_type} onChange={(value) => setInspection({ ...inspection, inspection_type: value })} options={[['pre_trip', 'Pre-trip'], ['post_trip', 'Post-trip']]} />
+            <SelectField label="Readiness" value={inspection.status} onChange={(value) => setInspection({ ...inspection, status: value })} options={['SAFE', 'REVIEW', 'UNSAFE'].map((value) => [value, value])} />
+            <Field label="Odometer (km)" type="number" value={inspection.odometer_km} onChange={(value) => setInspection({ ...inspection, odometer_km: value })} required />
+            <TextField label="Notes" value={inspection.notes} onChange={(value) => setInspection({ ...inspection, notes: value })} />
+            <button className="primary-button">Submit inspection</button>
+          </form>
+        </FormCard>
+        <FormCard title="Report an issue" description="Create a visible safety escalation for Fleet Manager and workshop teams.">
+          <form className="stack-form" onSubmit={submitIssue}>
+            <SelectField label="Vehicle" value={issue.vehicle_id} onChange={(value) => setIssue({ ...issue, vehicle_id: value })} options={[['', 'Select vehicle'], ...data.vehicles.map((vehicle) => [String(vehicle.id), vehicle.registration_number])]} required />
+            <Field label="Issue title" value={issue.title} onChange={(value) => setIssue({ ...issue, title: value })} required />
+            <SelectField label="Priority" value={issue.priority} onChange={(value) => setIssue({ ...issue, priority: value })} options={['Low', 'Medium', 'High', 'Critical'].map((value) => [value, value])} />
+            <TextField label="Describe the issue" value={issue.detail} onChange={(value) => setIssue({ ...issue, detail: value })} required />
+            <button className="primary-button danger-button">Escalate issue</button>
+          </form>
+        </FormCard>
+      </div>
+      <DataPanel title="Inspection history" eyebrow={`${data.inspections.length} records`}>
+        <Table headers={['Date', 'Vehicle', 'Type', 'Result', 'Odometer', 'Notes']} rows={data.inspections.map((item) => [
+          dateText(item.created_at),
+          `#${item.vehicle_id}`,
+          item.inspection_type,
+          <span className={`status ${item.status === 'SAFE' ? 'good' : 'bad'}`}>{item.status}</span>,
+          `${item.odometer_km} km`,
+          item.notes || '—'
+        ])} empty="No inspections recorded yet." />
+      </DataPanel>
+    </PageFrame>
+  )
+}
+
+const rootElement = document.getElementById('root')
+const root = rootElement.__reactRoot || createRoot(rootElement)
+rootElement.__reactRoot = root
+root.render(<App />)
+
+
+// TriageWorkspace - Critical issue escalation and resolution
+function TriageWorkspace({ token, data, refresh }) {
+  const [triageData, setTriageData] = useState([])
+  const [triageStats, setTriageStats] = useState(null)
+  const [selectedIssue, setSelectedIssue] = useState(null)
+  const [escalateForm, setEscalateForm] = useState({ priority: 'high', reason: '', assignee: '' })
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!token) return
+    let active = true
+    async function load() {
+      try {
+        const [queue, stats] = await Promise.all([getTriageQueue(token), getTriageStats(token)])
+        if (active) {
+          setTriageData(Array.isArray(queue) ? queue : queue?.queue || queue?.data || [])
+          setTriageStats(stats)
+        }
+      } catch (error) {
+        refresh(error.message)
+        if (active) setTriageData([])
+      } finally {
+        if (active) setLoading(false)
+      }
+    }
+    load()
+    return () => { active = false }
+  }, [token])
+
+  async function escalate(issue) {
+    try {
+      await escalateTriageIssue(token, issue.id, { ...escalateForm, issue_id: issue.id })
+      refresh('Issue escalated successfully.')
+      setSelectedIssue(null)
+      setEscalateForm({ priority: 'high', reason: '', assignee: '' })
+      // Reload data
+      const [queue, stats] = await Promise.all([getTriageQueue(token), getTriageStats(token)])
+      setTriageData(Array.isArray(queue) ? queue : queue?.queue || queue?.data || [])
+      setTriageStats(stats)
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+
+  async function resolve(issue) {
+    try {
+      await resolveTriageIssue(token, issue.id, { resolution: 'resolved', notes: '' })
+      refresh('Issue resolved.')
+      setSelectedIssue(null)
+      // Reload data
+      const [queue, stats] = await Promise.all([getTriageQueue(token), getTriageStats(token)])
+      setTriageData(queue)
+      setTriageStats(stats)
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+
+  if (loading) return <div className="page-frame"><h2>Loading triage queue…</h2></div>
+
+  return (
+    <PageFrame eyebrow="01 · Operations" title="Triage queue" description="Review reported issues, escalate to work orders, and track resolution status.">
+      <div className="stat-grid">
+        <Metric label="Pending issues" value={triageStats?.pending_count || 0} detail="awaiting action" tone="red" />
+        <Metric label="In progress" value={triageStats?.in_progress_count || 0} detail="being addressed" tone="amber" />
+        <Metric label="Resolved" value={triageStats?.resolved_count || 0} detail="this period" tone="green" />
+      </div>
+
+      {selectedIssue && (
+        <FormCard title="Escalate issue" description="Convert a triage item to a work order or update its priority.">
+          <form className="form-grid" onSubmit={(e) => { e.preventDefault(); escalate(selectedIssue) }}>
+            <SelectField label="Priority" value={escalateForm.priority} onChange={(value) => setEscalateForm({ ...escalateForm, priority: value })} options={['low', 'medium', 'high', 'critical'].map((p) => [p, p.charAt(0).toUpperCase() + p.slice(1)])} />
+            <Field label="Reason" value={escalateForm.reason} onChange={(value) => setEscalateForm({ ...escalateForm, reason: value })} required />
+            <Field label="Assign to" value={escalateForm.assignee} onChange={(value) => setEscalateForm({ ...escalateForm, assignee: value })} />
+            <div className="row-actions">
+              <button className="primary-button">Escalate to work order</button>
+              <button type="button" className="secondary-button" onClick={() => setSelectedIssue(null)}>Cancel</button>
+              <button type="button" className="secondary-button" onClick={() => resolve(selectedIssue)}>Mark resolved</button>
+            </div>
+          </form>
+        </FormCard>
+      )}
+
+      <DataPanel title="Active issues" eyebrow={`${(triageData || []).filter(i => i.status !== 'resolved').length} pending`}>
+        <Table
+          headers={['Issue', 'Source', 'Priority', 'Reported', 'Status', 'Action']}
+          rows={(triageData || []).map((issue) => [
+            <span><strong>{issue.title || `Issue #${issue.id}`}</strong><small>{issue.description || 'No details'}</small></span>,
+            issue.source || 'Driver',
+            issue.priority || 'Medium',
+            dateText(issue.created_at),
+            <span className={`status ${issue.status === 'resolved' ? 'good' : issue.priority === 'critical' ? 'bad' : 'warn'}`}>{issue.status || 'Open'}</span>,
+            issue.status !== 'resolved' ? <button className="table-action" onClick={() => setSelectedIssue(issue)}>Escalate</button> : '—'
+          ])}
+          empty="No issues in triage queue."
+        />
+      </DataPanel>
+    </PageFrame>
+  )
+}
+
+// ReportsWorkspace - Report generation and listing
+function ReportsWorkspace({ token, data, refresh }) {
+  const [reports, setReports] = useState([])
+  const [reportType, setReportType] = useState('maintenance-performance')
+  const [filters, setFilters] = useState({ start_date: today(), end_date: today() })
+  const [generating, setGenerating] = useState(false)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!token) return
+    let active = true
+    async function load() {
+      try {
+        const list = await listReports(token)
+        if (active) setReports(list || [])
+      } catch (error) {
+        refresh(error.message)
+      } finally {
+        if (active) setLoading(false)
+      }
+    }
+    load()
+    return () => { active = false }
+  }, [token])
+
+  async function generate(event) {
+    event.preventDefault()
+    setGenerating(true)
+    try {
+      await generateReport(token, reportType, filters)
+      refresh('Report generated successfully.')
+      // Reload reports list
+      const list = await listReports(token)
+      setReports(list || [])
+    } catch (error) {
+      refresh(error.message)
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  async function download(reportId) {
+    try {
+      await downloadReport(token, reportId)
+      refresh('Report download started.')
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+
+  if (loading) return <div className="page-frame"><h2>Loading reports…</h2></div>
+
+  return (
+    <PageFrame eyebrow="02 · Analytics" title="Reports" description="Generate maintenance, fuel, financial, and compliance reports for the selected period.">
+      <FormCard title="Generate report" description="Select report type and date range to create a new analysis.">
+        <form className="form-grid" onSubmit={generate}>
+          <SelectField
+            label="Report type"
+            value={reportType}
+            onChange={setReportType}
+            options={[
+              ['maintenance-performance', 'Maintenance performance'],
+              ['fuel-efficiency', 'Fuel efficiency'],
+              ['vehicle-maintenance-history', 'Vehicle maintenance history'],
+              ['compliance-expiry', 'Compliance expiry'],
+            ]}
+          />
+          <Field label="Start date" type="date" value={filters.start_date} onChange={(value) => setFilters({ ...filters, start_date: value })} />
+          <Field label="End date" type="date" value={filters.end_date} onChange={(value) => setFilters({ ...filters, end_date: value })} />
+          <button className="primary-button" disabled={generating}>{generating ? 'Generating…' : 'Generate report'}</button>
+        </form>
+      </FormCard>
+
+      <DataPanel title="Report history" eyebrow={`${reports.length} reports`}>
+        <Table
+          headers={['Report', 'Type', 'Generated', 'Status', 'Download']}
+          rows={reports.map((report) => [
+            report.title || `Report ${report.id}`,
+            report.report_type || 'Custom',
+            dateText(report.created_at),
+            report.status || 'Ready',
+            report.status === 'Ready' ? <button className="table-action" onClick={() => download(report.id)}>Download</button> : <span className="muted">Processing…</span>
+          ])}
+          empty="No reports have been generated yet."
+        />
+      </DataPanel>
+    </PageFrame>
+  )
+}
+
+// FinancialsWorkspace - Expense approval and financial dashboard
+function FinancialsWorkspace({ token, data, refresh }) {
+  const [financials, setFinancials] = useState(null)
+  const [approvalQueue, setApprovalQueue] = useState([])
+  const [selectedExpenses, setSelectedExpenses] = useState([])
+  const [approvalNotes, setApprovalNotes] = useState('')
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!token) return
+    let active = true
+    async function load() {
+      try {
+        const [summary, queue] = await Promise.all([getFinancialsSummary(token), getFinancialApprovalQueue(token)])
+        if (active) {
+          setFinancials(summary)
+          setApprovalQueue(queue || [])
+        }
+      } catch (error) {
+        refresh(error.message)
+      } finally {
+        if (active) setLoading(false)
+      }
+    }
+    load()
+    return () => { active = false }
+  }, [token])
+
+  async function approveSelected(event) {
+    event.preventDefault()
+    if (selectedExpenses.length === 0) {
+      refresh('Please select expenses to approve.')
+      return
+    }
+    try {
+      await bulkApproveExpenses(token, selectedExpenses, { notes: approvalNotes })
+      refresh('Expenses approved successfully.')
+      setSelectedExpenses([])
+      setApprovalNotes('')
+      // Reload data
+      const [summary, queue] = await Promise.all([getFinancialsSummary(token), getFinancialApprovalQueue(token)])
+      setFinancials(summary)
+      setApprovalQueue(queue || [])
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+
+  async function reject(expenseId) {
+    try {
+      await rejectExpense(token, expenseId, { reason: 'Rejected by approver' })
+      refresh('Expense rejected.')
+      const [summary, queue] = await Promise.all([getFinancialsSummary(token), getFinancialApprovalQueue(token)])
+      setFinancials(summary)
+      setApprovalQueue(queue || [])
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+
+  if (loading) return <div className="page-frame"><h2>Loading financial dashboard…</h2></div>
+
+  return (
+    <PageFrame eyebrow="03 · Finance" title="Financial dashboard" description="Review organisation financial metrics, approve pending expenses, and reconcile transactions.">
+      {financials && (
+        <div className="stat-grid">
+          <Metric label="Total revenue" value={money(financials.total_revenue_paise || 0)} detail="this period" tone="green" />
+          <Metric label="Total expenses" value={money(financials.total_expenses_paise || 0)} detail="this period" tone="blue" />
+          <Metric label="Net P&L" value={money((financials.total_revenue_paise || 0) - (financials.total_expenses_paise || 0))} detail="operational" tone={((financials.total_revenue_paise || 0) - (financials.total_expenses_paise || 0)) > 0 ? 'green' : 'red'} />
+          <Metric label="Pending approvals" value={approvalQueue.length} detail="expenses awaiting review" tone="amber" />
+        </div>
+      )}
+
+      {approvalQueue.length > 0 && (
+        <FormCard title="Approve expenses" description="Review and approve pending expense claims with optional notes.">
+          <form className="form-grid" onSubmit={approveSelected}>
+            <div className="expense-list">
+              {approvalQueue.map((expense) => (
+                <label key={expense.id} className="checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={selectedExpenses.includes(expense.id)}
+                    onChange={(event) => setSelectedExpenses(event.target.checked ? [...selectedExpenses, expense.id] : selectedExpenses.filter((id) => id !== expense.id))}
+                  />
+                  <span>
+                    <strong>{expense.description}</strong>
+                    <small>{money(expense.amount_paise)} · {dateText(expense.incurred_on)}</small>
+                  </span>
+                </label>
+              ))}
+            </div>
+            <Field label="Approval notes" value={approvalNotes} onChange={setApprovalNotes} />
+            <div className="row-actions">
+              <button className="primary-button" disabled={selectedExpenses.length === 0}>Approve selected ({selectedExpenses.length})</button>
+            </div>
+          </form>
+        </FormCard>
+      )}
+
+      <DataPanel title="Approval queue" eyebrow={`${approvalQueue.length} pending`}>
+        <Table
+          headers={['Expense', 'Amount', 'Category', 'Incurred', 'Status', 'Action']}
+          rows={approvalQueue.map((expense) => [
+            <span><strong>{expense.description}</strong><small>Vehicle #{expense.vehicle_id}</small></span>,
+            money(expense.amount_paise),
+            expense.category || 'Maintenance',
+            dateText(expense.incurred_on),
+            <span className="status warn">Pending review</span>,
+            <div className="row-actions">
+              <button className="table-action" onClick={() => reject(expense.id)}>Reject</button>
+            </div>
+          ])}
+          empty="No expenses pending approval."
+        />
+      </DataPanel>
+    </PageFrame>
+  )
+}
+
+
+// ActivityFeedWorkspace - Operation timeline and notifications
+function ActivityFeedWorkspace({ token, data, refresh }) {
+  const [feed, setFeed] = useState([])
+  const [filterType, setFilterType] = useState('all')
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!token) return
+    let active = true
+    async function load() {
+      try {
+        const activity = filterType === 'all' ? await getActivityFeed(token) : await getActivityFeedByType(token, filterType)
+        if (active) setFeed(activity || [])
+      } catch (error) {
+        refresh(error.message)
+      } finally {
+        if (active) setLoading(false)
+      }
+    }
+    load()
+    return () => { active = false }
+  }, [token, filterType])
+
+  if (loading) return <div className="page-frame"><h2>Loading activity feed…</h2></div>
+
+  const activityTypes = ['all', 'vehicle', 'work_order', 'maintenance', 'compliance', 'expense', 'notification']
+
+  return (
+    <PageFrame eyebrow="01 · Operations" title="Activity feed" description="Timeline of organisation events, decisions, and transactions across all members and systems.">
+      <div className="filter-row">
+        {activityTypes.map((type) => (
+          <button
+            key={type}
+            className={filterType === type ? 'filter-chip active' : 'filter-chip'}
+            onClick={() => setFilterType(type)}
+          >
+            {type.replace(/_/g, ' ')}
+          </button>
+        ))}
+      </div>
+
+      <DataPanel title="Activity timeline" eyebrow={`${feed.length} events`}>
+        <div className="activity-timeline">
+          {feed.length > 0 ? (
+            feed.map((activity, index) => (
+              <div key={index} className="timeline-item">
+                <div className="timeline-marker">
+                  <span className={`status-dot ${activity.status || 'neutral'}`} />
+                </div>
+                <div className="timeline-content">
+                  <div className="timeline-header">
+                    <strong>{activity.title || activity.action}</strong>
+                    <small>{dateText(activity.created_at)}</small>
+                  </div>
+                  <p className="timeline-description">{activity.description || activity.entity_type}</p>
+                  {activity.actor && <small className="timeline-actor">By {activity.actor}</small>}
+                </div>
+              </div>
+            ))
+          ) : (
+            <p className="empty-copy">No activity events for this filter.</p>
+          )}
+        </div>
+      </DataPanel>
+    </PageFrame>
+  )
+}
+
+// MaintenancePlanningWorkspace - Plan creation and scheduling
+function MaintenancePlanningWorkspace({ token, data, refresh }) {
+  const [plans, setPlans] = useState([])
+  const [forecast, setForecast] = useState([])
+  const [showForm, setShowForm] = useState(false)
+  const [form, setForm] = useState({ vehicle_id: '', name: '', interval_km: '', interval_days: '', next_due_km: '', next_due_on: today() })
+  const [schedule, setSchedule] = useState({ plan_id: '', scheduled_date: today(), mechanic_id: '', notes: '' })
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!token) return
+    let active = true
+    async function load() {
+      try {
+        const [planList, forecastData] = await Promise.all([getMaintenancePlans(token), getMaintenanceForecast(token)])
+        if (active) {
+          setPlans(planList || [])
+          setForecast(forecastData || [])
+        }
+      } catch (error) {
+        refresh(error.message)
+      } finally {
+        if (active) setLoading(false)
+      }
+    }
+    load()
+    return () => { active = false }
+  }, [token])
+
+  async function createPlan(event) {
+    event.preventDefault()
+    try {
+      await createMaintenancePlan(token, {
+        ...form,
+        vehicle_id: Number(form.vehicle_id),
+        interval_km: form.interval_km ? Number(form.interval_km) : null,
+        interval_days: form.interval_days ? Number(form.interval_days) : null,
+        next_due_km: form.next_due_km ? Number(form.next_due_km) : null,
+      })
+      refresh('Maintenance plan created.')
+      setShowForm(false)
+      setForm({ vehicle_id: '', name: '', interval_km: '', interval_days: '', next_due_km: '', next_due_on: today() })
+      const [planList, forecastData] = await Promise.all([getMaintenancePlans(token), getMaintenanceForecast(token)])
+      setPlans(planList || [])
+      setForecast(forecastData || [])
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+
+  async function schedulePlan(event) {
+    event.preventDefault()
+    try {
+      await scheduleMaintenancePlan(token, Number(schedule.plan_id), {
+        scheduled_date: schedule.scheduled_date,
+        mechanic_id: schedule.mechanic_id ? Number(schedule.mechanic_id) : null,
+        notes: schedule.notes,
+      })
+      refresh('Plan scheduled successfully.')
+      setSchedule({ plan_id: '', scheduled_date: today(), mechanic_id: '', notes: '' })
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+
+  if (loading) return <div className="page-frame"><h2>Loading maintenance plans…</h2></div>
+
+  return (
+    <PageFrame eyebrow="02 · Maintenance" title="Maintenance planning" description="Create service intervals, schedule upcoming maintenance, and track the forecast horizon.">
+      <div className="split-grid">
+        <FormCard title="Create plan" description="Define a maintenance schedule from kilometres, days, or both thresholds.">
+          <form className="stack-form" onSubmit={createPlan}>
+            <SelectField
+              label="Vehicle"
+              value={form.vehicle_id}
+              onChange={(value) => setForm({ ...form, vehicle_id: value })}
+              options={[['', 'Select vehicle'], ...data.vehicles.map((v) => [String(v.id), v.registration_number])]}
+              required
+            />
+            <Field label="Plan name" value={form.name} onChange={(value) => setForm({ ...form, name: value })} required />
+            <Field label="Interval km" type="number" value={form.interval_km} onChange={(value) => setForm({ ...form, interval_km: value })} />
+            <Field label="Interval days" type="number" value={form.interval_days} onChange={(value) => setForm({ ...form, interval_days: value })} />
+            <Field label="Next due km" type="number" value={form.next_due_km} onChange={(value) => setForm({ ...form, next_due_km: value })} />
+            <Field label="Next due date" type="date" value={form.next_due_on} onChange={(value) => setForm({ ...form, next_due_on: value })} />
+            <button className="primary-button">Create plan</button>
+          </form>
+        </FormCard>
+
+        <FormCard title="Schedule maintenance" description="Assign a plan to a specific date and mechanic.">
+          <form className="stack-form" onSubmit={schedulePlan}>
+            <SelectField
+              label="Plan"
+              value={schedule.plan_id}
+              onChange={(value) => setSchedule({ ...schedule, plan_id: value })}
+              options={[['', 'Select plan'], ...plans.map((p) => [String(p.id), p.name])]}
+              required
+            />
+            <Field label="Scheduled date" type="date" value={schedule.scheduled_date} onChange={(value) => setSchedule({ ...schedule, scheduled_date: value })} required />
+            <Field label="Assigned mechanic" value={schedule.mechanic_id} onChange={(value) => setSchedule({ ...schedule, mechanic_id: value })} />
+            <TextField label="Notes" value={schedule.notes} onChange={(value) => setSchedule({ ...schedule, notes: value })} />
+            <button className="primary-button">Schedule plan</button>
+          </form>
+        </FormCard>
+      </div>
+
+      <DataPanel title="Active plans" eyebrow={`${plans.length} maintenance plans`}>
+        <Table
+          headers={['Plan', 'Vehicle', 'Next due', 'Interval', 'Status']}
+          rows={plans.map((plan) => [
+            <span><strong>{plan.name}</strong></span>,
+            data.vehicles.find((v) => v.id === plan.vehicle_id)?.registration_number || `#${plan.vehicle_id}`,
+            plan.next_due_on || (plan.next_due_km ? `${plan.next_due_km} km` : '—'),
+            plan.interval_km ? `${plan.interval_km} km` : plan.interval_days ? `${plan.interval_days} days` : '—',
+            plan.active ? <span className="status good">Active</span> : <span className="status bad">Inactive</span>,
+          ])}
+          empty="No maintenance plans created."
+        />
+      </DataPanel>
+
+      {forecast.length > 0 && (
+        <DataPanel title="Forecast horizon" eyebrow={`${forecast.length} upcoming services`}>
+          <Table
+            headers={['Vehicle', 'Plan', 'Due date', 'Due km', 'Days remaining']}
+            rows={forecast.map((item) => [
+              data.vehicles.find((v) => v.id === item.vehicle_id)?.registration_number || `#${item.vehicle_id}`,
+              item.plan_name || 'Plan',
+              dateText(item.due_date),
+              item.due_km || '—',
+              item.days_remaining || '—',
+            ])}
+            empty="No forecast data available."
+          />
+        </DataPanel>
+      )}
+    </PageFrame>
+  )
+}
+
+// VendorWorkspace - Vendor directory and pricing management
+function VendorWorkspace({ token, data, refresh }) {
+  const [vendors, setVendors] = useState([])
+  const [selectedVendor, setSelectedVendor] = useState(null)
+  const [pricingHistory, setPricingHistory] = useState([])
+  const [form, setForm] = useState({ name: '', vendor_type: 'Parts supplier', gstin: '', contact_name: '', phone: '', email: '', address: '' })
+  const [pricingForm, setPricingForm] = useState({ part_id: '', unit_cost_paise: 0, effective_from: today(), valid_until: '' })
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!token) return
+    let active = true
+    async function load() {
+      try {
+        const vendorList = await getVendorList(token)
+        if (active) setVendors(vendorList || [])
+      } catch (error) {
+        refresh(error.message)
+      } finally {
+        if (active) setLoading(false)
+      }
+    }
+    load()
+    return () => { active = false }
+  }, [token])
+
+  async function selectVendor(vendor) {
+    try {
+      const history = await getVendorPricingHistory(token, vendor.id)
+      setSelectedVendor(vendor)
+      setPricingHistory(history || [])
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+
+  async function addVendor(event) {
+    event.preventDefault()
+    try {
+      await createVendor(token, form)
+      refresh('Vendor added to directory.')
+      setForm({ name: '', vendor_type: 'Parts supplier', gstin: '', contact_name: '', phone: '', email: '', address: '' })
+      const vendorList = await getVendorList(token)
+      setVendors(vendorList || [])
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+
+  async function addPricing(event) {
+    event.preventDefault()
+    if (!selectedVendor) return
+    try {
+      await createVendorPricingRecord(token, selectedVendor.id, {
+        part_id: Number(pricingForm.part_id),
+        unit_cost_paise: Number(pricingForm.unit_cost_paise),
+        effective_from: pricingForm.effective_from,
+        valid_until: pricingForm.valid_until || null,
+      })
+      refresh('Pricing record created.')
+      setPricingForm({ part_id: '', unit_cost_paise: 0, effective_from: today(), valid_until: '' })
+      const history = await getVendorPricingHistory(token, selectedVendor.id)
+      setPricingHistory(history || [])
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+
+  if (loading) return <div className="page-frame"><h2>Loading vendor directory…</h2></div>
+
+  return (
+    <PageFrame eyebrow="03 · Procurement" title="Vendor directory" description="Manage supplier contacts, track pricing changes, and monitor vendor performance metrics.">
+      <div className="split-grid">
+        <FormCard title="Add vendor" description="Create a new supplier record with contact details and GST information.">
+          <form className="stack-form" onSubmit={addVendor}>
+            <Field label="Vendor name" value={form.name} onChange={(value) => setForm({ ...form, name: value })} required />
+            <Field label="Type" value={form.vendor_type} onChange={(value) => setForm({ ...form, vendor_type: value })} />
+            <Field label="GSTIN" value={form.gstin} onChange={(value) => setForm({ ...form, gstin: value })} />
+            <Field label="Contact person" value={form.contact_name} onChange={(value) => setForm({ ...form, contact_name: value })} />
+            <Field label="Phone" value={form.phone} onChange={(value) => setForm({ ...form, phone: value })} />
+            <Field label="Email" type="email" value={form.email} onChange={(value) => setForm({ ...form, email: value })} />
+            <Field label="Address" value={form.address} onChange={(value) => setForm({ ...form, address: value })} />
+            <button className="primary-button">Add vendor</button>
+          </form>
+        </FormCard>
+
+        {selectedVendor && (
+          <FormCard title="Add pricing" description="Record a part and its cost from this vendor.">
+            <form className="stack-form" onSubmit={addPricing}>
+              <div className="selected-vendor"><strong>{selectedVendor.name}</strong></div>
+              <SelectField
+                label="Part"
+                value={pricingForm.part_id}
+                onChange={(value) => setPricingForm({ ...pricingForm, part_id: value })}
+                options={[['', 'Select part'], ...data.parts.map((p) => [String(p.id), `${p.sku} · ${p.name}`])]}
+                required
+              />
+              <Field label="Unit cost (paise)" type="number" value={pricingForm.unit_cost_paise} onChange={(value) => setPricingForm({ ...pricingForm, unit_cost_paise: value })} required />
+              <Field label="Effective from" type="date" value={pricingForm.effective_from} onChange={(value) => setPricingForm({ ...pricingForm, effective_from: value })} />
+              <Field label="Valid until" type="date" value={pricingForm.valid_until} onChange={(value) => setPricingForm({ ...pricingForm, valid_until: value })} />
+              <button className="primary-button">Save pricing</button>
+            </form>
+          </FormCard>
+        )}
+      </div>
+
+      <DataPanel title="Vendor list" eyebrow={`${vendors.length} suppliers`}>
+        <Table
+          headers={['Vendor', 'Type', 'Contact', 'Phone', 'Status']}
+          rows={vendors.map((vendor) => [
+            <button className="table-link" onClick={() => selectVendor(vendor)}>
+              <strong>{vendor.name}</strong>
+              <small>{vendor.email}</small>
+            </button>,
+            vendor.vendor_type || '—',
+            vendor.contact_name || '—',
+            vendor.phone || '—',
+            <span className="status good">Active</span>,
+          ])}
+          empty="No vendors in directory."
+        />
+      </DataPanel>
+
+      {selectedVendor && pricingHistory.length > 0 && (
+        <DataPanel title="Pricing history" eyebrow={`${pricingHistory.length} records for ${selectedVendor.name}`}>
+          <Table
+            headers={['Part', 'Cost', 'Effective from', 'Valid until', 'Status']}
+            rows={pricingHistory.map((record) => [
+              data.parts.find((p) => p.id === record.part_id)?.name || `Part #${record.part_id}`,
+              money(record.unit_cost_paise),
+              dateText(record.effective_from),
+              record.valid_until ? dateText(record.valid_until) : 'Current',
+              new Date(record.valid_until || new Date().toISOString()) > new Date() ? <span className="status good">Valid</span> : <span className="status bad">Expired</span>,
+            ])}
+            empty="No pricing history for this vendor."
+          />
+        </DataPanel>
+      )}
+    </PageFrame>
+  )
+}
+
+// Enhanced ProcurementWorkspace - Advanced purchase order features
+function ProcurementAdvancedWorkspace({ token, data, refresh }) {
+  const [orders, setOrders] = useState([])
+  const [selectedOrder, setSelectedOrder] = useState(null)
+  const [orderDetails, setOrderDetails] = useState(null)
+  const [receiptForm, setReceiptForm] = useState({ line_id: '', quantity_received: 0, notes: '' })
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!token) return
+    let active = true
+    async function load() {
+      try {
+        const poList = await getPurchaseOrders(token)
+        if (active) setOrders(poList || [])
+      } catch (error) {
+        refresh(error.message)
+      } finally {
+        if (active) setLoading(false)
+      }
+    }
+    load()
+    return () => { active = false }
+  }, [token])
+
+  async function selectOrder(order) {
+    try {
+      const details = await getPurchaseOrderDetails(token, order.id)
+      setSelectedOrder(order)
+      setOrderDetails(details)
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+
+  async function receivePartial(event) {
+    event.preventDefault()
+    if (!selectedOrder) return
+    try {
+      await receivePartialPurchaseOrder(token, selectedOrder.id, {
+        lines: [{ line_id: Number(receiptForm.line_id), quantity_received: Number(receiptForm.quantity_received) }],
+        notes: receiptForm.notes,
+      })
+      refresh('Partial receipt recorded.')
+      setReceiptForm({ line_id: '', quantity_received: 0, notes: '' })
+      const details = await getPurchaseOrderDetails(token, selectedOrder.id)
+      setOrderDetails(details)
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+
+  async function reconcile(event) {
+    event.preventDefault()
+    if (!selectedOrder) return
+    try {
+      await reconcilePurchaseOrder(token, selectedOrder.id, { reconciliation_notes: '' })
+      refresh('Purchase order reconciled.')
+      setSelectedOrder(null)
+      setOrderDetails(null)
+      const poList = await getPurchaseOrders(token)
+      setOrders(poList || [])
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+
+  if (loading) return <div className="page-frame"><h2>Loading purchase orders…</h2></div>
+
+  return (
+    <PageFrame eyebrow="04 · Procurement" title="Purchase orders" description="Create, receive, reconcile, and track purchase orders with variance management.">
+      {selectedOrder && orderDetails && (
+        <FormCard title="Receive shipment" description="Record partial or full receipt against the purchase order.">
+          <form className="stack-form" onSubmit={receivePartial}>
+            <div className="selected-order">
+              <strong>{selectedOrder.order_number}</strong>
+              <small>{data.vendors.find((v) => v.id === selectedOrder.vendor_id)?.name || `Vendor #${selectedOrder.vendor_id}`}</small>
+            </div>
+            <SelectField
+              label="Line item"
+              value={receiptForm.line_id}
+              onChange={(value) => setReceiptForm({ ...receiptForm, line_id: value })}
+              options={[['', 'Select line'], ...(orderDetails.lines || []).map((line) => [String(line.id), `${data.parts.find((p) => p.id === line.part_id)?.sku || ''} · Qty: ${line.quantity}`])]}
+              required
+            />
+            <Field label="Quantity received" type="number" value={receiptForm.quantity_received} onChange={(value) => setReceiptForm({ ...receiptForm, quantity_received: value })} required />
+            <TextField label="Receipt notes" value={receiptForm.notes} onChange={(value) => setReceiptForm({ ...receiptForm, notes: value })} />
+            <div className="row-actions">
+              <button className="primary-button">Record receipt</button>
+              <button type="button" className="secondary-button" onClick={() => { setSelectedOrder(null); setOrderDetails(null) }}>Close</button>
+              <button type="button" className="secondary-button" onClick={reconcile}>Finalize & reconcile</button>
+            </div>
+          </form>
+        </FormCard>
+      )}
+
+      <DataPanel title="Purchase orders" eyebrow={`${orders.length} orders`}>
+        <Table
+          headers={['Order', 'Vendor', 'Expected', 'Total', 'Status', 'Action']}
+          rows={orders.map((order) => [
+            order.order_number || `PO-${order.id}`,
+            data.vendors.find((v) => v.id === order.vendor_id)?.name || `#${order.vendor_id}`,
+            dateText(order.expected_on),
+            money(order.total_paise),
+            <span className={`status ${order.status === 'Approved' ? 'good' : order.status === 'Draft' ? 'warn' : 'blue'}`}>{order.status}</span>,
+            <button className="table-action" onClick={() => selectOrder(order)}>Receive</button>,
+          ])}
+          empty="No purchase orders created."
+        />
+      </DataPanel>
+    </PageFrame>
+  )
+}
+
+
+// TelematicsWorkspace - Device management and telemetry dashboard
+function TelematicsWorkspace({ token, data, refresh }) {
+  const [devices, setDevices] = useState([])
+  const [readings, setReadings] = useState([])
+  const [health, setHealth] = useState(null)
+  const [selectedDevice, setSelectedDevice] = useState(null)
+  const [dateRange, setDateRange] = useState({ start: today(), end: today() })
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!token) return
+    let active = true
+    async function load() {
+      try {
+        const [deviceList, healthData] = await Promise.all([getTelematicsDevices(token), getTelematicsHealth(token)])
+        if (active) {
+          setDevices(deviceList || [])
+          setHealth(healthData)
+        }
+      } catch (error) {
+        refresh(error.message)
+      } finally {
+        if (active) setLoading(false)
+      }
+    }
+    load()
+    return () => { active = false }
+  }, [token])
+
+  async function selectDevice(device) {
+    try {
+      const readingData = await getTelemetryReadings(token, device.id, dateRange.start, dateRange.end)
+      setSelectedDevice(device)
+      setReadings(readingData || [])
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+
+  async function deactivate(deviceId) {
+    try {
+      await deactivateTelematicsDevice(token, deviceId)
+      refresh('Device deactivated.')
+      const deviceList = await getTelematicsDevices(token)
+      setDevices(deviceList || [])
+      setSelectedDevice(null)
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+
+  if (loading) return <div className="page-frame"><h2>Loading telematics devices…</h2></div>
+
+  return (
+    <PageFrame eyebrow="01 · Fleet Intelligence" title="GPS & telematics" description="Monitor device health, track real-time telemetry, and detect odometer anomalies across the fleet.">
+      {health && (
+        <div className="stat-grid">
+          <Metric label="Active devices" value={health.active_devices || 0} detail={`${health.stale_devices || 0} stale`} tone="green" />
+          <Metric label="24h readings" value={health.readings_last_24h || 0} detail={`${health.flagged_odometer_readings || 0} anomalies`} tone="blue" />
+          <Metric label="Integrations" value={health.active_integrations || 0} detail={`${health.stale_integrations || 0} stale`} tone="amber" />
+        </div>
+      )}
+
+      {selectedDevice && (
+        <DataPanel title="Telemetry data" eyebrow={`${readings.length} readings · ${selectedDevice.provider} ${selectedDevice.device_identifier}`}>
+          <div className="filter-row">
+            <Field label="From" type="date" value={dateRange.start} onChange={(value) => setDateRange({ ...dateRange, start: value })} compact />
+            <Field label="To" type="date" value={dateRange.end} onChange={(value) => setDateRange({ ...dateRange, end: value })} compact />
+            <button className="secondary-button" onClick={() => selectDevice(selectedDevice)}>Refresh</button>
+          </div>
+          <Table
+            headers={['Time', 'Odometer (km)', 'Speed', 'Latitude', 'Longitude', 'Status']}
+            rows={readings.map((reading) => [
+              dateText(reading.timestamp),
+              reading.odometer_km || '—',
+              reading.speed_kmh ? `${reading.speed_kmh} km/h` : '—',
+              reading.latitude ? reading.latitude.toFixed(4) : '—',
+              reading.longitude ? reading.longitude.toFixed(4) : '—',
+              reading.flags ? <span className="status bad">Flagged</span> : <span className="status good">Valid</span>,
+            ])}
+            empty="No telemetry readings for this period."
+          />
+        </DataPanel>
+      )}
+
+      <DataPanel title="Device registry" eyebrow={`${devices.length} devices`}>
+        <Table
+          headers={['Vehicle', 'Provider', 'Device ID', 'Last seen', 'Status', 'Action']}
+          rows={devices.map((device) => [
+            data.vehicles.find((v) => v.id === device.vehicle_id)?.registration_number || `Vehicle #${device.vehicle_id}`,
+            device.provider,
+            device.device_identifier,
+            dateText(device.last_seen_at),
+            device.active ? <span className="status good">Active</span> : <span className="status bad">Inactive</span>,
+            <div className="row-actions">
+              <button className="table-action" onClick={() => selectDevice(device)}>View readings</button>
+              {device.active && <button className="table-action" onClick={() => deactivate(device.id)}>Deactivate</button>}
+            </div>,
+          ])}
+          empty="No devices registered."
+        />
+      </DataPanel>
+    </PageFrame>
+  )
+}
+
+// DriverBehaviorWorkspace - Driver metrics and performance tracking
+function DriverBehaviorWorkspace({ token, data, refresh }) {
+  const [drivers, setDrivers] = useState([])
+  const [selectedDriver, setSelectedDriver] = useState(null)
+  const [behaviorScore, setBehaviorScore] = useState(null)
+  const [events, setEvents] = useState([])
+  const [metrics, setMetrics] = useState(null)
+  const [dateRange, setDateRange] = useState({ start: today(), end: today() })
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!token) return
+    let active = true
+    async function load() {
+      try {
+        const driverList = await getDriversSummary(token)
+        if (active) setDrivers(driverList || [])
+      } catch (error) {
+        refresh(error.message)
+      } finally {
+        if (active) setLoading(false)
+      }
+    }
+    load()
+    return () => { active = false }
+  }, [token])
+
+  async function selectDriver(driver) {
+    try {
+      const [score, behaviorEvents, perfMetrics] = await Promise.all([
+        getDriverBehaviorScore(token, driver.id),
+        getDriverBehaviorEvents(token, driver.id, dateRange.start, dateRange.end),
+        getDriverPerformanceMetrics(token, driver.id),
+      ])
+      setSelectedDriver(driver)
+      setBehaviorScore(score)
+      setEvents(behaviorEvents || [])
+      setMetrics(perfMetrics)
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+
+  async function reportEvent(driverId) {
+    try {
+      await reportUnsafeDisposition(token, driverId, { reason: 'Reported by fleet manager', severity: 'medium' })
+      refresh('Unsafe event recorded.')
+      selectDriver(selectedDriver)
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+
+  if (loading) return <div className="page-frame"><h2>Loading driver data…</h2></div>
+
+  return (
+    <PageFrame eyebrow="02 · Safety & Performance" title="Driver behavior" description="Track driver safety scores, monitor behavior events, and identify performance trends.">
+      {selectedDriver && behaviorScore && (
+        <div className="stat-grid">
+          <Metric label="Safety score" value={`${behaviorScore.score || 0}/100`} detail={behaviorScore.category || 'Standard'} tone={behaviorScore.score >= 80 ? 'green' : behaviorScore.score >= 60 ? 'amber' : 'red'} />
+          {metrics && <Metric label="Total trips" value={metrics.total_trips || 0} detail={`${metrics.average_distance_km || 0} km avg`} tone="blue" />}
+          {metrics && <Metric label="Violations" value={metrics.violations_count || 0} detail={`${metrics.hard_braking_events || 0} hard brakes`} tone="red" />}
+        </div>
+      )}
+
+      {selectedDriver && (
+        <>
+          <FormCard title="Report unsafe event" description="Document a safety concern for this driver.">
+            <form className="stack-form" onSubmit={(e) => { e.preventDefault(); reportEvent(selectedDriver.id) }}>
+              <div className="selected-driver"><strong>{selectedDriver.name || `Driver #${selectedDriver.id}`}</strong></div>
+              <button className="primary-button">Report unsafe disposition</button>
+            </form>
+          </FormCard>
+
+          <DataPanel title="Behavior events" eyebrow={`${events.length} events · ${dateRange.start} to ${dateRange.end}`}>
+            <div className="filter-row">
+              <Field label="From" type="date" value={dateRange.start} onChange={(value) => setDateRange({ ...dateRange, start: value })} compact />
+              <Field label="To" type="date" value={dateRange.end} onChange={(value) => setDateRange({ ...dateRange, end: value })} compact />
+              <button className="secondary-button" onClick={() => selectDriver(selectedDriver)}>Refresh</button>
+            </div>
+            <Table
+              headers={['Time', 'Event type', 'Severity', 'Location', 'Notes']}
+              rows={events.map((event) => [
+                dateText(event.timestamp),
+                event.event_type || 'General',
+                <span className={`status ${event.severity === 'high' ? 'bad' : event.severity === 'medium' ? 'warn' : 'good'}`}>{event.severity || 'Medium'}</span>,
+                event.location || '—',
+                event.notes || '—',
+              ])}
+              empty="No behavior events recorded."
+            />
+          </DataPanel>
+        </>
+      )}
+
+      <DataPanel title="Driver roster" eyebrow={`${drivers.length} drivers`}>
+        <Table
+          headers={['Driver', 'Safety score', 'Trips', 'Violations', 'Status', 'Action']}
+          rows={drivers.map((driver) => [
+            <span><strong>{driver.name || `Driver #${driver.id}`}</strong><small>{driver.email || 'No email'}</small></span>,
+            driver.safety_score ? `${driver.safety_score}/100` : '—',
+            driver.total_trips || 0,
+            driver.violations || 0,
+            driver.status || 'Active',
+            <button className="table-action" onClick={() => selectDriver(driver)}>View profile</button>,
+          ])}
+          empty="No drivers in roster."
+        />
+      </DataPanel>
+    </PageFrame>
+  )
+}
+
+// FuelTrackingWorkspace - Fuel efficiency and cost analytics
+function FuelTrackingWorkspace({ token, data, refresh }) {
+  const [transactions, setTransactions] = useState([])
+  const [efficiency, setEfficiency] = useState(null)
+  const [costs, setCosts] = useState(null)
+  const [trends, setTrends] = useState([])
+  const [selectedVehicle, setSelectedVehicle] = useState('')
+  const [dateRange, setDateRange] = useState({ start: today(), end: today() })
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!token) return
+    let active = true
+    async function load() {
+      try {
+        const [txns, costData, trendData] = await Promise.all([
+          getFuelTransactions(token),
+          getFuelCostAnalysis(token, today(), today()),
+          getFuelTrends(token, 30),
+        ])
+        if (active) {
+          setTransactions(txns || [])
+          setCosts(costData)
+          setTrends(trendData || [])
+        }
+      } catch (error) {
+        refresh(error.message)
+      } finally {
+        if (active) setLoading(false)
+      }
+    }
+    load()
+    return () => { active = false }
+  }, [token])
+
+  async function loadEfficiency() {
+    if (!selectedVehicle) {
+      refresh('Please select a vehicle.')
+      return
+    }
+    try {
+      const effData = await getFuelEfficiencyAnalysis(token, Number(selectedVehicle), dateRange.start, dateRange.end)
+      setEfficiency(effData)
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+
+  if (loading) return <div className="page-frame"><h2>Loading fuel data…</h2></div>
+
+  return (
+    <PageFrame eyebrow="03 · Cost Analytics" title="Fuel tracking" description="Monitor fuel consumption, analyse efficiency trends, and track fuel costs across the fleet.">
+      {costs && (
+        <div className="stat-grid">
+          <Metric label="Total consumed" value={`${costs.total_litres || 0} L`} detail="this period" tone="blue" />
+          <Metric label="Cost" value={money(costs.total_cost_paise || 0)} detail="this period" tone="green" />
+          <Metric label="Avg price" value={`₹${((costs.avg_price_paise || 0) / 100).toFixed(2)}/L`} detail="per litre" tone="amber" />
+        </div>
+      )}
+
+      <div className="split-grid">
+        <FormCard title="Fuel efficiency" description="Analyse fuel consumption for a specific vehicle.">
+          <form className="stack-form" onSubmit={(e) => { e.preventDefault(); loadEfficiency() }}>
+            <SelectField
+              label="Vehicle"
+              value={selectedVehicle}
+              onChange={setSelectedVehicle}
+              options={[['', 'Select vehicle'], ...data.vehicles.map((v) => [String(v.id), v.registration_number])]}
+            />
+            <Field label="From" type="date" value={dateRange.start} onChange={(value) => setDateRange({ ...dateRange, start: value })} />
+            <Field label="To" type="date" value={dateRange.end} onChange={(value) => setDateRange({ ...dateRange, end: value })} />
+            <button className="primary-button">Analyse efficiency</button>
+          </form>
+        </FormCard>
+
+        {efficiency && (
+          <DataPanel title="Efficiency results" eyebrow="Vehicle analysis">
+            <div className="detail-list">
+              <span><small>Total distance</small><strong>{efficiency.total_distance_km || 0} km</strong></span>
+              <span><small>Fuel consumed</small><strong>{efficiency.total_fuel_litres || 0} L</strong></span>
+              <span><small>Fuel efficiency</small><strong>{efficiency.avg_efficiency_kmpl || 0} km/L</strong></span>
+              <span><small>Total cost</small><strong>{money(efficiency.total_cost_paise || 0)}</strong></span>
+            </div>
+          </DataPanel>
+        )}
+      </div>
+
+      <DataPanel title="Fuel transactions" eyebrow={`${transactions.length} records`}>
+        <Table
+          headers={['Date', 'Vehicle', 'Litres', 'Cost', 'Station', 'Price/L']}
+          rows={transactions.map((txn) => [
+            dateText(txn.incurred_on),
+            data.vehicles.find((v) => v.id === txn.vehicle_id)?.registration_number || `#${txn.vehicle_id}`,
+            `${txn.litres_milli / 1000 || 0} L`,
+            money(txn.total_paise || 0),
+            txn.station || '—',
+            `₹${((txn.price_per_litre_paise || 0) / 100).toFixed(2)}`,
+          ])}
+          empty="No fuel transactions recorded."
+        />
+      </DataPanel>
+
+      {trends.length > 0 && (
+        <DataPanel title="30-day trends" eyebrow="Fuel cost and consumption">
+          <Table
+            headers={['Date', 'Litres', 'Cost', 'Avg price/L']}
+            rows={trends.map((trend) => [
+              dateText(trend.date),
+              `${trend.litres || 0} L`,
+              money(trend.cost_paise || 0),
+              `₹${((trend.avg_price_paise || 0) / 100).toFixed(2)}`,
+            ])}
+            empty="No trend data available."
+          />
+        </DataPanel>
+      )}
+    </PageFrame>
+  )
+}
+
+// ComplianceVersioningWorkspace - Document versioning and expiry tracking
+function ComplianceVersioningWorkspace({ token, data, refresh }) {
+  const [documents, setDocuments] = useState([])
+  const [selectedDoc, setSelectedDoc] = useState(null)
+  const [versions, setVersions] = useState([])
+  const [expiry, setExpiry] = useState(null)
+  const [summary, setSummary] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!token) return
+    let active = true
+    async function load() {
+      try {
+        const [docs, expiryData, summaryData] = await Promise.all([
+          getComplianceDocuments(token),
+          getComplianceExpiryReport(token, 90),
+          getComplianceSummary(token),
+        ])
+        if (active) {
+          setDocuments(docs || [])
+          setExpiry(expiryData)
+          setSummary(summaryData)
+        }
+      } catch (error) {
+        refresh(error.message)
+      } finally {
+        if (active) setLoading(false)
+      }
+    }
+    load()
+    return () => { active = false }
+  }, [token])
+
+  async function selectDocument(doc) {
+    try {
+      const versionList = await getDocumentVersions(token, doc.id)
+      setSelectedDoc(doc)
+      setVersions(versionList || [])
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+
+  async function archiveDoc(docId) {
+    try {
+      await archiveComplianceDocument(token, docId)
+      refresh('Document archived.')
+      const docs = await getComplianceDocuments(token)
+      setDocuments(docs || [])
+      setSelectedDoc(null)
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+
+  if (loading) return <div className="page-frame"><h2>Loading compliance records…</h2></div>
+
+  return (
+    <PageFrame eyebrow="04 · Compliance Management" title="Compliance vault" description="Track document versions, monitor expiry horizons, and maintain compliance audit trails.">
+      {summary && (
+        <div className="stat-grid">
+          <Metric label="Total documents" value={summary.total_documents || 0} detail="registered" tone="blue" />
+          <Metric label="Expiring soon" value={summary.expiring_soon || 0} detail="next 30 days" tone="red" />
+          <Metric label="Compliance status" value={summary.compliant ? 'Good' : 'At risk'} detail="organisation level" tone={summary.compliant ? 'green' : 'amber'} />
+        </div>
+      )}
+
+      {selectedDoc && (
+        <FormCard title="Document details" description={`Tracking versions and history for ${selectedDoc.name}`}>
+          <div className="detail-list">
+            <span><small>Document type</small><strong>{selectedDoc.document_type}</strong></span>
+            <span><small>Vehicle</small><strong>{data.vehicles.find((v) => v.id === selectedDoc.vehicle_id)?.registration_number || 'Organisation'}</strong></span>
+            <span><small>Expires</small><strong>{dateText(selectedDoc.expires_on)}</strong></span>
+            <span><small>Status</small><strong>{selectedDoc.status}</strong></span>
+          </div>
+          <div className="row-actions">
+            <button className="secondary-button" onClick={() => archiveDoc(selectedDoc.id)}>Archive document</button>
+          </div>
+        </FormCard>
+      )}
+
+      {selectedDoc && versions.length > 0 && (
+        <DataPanel title="Version history" eyebrow={`${versions.length} versions · ${selectedDoc.name}`}>
+          <Table
+            headers={['Version', 'Date', 'Issued by', 'Status', 'Expires']}
+            rows={versions.map((version, idx) => [
+              `v${version.version_number || idx + 1}`,
+              dateText(version.created_at),
+              version.created_by || 'System',
+              version.status || 'Active',
+              dateText(version.expires_on),
+            ])}
+            empty="No version history."
+          />
+        </DataPanel>
+      )}
+
+      {expiry && expiry.expiring_documents && expiry.expiring_documents.length > 0 && (
+        <DataPanel title="Expiry horizon" eyebrow={`${expiry.expiring_documents.length} documents expiring in 90 days`}>
+          <Table
+            headers={['Document', 'Vehicle', 'Expires', 'Days remaining', 'Priority']}
+            rows={expiry.expiring_documents.map((doc) => [
+              doc.name,
+              data.vehicles.find((v) => v.id === doc.vehicle_id)?.registration_number || 'Org',
+              dateText(doc.expires_on),
+              doc.days_remaining,
+              doc.days_remaining <= 7 ? <span className="status bad">Critical</span> : doc.days_remaining <= 30 ? <span className="status warn">Soon</span> : <span className="status good">Ok</span>,
+            ])}
+            empty="No documents expiring soon."
+          />
+        </DataPanel>
+      )}
+
+      <DataPanel title="Document vault" eyebrow={`${documents.length} compliance records`}>
+        <Table
+          headers={['Document', 'Type', 'Vehicle', 'Expires', 'Status', 'Action']}
+          rows={documents.map((doc) => [
+            <strong>{doc.name}</strong>,
+            doc.document_type,
+            data.vehicles.find((v) => v.id === doc.vehicle_id)?.registration_number || 'Org-level',
+            dateText(doc.expires_on),
+            <span className={`status ${doc.status === 'Valid' ? 'good' : 'warn'}`}>{doc.status}</span>,
+            <button className="table-action" onClick={() => selectDocument(doc)}>View versions</button>,
+          ])}
+          empty="No compliance documents."
+        />
+      </DataPanel>
+    </PageFrame>
+  )
+}

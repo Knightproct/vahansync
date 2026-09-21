@@ -385,3 +385,50 @@ def test_execution_and_finance_parity_workflows(tmp_path: Path, monkeypatch):
         )
         assert reversed_expense.status_code == 200
         assert reversed_expense.json()["status"] == "Rejected"
+
+
+
+def test_vehicle_driver_fields_schema(tmp_path: Path, monkeypatch):
+    """Test that Vehicle schema has both assigned_driver_id and driver_name fields"""
+    monkeypatch.chdir(tmp_path)
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    with TestClient(app) as client:
+        # Login as admin
+        response = client.post("/api/v1/auth/login", json={"email": "test-admin@example.com", "password": "TestPassword!123"})
+        assert response.status_code == 200
+        token = response.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+        
+        # Create a vehicle
+        registration_number = f"DL 01 {uuid4().hex[:4].upper()}"
+        created = client.post("/api/v1/vehicles", headers=headers, json={
+            "registration_number": registration_number,
+            "model": "Tata Signa 4825",
+            "vehicle_type": "Heavy truck",
+            "depot": "Delhi Hub",
+            "driver_name": "John Doe",
+            "assigned_driver_id": None,
+        })
+        assert created.status_code == 201
+        vehicle = created.json()
+        
+        # Verify both fields are in the response
+        assert "assigned_driver_id" in vehicle
+        assert "driver_name" in vehicle
+        assert vehicle["driver_name"] == "John Doe"
+        assert vehicle["assigned_driver_id"] is None
+        
+        # List vehicles and verify fields are present
+        listed = client.get("/api/v1/vehicles", headers=headers)
+        assert listed.status_code == 200
+        vehicles = listed.json()
+        assert len(vehicles) > 0
+        
+        # Find our vehicle in the list
+        found_vehicle = next((v for v in vehicles if v["registration_number"] == registration_number), None)
+        assert found_vehicle is not None
+        assert "assigned_driver_id" in found_vehicle
+        assert "driver_name" in found_vehicle
+        assert found_vehicle["driver_name"] == "John Doe"
+

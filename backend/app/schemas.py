@@ -1,6 +1,20 @@
 from datetime import datetime
 
+
+from datetime import datetime
+from typing import Any, Generic, TypeVar
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
+
+
+T = TypeVar('T')
+
+
+class ApiResponse(BaseModel, Generic[T]):
+    """Standardized API response wrapper - Fixed Bug 25"""
+    success: bool
+    data: T | None = None
+    message: str = ""
+    timestamp: datetime = Field(default_factory=lambda: datetime.now())
 
 
 class Token(BaseModel):
@@ -106,6 +120,18 @@ class AuditLogRead(BaseModel):
     request_id: str | None
     changes: str | None
     created_at: datetime
+
+
+class VehicleAssignmentRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    organization_id: int
+    vehicle_id: int
+    driver_id: int
+    active: bool
+    created_at: datetime
+    ended_at: datetime | None = None
 
 
 class FleetOperationsSummaryRead(BaseModel):
@@ -253,11 +279,12 @@ class RazorpayWebhookPayload(BaseModel):
 
 
 class VehicleCreate(BaseModel):
+    """Schema for creating or updating a vehicle with validation"""
     registration_number: str = Field(min_length=3, max_length=32)
     model: str = Field(min_length=2, max_length=160)
     vehicle_type: str = Field(min_length=2, max_length=80)
     depot: str = Field(min_length=2, max_length=120)
-    status: str = "Idle / parked"
+    status: str = Field(default="Idle / parked", pattern="^(Idle / parked|On route|In workshop|Out of service|Retired)$")
     health: int = Field(default=100, ge=0, le=100)
     odometer_km: int = Field(default=0, ge=0)
     driver_name: str | None = None
@@ -343,10 +370,11 @@ class OdometerLogRead(BaseModel):
 
 
 class WorkOrderCreate(BaseModel):
+    """Schema for creating a work order with validation"""
     vehicle_id: int
     title: str = Field(min_length=2, max_length=200)
     description: str | None = None
-    priority: str = "Medium"
+    priority: str = Field(default="Medium", pattern=r"^(Low|Medium|High|Critical)$")
     status: str = Field(default="Open", pattern=r"^(Draft|Open|Assigned|Scheduled|In progress|Ready for review|Completed|Closed|Archived)$")
     due_date: str | None = None
     assigned_to: str | None = None
@@ -646,6 +674,33 @@ class FinanceSummaryRead(BaseModel):
     fuel_amount_paise: int
     toll_amount_paise: int
     total_amount_paise: int
+
+
+class FinancialTransactionCreate(BaseModel):
+    """Schema for creating financial transactions"""
+    organization_id: int
+    amount: int = Field(gt=0)  # Amount in paise/cents
+    transaction_type: str = Field(pattern="^(fuel|toll|maintenance|expense|other)$")
+    reference_id: int | None = None
+    description: str | None = Field(default=None, max_length=500)
+
+
+class FinancialTransactionRead(FinancialTransactionCreate):
+    """Schema for reading financial transactions"""
+    model_config = ConfigDict(from_attributes=True)
+    
+    id: int
+    status: str = Field(pattern="^(pending|completed|voided)$", default="completed")
+    created_at: datetime
+    created_by: int | None = None
+
+
+class FinancialTransactionFilter(BaseModel):
+    """Schema for filtering financial transactions"""
+    transaction_type: str | None = None
+    status: str | None = None
+    start_date: datetime | None = None
+    end_date: datetime | None = None
     gst_amount_paise: int
 
 
@@ -855,3 +910,121 @@ class DocumentUpdate(BaseModel):
     expires_on: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
     file_key: str | None = None
     status: str | None = None
+
+
+class AssignableMemberRead(BaseModel):
+    """Available mechanics and technicians for work assignment"""
+    model_config = ConfigDict(from_attributes=True)
+    
+    id: int
+    full_name: str
+    role: str
+
+
+class WorkOrderAssignmentCreate(BaseModel):
+    """Request to assign a work order to a mechanic/technician"""
+    mechanic_id: int | None = None
+    work_order_id: int
+
+
+class WorkOrderAssignmentRead(BaseModel):
+    """Response after work order assignment"""
+    model_config = ConfigDict(from_attributes=True)
+    
+    id: int
+    title: str
+    vehicle_id: int
+    work_order_id: int
+    assigned_mechanic_id: int | None
+    assigned_mechanic_name: str | None
+    assigned_at: datetime | None
+    status: str | None = "pending"
+
+
+class WorkOrderAssignmentUpdate(BaseModel):
+    """Request to update work order assignment"""
+    mechanic_id: int | None = None
+    status: str | None = None
+
+
+class WorkOrderStartRequest(BaseModel):
+    """Request to start work on an assigned work order"""
+    pass
+
+
+class WorkOrderStartRead(WorkOrderRead):
+    """Response after work order is started"""
+    pass
+
+
+class WorkOrderCompleteRequest(BaseModel):
+    """Request to complete work on an assigned work order"""
+    labor_hours: int | None = Field(default=None, ge=0)
+    repair_notes: str | None = None
+
+
+class WorkOrderCompleteRead(WorkOrderRead):
+    """Response after work order is completed"""
+    pass
+
+
+class VehicleDriverAssignmentCreate(BaseModel):
+    """Request to assign a driver to a vehicle"""
+    driver_id: int
+
+
+class VehicleDriverAssignmentRead(BaseModel):
+    """Response after driver assignment"""
+    model_config = ConfigDict(from_attributes=True)
+    
+    id: int
+    vehicle_id: int
+    vehicle_registration: str
+    driver_id: int
+    driver_name: str
+    active: bool
+    created_at: datetime
+
+
+class FleetManagerHandoffRead(BaseModel):
+    """Handoff information for fleet manager to assign work"""
+    model_config = ConfigDict(from_attributes=True)
+    
+    work_orders: list[WorkOrderRead] = []
+    available_mechanics: list[AssignableMemberRead] = []
+    vehicles: list[VehicleRead] = []
+
+
+class MechanicHandoffRead(BaseModel):
+    """Handoff information for mechanic/technician"""
+    model_config = ConfigDict(from_attributes=True)
+    
+    assigned_work_orders: list[WorkOrderRead] = []
+    available_parts: list[PartRead] = []
+    vehicle_components: list[ComponentRead] = []
+
+
+class AuditEventRead(BaseModel):
+    """Audit event with detailed tracking"""
+    model_config = ConfigDict(from_attributes=True)
+    
+    id: int
+    actor_user_id: int
+    actor_role: str
+    action: str
+    entity_type: str
+    entity_id: str | None
+    summary: str
+    metadata: str | None
+    created_at: datetime
+
+
+class TeamRosterRead(BaseModel):
+    """Complete team roster with assignments"""
+    model_config = ConfigDict(from_attributes=True)
+    
+    members: list[UserRead] = []
+    assignments: list[VehicleAssignmentRead] = []
+    vehicles: list[VehicleRead] = []
+    unassigned_drivers: list[UserRead] = []
+    unassigned_vehicles: list[VehicleRead] = []

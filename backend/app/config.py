@@ -1,4 +1,5 @@
 from functools import lru_cache
+import pytz
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -50,12 +51,18 @@ class Settings(BaseSettings):
     razorpay_plan_growth: str | None = None
     razorpay_plan_scale: str | None = None
     razorpay_plan_enterprise: str | None = None
+    timezone: str = "UTC"
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="VAHANA_", extra="ignore")
 
     @property
     def allowed_origins(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @property
+    def default_timezone(self):
+        """Fixed Bug 27: Return configured timezone object"""
+        return pytz.timezone(self.timezone)
 
     def validate_runtime(self) -> None:
         if self.environment.lower() in {"production", "staging"}:

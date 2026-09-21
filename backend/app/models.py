@@ -66,11 +66,24 @@ class OrganizationInvitation(Base):
 
 
 class Vehicle(Base):
+    """
+    Fleet vehicle model representing a vehicle in the organization.
+    
+    Attributes:
+        registration_number: Unique vehicle registration number
+        model: Vehicle model name
+        vehicle_type: Type of vehicle (e.g., truck, van)
+        depot: Primary depot/location
+        status: Current operational status
+        health: Health score (0-100)
+        odometer_km: Current odometer reading
+        assigned_driver_id: FK to currently assigned driver
+    """
     __tablename__ = "vehicles"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
-    registration_number: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    registration_number: Mapped[str] = mapped_column(String(32), unique=True, nullable=False, index=True)
     model: Mapped[str] = mapped_column(String(160), nullable=False)
     vehicle_type: Mapped[str] = mapped_column(String(80), nullable=False)
     depot: Mapped[str] = mapped_column(String(120), nullable=False)
@@ -81,6 +94,7 @@ class Vehicle(Base):
     assigned_driver_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
     organization: Mapped[Organization] = relationship(back_populates="vehicles")
+    driver: Mapped[Optional["User"]] = relationship(foreign_keys=[assigned_driver_id])
 
 
 class VehicleAssignment(Base):
@@ -126,6 +140,16 @@ class VehicleComponent(Base):
 
 
 class WorkOrder(Base):
+    """
+    Work order model representing maintenance/repair work to be performed.
+    
+    Attributes:
+        vehicle_id: FK to vehicle requiring work
+        title: Work order title/description
+        priority: Priority level (Low, Medium, High, Critical)
+        status: Current status in workflow
+        assigned_user_id: FK to assigned technician/mechanic
+    """
     __tablename__ = "work_orders"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -229,6 +253,22 @@ class MaintenancePlan(Base):
     next_due_km: Mapped[Optional[int]] = mapped_column(Integer)
     next_due_on: Mapped[Optional[str]] = mapped_column(String(20))
     active: Mapped[bool] = mapped_column(default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class MaintenanceTemplate(Base):
+    __tablename__ = "maintenance_templates"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    vehicle_type: Mapped[Optional[str]] = mapped_column(String(80))
+    interval_km: Mapped[Optional[int]] = mapped_column(Integer)
+    interval_days: Mapped[Optional[int]] = mapped_column(Integer)
+    tasks: Mapped[Optional[str]] = mapped_column(Text)
+    is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
 
@@ -512,6 +552,23 @@ class TelemetryReading(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
 
+class ActivityFeedEntry(Base):
+    __tablename__ = "activity_feed_entries"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    actor_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    activity_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    entity_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    entity_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    title: Mapped[str] = mapped_column(String(240), nullable=False)
+    summary: Mapped[Optional[str]] = mapped_column(Text)
+    metadata_: Mapped[Optional[str]] = mapped_column(Text, name="metadata")
+    actor_full_name: Mapped[Optional[str]] = mapped_column(String(160))
+    actor_role: Mapped[Optional[str]] = mapped_column(String(48))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False, index=True)
+
+
 class Vendor(Base):
     __tablename__ = "vendors"
 
@@ -615,4 +672,19 @@ class AuditLog(Base):
     entity_id: Mapped[str] = mapped_column(String(80), nullable=False)
     request_id: Mapped[Optional[str]] = mapped_column(String(80))
     changes: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class AuditEvent(Base):
+    __tablename__ = "audit_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    actor_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    actor_role: Mapped[str] = mapped_column(String(48), nullable=False)
+    action: Mapped[str] = mapped_column(String(80), nullable=False)
+    entity_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    entity_id: Mapped[Optional[str]] = mapped_column(String(80))
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    metadata_: Mapped[Optional[str]] = mapped_column(Text, name="metadata")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)

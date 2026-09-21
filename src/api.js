@@ -775,3 +775,750 @@ export function reverseExpense(token, expenseId, reason) {
     body: JSON.stringify({ reason }),
   })
 }
+
+// Assignment endpoints for FleetOps parity
+export function getAssignableMembers(token) {
+  return request('/api/v1/team/assignable-members', { headers: { Authorization: `Bearer ${token}` } })
+}
+
+export function getTeamRoster(token) {
+  return request('/api/v1/team/roster', { headers: { Authorization: `Bearer ${token}` } })
+}
+
+export function assignVehicleDriver(token, vehicleId, driverId) {
+  return request(`/api/v1/vehicles/${vehicleId}/assign-driver`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ driver_id: driverId }),
+  })
+}
+
+export function assignWorkOrder(token, workOrderId, mechanicId) {
+  return request(`/api/v1/work-orders/${workOrderId}/assign`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ mechanic_id: mechanicId }),
+  })
+}
+
+export function getWorkOrderHandoffTimeline(token, workOrderId) {
+  return request(`/api/v1/work-orders/${workOrderId}/handoff-timeline`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+
+// ============================================================================
+// NEW API FUNCTIONS - FEATURE PARITY WITH FLEETOPS
+// ============================================================================
+
+// System endpoints
+export function getSystemHealth() {
+  return request('/api/v1/system/health')
+}
+
+export function getSystemVersion() {
+  return request('/api/v1/system/version')
+}
+
+export function getSystemConfig(token) {
+  return request('/api/v1/system/config', {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+// Organization settings
+export function getOrganizationSettings(token) {
+  return request('/api/v1/organization/settings', {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function updateOrganizationSettings(token, payload) {
+  return request('/api/v1/organization/settings', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function getOrganizationQuota(token) {
+  return request('/api/v1/organization/quota', {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+// Dashboard
+export function getDashboardSummary(token) {
+  return request('/api/v1/dashboard/summary', {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function getDashboardMetrics(token, metricType) {
+  return request(`/api/v1/dashboard/metrics/${metricType}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+// Maintenance
+export function listMaintenanceTemplates(token) {
+  return request('/api/v1/maintenance/templates', {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function createMaintenanceTemplate(token, payload) {
+  return request('/api/v1/maintenance/templates', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function getMaintenancePlan(token) {
+  return request('/api/v1/maintenance/plan', {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function getMaintenanceForecast(token, daysAhead = 90) {
+  return request(`/api/v1/maintenance/forecast?days_ahead=${daysAhead}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+// Onboarding
+export function getOnboardingStatus(token) {
+  return request('/api/v1/onboarding/status', {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function getOnboardingChecklist(token) {
+  return request('/api/v1/onboarding/checklist', {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function bootstrapOnboarding(token, payload) {
+  return request('/api/v1/onboarding/bootstrap', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
+    body: JSON.stringify(payload),
+  })
+}
+
+// Work Order Advanced
+export function reservePartForWorkOrder(token, workOrderId, payload) {
+  return request(`/api/v1/work-orders/${workOrderId}/reserve-part`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function returnReservedPart(token, workOrderId, payload) {
+  return request(`/api/v1/work-orders/${workOrderId}/return-reserved-part`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function getWorkOrderBoard(token) {
+  return request('/api/v1/work-orders/board', {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function getWorkOrderBoardStats(token) {
+  return request('/api/v1/work-orders/board/stats', {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function bulkUpdateWorkOrders(token, payload) {
+  return request('/api/v1/work-orders/bulk-update', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function reorderPartsForWorkOrder(token, workOrderId) {
+  return request(`/api/v1/work-orders/${workOrderId}/reorder-parts`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
+  })
+}
+
+// Inventory Advanced
+export function getInventoryPartDetail(token, partId) {
+  return request(`/api/v1/inventory/parts/${partId}/detail`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function getInventoryPartReferences(token, partId) {
+  return request(`/api/v1/inventory/parts/${partId}/references`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function getInventoryByLocation(token, locationId) {
+  return request(`/api/v1/inventory/parts/by-location/${locationId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function getInventorySummary(token) {
+  return request('/api/v1/inventory/summary', {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+// Driver Advanced
+export function getDriverDailyHome(token, driverId) {
+  return request(`/api/v1/drivers/${driverId}/daily-home`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function reportUnsafeDisposition(token, driverId, payload) {
+  return request(`/api/v1/drivers/${driverId}/unsafe-disposition`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function getDriverBehaviorScore(token, driverId) {
+  return request(`/api/v1/drivers/${driverId}/behavior-score`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function getDriversSummary(token) {
+  return request('/api/v1/drivers/summary', {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+// Triage System
+export function getTriageQueue(token) {
+  return request('/api/v1/triage/queue', {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function getTriageStats(token) {
+  return request('/api/v1/triage/stats', {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function updateTriageIssue(token, issueId, payload) {
+  return request(`/api/v1/triage/issues/${issueId}`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function createWorkOrderFromIssue(token, issueId, payload) {
+  return request(`/api/v1/triage/issues/${issueId}/create-work-order`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function assignTriageIssue(token, issueId, payload) {
+  return request(`/api/v1/triage/issues/${issueId}/assign`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function resolveTriageIssue(token, issueId, payload) {
+  return request(`/api/v1/triage/issues/${issueId}/resolve`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
+    body: JSON.stringify(payload),
+  })
+}
+
+// Reports
+export function getMaintenancePerformanceReport(token, startDate, endDate) {
+  return request(`/api/v1/reports/maintenance-performance?start_date=${startDate}&end_date=${endDate}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function getVehicleMaintenanceHistory(token, vehicleId) {
+  return request(`/api/v1/reports/vehicle-maintenance-history?vehicle_id=${vehicleId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function getFuelEfficiencyReport(token, startDate, endDate) {
+  return request(`/api/v1/reports/fuel-efficiency?start_date=${startDate}&end_date=${endDate}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+// Financials
+export function getFinancialMetrics(token, startDate, endDate) {
+  return request(`/api/v1/financials/metrics?start_date=${startDate}&end_date=${endDate}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function getFinancialReconciliation(token) {
+  return request('/api/v1/financials/reconciliation', {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function getFinancialApprovalQueue(token) {
+  return request('/api/v1/financials/approval-queue', {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function approveExpense(token, expenseId) {
+  return request(`/api/v1/financials/expenses/${expenseId}/approve`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
+  })
+}
+
+export function rejectExpense(token, expenseId, payload) {
+  return request(`/api/v1/financials/expenses/${expenseId}/reject`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function bulkApproveExpenses(token, payload) {
+  return request('/api/v1/financials/bulk-approve', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
+    body: JSON.stringify(payload),
+  })
+}
+
+// Billing
+export function checkPlanEligibility(token) {
+  return request('/api/v1/billing/test/check-plan-eligibility', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
+  })
+}
+
+export function activateStarterPlan(token) {
+  return request('/api/v1/billing/test/activate-starter', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
+  })
+}
+
+export function getTestPlans(token) {
+  return request('/api/v1/billing/test/plans', {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+// Notifications Advanced
+export function getNotificationSourceDetail(token, notificationId) {
+  return request(`/api/v1/notifications/${notificationId}/source-detail`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function escalateNotification(token, notificationId, payload) {
+  return request(`/api/v1/notifications/${notificationId}/escalate`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function getPendingNotifications(token) {
+  return request('/api/v1/notifications/pending', {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function bulkResolveNotifications(token, payload) {
+  return request('/api/v1/notifications/bulk-resolve', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
+    body: JSON.stringify(payload),
+  })
+}
+
+// Vendors
+export function getVendorPricingHistory(token, vendorId) {
+  return request(`/api/v1/vendors/${vendorId}/pricing-history`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+// Purchase Orders Advanced
+export function receivePartialPurchaseOrder(token, poId, payload) {
+  return request(`/api/v1/purchase-orders/${poId}/receive-partial`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
+    body: JSON.stringify(payload),
+  })
+}
+
+// Compliance
+export function getComplianceSummary(token) {
+  return request('/api/v1/compliance/summary', {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function getComplianceExpiryReport(token, daysAhead = 90) {
+  return request(`/api/v1/compliance/documents/expiry-report?days_ahead=${daysAhead}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+// Activity Feed
+export function getActivityFeed(token, limit = 50) {
+  return request(`/api/v1/activity-feed?limit=${limit}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  }).catch(err => {
+    if (err.status === 404) return []
+    throw err
+  })
+}
+
+export function getActivityFeedByType(token, type) {
+  return request(`/api/v1/activity-feed/by-type?activity_type=${type}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  }).catch(err => {
+    if (err.status === 404) return []
+    throw err
+  })
+}
+
+// Audit Logs Advanced
+export function getAuditLogsAdvanced(token, filters) {
+  const query = new URLSearchParams(filters).toString()
+  return request(`/api/v1/audit/logs/advanced?${query}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+
+// Missing Triage functions
+export function escalateTriageIssue(token, issueId, payload) {
+  return request(`/api/v1/triage/issues/${issueId}/escalate`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function getTriageDashboard(token) {
+  return request('/api/v1/triage/dashboard', {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+// Missing Reports functions
+export function generateReport(token, reportType, filters) {
+  return request('/api/v1/reports/generate', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
+    body: JSON.stringify({ report_type: reportType, ...filters }),
+  }).catch(err => {
+    if (err.status === 404) return null
+    throw err
+  })
+}
+
+export function listReports(token) {
+  return request('/api/v1/reports', {
+    headers: { Authorization: `Bearer ${token}` },
+  }).catch(err => {
+    if (err.status === 404) return []
+    throw err
+  })
+}
+
+export function downloadReport(token, reportId) {
+  return downloadFile(token, `/reports/${reportId}/download`, `report-${reportId}.pdf`).catch(err => {
+    if (err.status === 404) return null
+    throw err
+  })
+}
+
+// Missing Financials functions
+export function getFinancialsSummary(token) {
+  return request('/api/v1/financials/summary', {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function scheduleMaintenancePlan(token, planId, scheduleData) {
+  return request(`/api/v1/maintenance-plans/${planId}/schedule`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
+    body: JSON.stringify(scheduleData),
+  })
+}
+
+export function getMaintenancePlanSchedule(token, planId) {
+  return request(`/api/v1/maintenance-plans/${planId}/schedule`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function updateMaintenancePlan(token, planId, planData) {
+  return request(`/api/v1/maintenance-plans/${planId}`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
+    body: JSON.stringify(planData),
+  })
+}
+
+export function deleteMaintenancePlan(token, planId) {
+  return request(`/api/v1/maintenance-plans/${planId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+// Vendor functions
+export function getVendorList(token) {
+  return request('/api/v1/vendors', {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function getVendorDetails(token, vendorId) {
+  return request(`/api/v1/vendors/${vendorId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function updateVendor(token, vendorId, vendorData) {
+  return request(`/api/v1/vendors/${vendorId}`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
+    body: JSON.stringify(vendorData),
+  })
+}
+
+export function createVendorPricingRecord(token, vendorId, pricingData) {
+  return request(`/api/v1/vendors/${vendorId}/pricing`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
+    body: JSON.stringify(pricingData),
+  })
+}
+
+export function getVendorPerformanceMetrics(token, vendorId) {
+  return request(`/api/v1/vendors/${vendorId}/performance`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+// Procurement functions (Purchase Orders)
+export function getPurchaseOrderDetails(token, orderId) {
+  return request(`/api/v1/purchase-orders/${orderId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function getPurchaseOrderLines(token, orderId) {
+  return request(`/api/v1/purchase-orders/${orderId}/lines`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function receiveFullPurchaseOrder(token, orderId, receiptData) {
+  return request(`/api/v1/purchase-orders/${orderId}/receive`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
+    body: JSON.stringify(receiptData),
+  })
+}
+
+export function rejectPurchaseOrderReceipt(token, orderId, rejectData) {
+  return request(`/api/v1/purchase-orders/${orderId}/reject-receipt`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
+    body: JSON.stringify(rejectData),
+  })
+}
+
+export function getPurchaseOrderHistory(token, orderId) {
+  return request(`/api/v1/purchase-orders/${orderId}/history`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function reconcilePurchaseOrder(token, orderId, reconciliationData) {
+  return request(`/api/v1/purchase-orders/${orderId}/reconcile`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
+    body: JSON.stringify(reconciliationData),
+  })
+}
+
+
+// Telematics functions
+export function getTelematicsDeviceDetails(token, deviceId) {
+  return request(`/api/v1/telematics/devices/${deviceId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function getTelemetryReadings(token, deviceId, startDate, endDate) {
+  return request(`/api/v1/telematics/readings?device_id=${deviceId}&start_date=${startDate}&end_date=${endDate}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function updateTelematicsDevice(token, deviceId, deviceData) {
+  return request(`/api/v1/telematics/devices/${deviceId}`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
+    body: JSON.stringify(deviceData),
+  })
+}
+
+export function deactivateTelematicsDevice(token, deviceId) {
+  return request(`/api/v1/telematics/devices/${deviceId}/deactivate`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
+    body: JSON.stringify({}),
+  })
+}
+
+// Driver Behavior functions
+export function getDriverBehaviorEvents(token, driverId, startDate, endDate) {
+  return request(`/api/v1/drivers/${driverId}/behavior-events?start_date=${startDate}&end_date=${endDate}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function getDriverPerformanceMetrics(token, driverId, period = '30d') {
+  return request(`/api/v1/drivers/${driverId}/performance?period=${period}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function getFleetDriverMetrics(token) {
+  return request('/api/v1/drivers/fleet-metrics', {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function getFuelTransactions(token, vehicleId = null, startDate = null, endDate = null) {
+  let url = '/api/v1/fuel-transactions'
+  const params = []
+  if (vehicleId) params.push(`vehicle_id=${vehicleId}`)
+  if (startDate) params.push(`start_date=${startDate}`)
+  if (endDate) params.push(`end_date=${endDate}`)
+  if (params.length) url += '?' + params.join('&')
+  return request(url, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function getFuelEfficiencyAnalysis(token, vehicleId, startDate, endDate) {
+  return request(`/api/v1/fuel-analytics/efficiency?vehicle_id=${vehicleId}&start_date=${startDate}&end_date=${endDate}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  }).catch(err => {
+    if (err.status === 404) return null
+    throw err
+  })
+}
+
+export function getFuelCostAnalysis(token, startDate, endDate) {
+  return request(`/api/v1/fuel-analytics/cost?start_date=${startDate}&end_date=${endDate}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  }).catch(err => {
+    if (err.status === 404) return null
+    throw err
+  })
+}
+
+export function getFuelTrends(token, days = 30) {
+  return request(`/api/v1/fuel-analytics/trends?days=${days}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  }).catch(err => {
+    if (err.status === 404) return null
+    throw err
+  })
+}
+
+export function logFuelTransaction(token, transactionData) {
+  return request('/api/v1/fuel-transactions', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
+    body: JSON.stringify(transactionData),
+  })
+}
+
+// Compliance Versioning functions
+export function getComplianceDocuments(token, vehicleId = null) {
+  let url = '/api/v1/compliance/documents'
+  if (vehicleId) url += `?vehicle_id=${vehicleId}`
+  return request(url, {
+    headers: { Authorization: `Bearer ${token}` },
+  }).catch(err => {
+    if (err.status === 404) return []
+    throw err
+  })
+}
+
+export function getDocumentVersions(token, documentId) {
+  return request(`/api/v1/compliance/documents/${documentId}/versions`, {
+    headers: { Authorization: `Bearer ${token}` },
+  }).catch(err => {
+    if (err.status === 404) return []
+    throw err
+  })
+}
+
+export function updateDocumentVersion(token, documentId, versionData) {
+  return request(`/api/v1/compliance/documents/${documentId}/versions`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
+    body: JSON.stringify(versionData),
+  }).catch(err => {
+    if (err.status === 404) return null
+    throw err
+  })
+}
+
+export function archiveComplianceDocument(token, documentId) {
+  return request(`/api/v1/compliance/documents/${documentId}/archive`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
+    body: JSON.stringify({}),
+  }).catch(err => {
+    if (err.status === 404) return null
+    throw err
+  })
+}
+
+export function getComplianceAuditTrail(token, documentId) {
+  return request(`/api/v1/compliance/documents/${documentId}/audit-trail`, {
+    headers: { Authorization: `Bearer ${token}` },
+  }).catch(err => {
+    if (err.status === 404) return []
+    throw err
+  })
+}
