@@ -1,14 +1,4 @@
 {
-  "services": {
-    "frontend": {
-      "root": ".",
-      "framework": "vite"
-    },
-    "backend": {
-      "root": "backend",
-      "entrypoint": "app.main:app"
-    }
-  },
   "rewrites": [
     {
       "source": "/signup",
@@ -24,24 +14,15 @@
     },
     {
       "source": "/health",
-      "destination": {
-        "type": "service",
-        "service": "backend"
-      }
+      "destination": "/api/health"
     },
     {
-      "source": "/api(/.*)?",
-      "destination": {
-        "type": "service",
-        "service": "backend"
-      }
+      "source": "/api/(.*)",
+      "destination": "/api"
     },
     {
       "source": "/(.*)",
-      "destination": {
-        "type": "service",
-        "service": "frontend"
-      }
+      "destination": "/index.html"
     }
   ]
 }
