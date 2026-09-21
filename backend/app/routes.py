@@ -1887,7 +1887,7 @@ def complete_work_order(
                 transaction_type="issue",
                 quantity=part_usage.quantity,
                 created_by=user.id,
-                notes=f"Used in work order #{work_order.id}"
+                reference=f"Work order #{work_order.id}",
             ))
     
     database.add(AuditLog(
