@@ -1176,6 +1176,7 @@ def update_vehicle(
             source="vehicle_update",
             is_flagged=False,
         ))
+        evaluate_component_thresholds(user, vehicle, database)
     database.add(AuditLog(
         organization_id=user.organization_id,
         actor_user_id=user.id,
@@ -1284,13 +1285,19 @@ def create_component(
     if vehicle is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found in this organization")
     component_data = payload.model_dump()
+    alert_threshold_km = component_data.get("alert_threshold_km")
+    service_interval_km = component_data.get("service_interval_km")
+    if alert_threshold_km is not None and service_interval_km is not None and alert_threshold_km > service_interval_km:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Alert threshold cannot exceed component life")
     if (
         component_data["next_service_km"] is None
-        and component_data["service_interval_km"] is not None
+        and service_interval_km is not None
     ):
         component_data["next_service_km"] = (
-            component_data["installed_at_km"] + component_data["service_interval_km"]
+            component_data["installed_at_km"] + service_interval_km
         )
+    if component_data.get("next_alert_km") is None and alert_threshold_km is not None:
+        component_data["next_alert_km"] = component_data["installed_at_km"] + alert_threshold_km
     component = VehicleComponent(organization_id=user.organization_id, **component_data)
     database.add(component)
     database.flush()
@@ -1331,10 +1338,17 @@ def update_component(
     if component is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Component not found")
     changes = payload.model_dump(exclude_unset=True)
+    interval_km = changes.get("service_interval_km", component.service_interval_km)
+    threshold_km = changes.get("alert_threshold_km", component.alert_threshold_km)
+    if threshold_km is not None and interval_km is not None and threshold_km > interval_km:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Alert threshold cannot exceed component life")
     for key, value in changes.items():
         setattr(component, key, value)
-    if component.service_interval_km and component.last_service_km is not None and "next_service_km" not in changes:
-        component.next_service_km = component.last_service_km + component.service_interval_km
+    lifecycle_start_km = component.last_service_km or component.installed_at_km
+    if interval_km and "next_service_km" not in changes:
+        component.next_service_km = lifecycle_start_km + interval_km
+    if threshold_km and "next_alert_km" not in changes:
+        component.next_alert_km = lifecycle_start_km + threshold_km
     database.add(AuditLog(
         organization_id=user.organization_id,
         actor_user_id=user.id,
@@ -1412,6 +1426,7 @@ def complete_component_service(
         )
     component.last_service_km = odometer_km
     component.next_service_km = odometer_km + component.service_interval_km if component.service_interval_km else None
+    component.next_alert_km = odometer_km + component.alert_threshold_km if component.alert_threshold_km else component.next_service_km
     component.status = "Healthy"
     database.add(AuditLog(
         organization_id=user.organization_id,
@@ -1486,6 +1501,7 @@ def create_driver_inspection(
         source=f"driver_{payload.inspection_type}",
         is_flagged=False,
     ))
+    evaluate_component_thresholds(user, vehicle, database)
     inspection = DriverInspection(
         organization_id=user.organization_id,
         driver_id=user.id,
@@ -1600,8 +1616,13 @@ def create_work_order(
         detail=f"{vehicle.registration_number} · {work_order.priority} priority",
         entity_type="work_order",
         entity_id=str(work_order.id),
-        roles={"owner", "fleet_manager", "technician"},
+        roles={"owner", "fleet_manager"},
         user_ids={work_order.assigned_user_id} if work_order.assigned_user_id is not None else set(),
+        dedupe_key=(
+            f"work_order_assigned:{work_order.id}:{work_order.assigned_user_id}"
+            if work_order.assigned_user_id is not None
+            else f"work_order_created:{work_order.id}"
+        ),
     )
     database.commit()
     database.refresh(work_order)
@@ -2516,13 +2537,14 @@ def build_alerts(user: User, database: Session) -> list[dict[str, str | int]]:
             VehicleComponent.vehicle_id == vehicle.id,
         )).all()
         for component in components:
-            if component.next_service_km is not None and vehicle.odometer_km >= component.next_service_km:
+            alert_km = component.next_alert_km or component.next_service_km
+            if alert_km is not None and vehicle.odometer_km >= alert_km:
                 alerts.append({
                     "type": "component_due",
                     "severity": "danger",
                     "entity_id": component.id,
                     "title": f"{component.name} service due",
-                    "detail": f"{vehicle.registration_number} has reached {vehicle.odometer_km} km; service threshold {component.next_service_km} km",
+                    "detail": f"{vehicle.registration_number} has reached {vehicle.odometer_km} km; service threshold {alert_km} km",
                 })
         if vehicle.status == "Out of service":
             alerts.append({
@@ -2548,10 +2570,73 @@ def build_alerts(user: User, database: Session) -> list[dict[str, str | int]]:
     return alerts
 
 
+def evaluate_component_thresholds(user: User, vehicle: Vehicle, database: Session) -> int:
+    created_work_orders = 0
+    components = database.scalars(select(VehicleComponent).where(
+        VehicleComponent.organization_id == user.organization_id,
+        VehicleComponent.vehicle_id == vehicle.id,
+        VehicleComponent.status == "Healthy",
+    )).all()
+    for component in components:
+        alert_km = component.next_alert_km or component.next_service_km
+        if alert_km is None or vehicle.odometer_km < alert_km:
+            continue
+        existing = database.scalar(select(WorkOrder).where(
+            WorkOrder.organization_id == user.organization_id,
+            WorkOrder.vehicle_id == vehicle.id,
+            WorkOrder.status.in_(["Open", "Assigned", "Scheduled", "In progress", "Ready for review", "REWORK"]),
+            WorkOrder.title.ilike(f"%{component.name}%"),
+        ))
+        if existing is not None:
+            continue
+        work_order = WorkOrder(
+            organization_id=user.organization_id,
+            vehicle_id=vehicle.id,
+            title=f"{component.name} service threshold reached",
+            description=(
+                f"{component.name}: {vehicle.odometer_km - (component.last_service_km or component.installed_at_km)} "
+                f"km since last service; alert threshold {alert_km} km."
+            ),
+            priority="High",
+            status="Open",
+        )
+        database.add(work_order)
+        database.flush()
+        queue_role_notification(
+            database,
+            organization_id=user.organization_id,
+            notification_type="component_threshold",
+            severity="danger",
+            title=f"{component.name} service due",
+            detail=f"{vehicle.registration_number} reached {alert_km:,} km.",
+            entity_type="vehicle_component",
+            entity_id=str(component.id),
+            roles={"owner", "fleet_manager"},
+            dedupe_key=f"component_threshold:{component.id}:{alert_km}",
+        )
+        database.add(AuditEvent(
+            organization_id=user.organization_id,
+            actor_user_id=user.id,
+            actor_role=user.role,
+            action="MAINTENANCE_THRESHOLD_TRIGGERED",
+            entity_type="COMPONENT",
+            entity_id=str(component.id),
+            summary=f"Threshold triggered for {component.name}",
+            metadata=json.dumps({
+                "workOrderId": work_order.id,
+                "current_km": vehicle.odometer_km,
+                "alert_km": alert_km,
+            }),
+        ))
+        created_work_orders += 1
+    return created_work_orders
+
+
 ALERT_RECIPIENT_ROLES = {
     "document_expiry": {"owner", "fleet_manager"},
     "stock_reorder": {"owner", "inventory_manager"},
     "component_due": {"owner", "fleet_manager"},
+    "component_threshold": {"owner", "fleet_manager"},
     "driver_safety": {"fleet_manager"},
     "maintenance_due": {"owner", "fleet_manager"},
 }
@@ -2681,8 +2766,9 @@ def queue_role_notification(
     entity_id: str,
     roles: set[str],
     user_ids: set[int] | None = None,
+    dedupe_key: str | None = None,
 ) -> None:
-    dedupe_key = f"{notification_type}:{entity_id}"
+    dedupe_key = dedupe_key or f"{notification_type}:{entity_id}"
     existing = database.scalar(select(OperationalNotification).where(
         OperationalNotification.organization_id == organization_id,
         OperationalNotification.dedupe_key == dedupe_key,
@@ -2731,14 +2817,20 @@ def queue_role_notification(
             if preference.push:
                 channels.append("push")
         for channel in channels:
-            database.add(NotificationDelivery(
+            delivery = NotificationDelivery(
                 organization_id=organization_id,
                 notification_id=notification.id,
                 user_id=recipient.id,
                 channel=channel,
                 status="queued" if channel != "in_app" else "delivered",
                 sent_at=utc_now() if channel == "in_app" else None,
-            ))
+            )
+            database.add(delivery)
+            database.flush()
+            if channel == "sms":
+                dispatch_sms(delivery, notification, recipient)
+            elif channel == "whatsapp":
+                dispatch_whatsapp(delivery, notification, recipient)
 
 
 def sync_notifications(user: User, database: Session) -> None:
@@ -2747,12 +2839,19 @@ def sync_notifications(user: User, database: Session) -> None:
             entity_type = "compliance_document"
         elif alert["type"] == "stock_reorder":
             entity_type = "part"
-        elif alert["type"] in {"component_due", "driver_safety"}:
+        elif alert["type"] == "component_due":
+            entity_type = "vehicle_component"
+        elif alert["type"] == "driver_safety":
             entity_type = "vehicle"
         else:
             entity_type = "work_order"
         entity_id = str(alert["entity_id"])
-        dedupe_key = f"{alert['type']}:{entity_id}:{alert['detail']}"
+        if alert["type"] == "component_due":
+            component = database.get(VehicleComponent, int(alert["entity_id"]))
+            alert_km = (component.next_alert_km or component.next_service_km) if component is not None else alert["detail"]
+            dedupe_key = f"component_threshold:{entity_id}:{alert_km}"
+        else:
+            dedupe_key = f"{alert['type']}:{entity_id}:{alert['detail']}"
         existing = database.scalar(
             select(OperationalNotification).where(
                 OperationalNotification.organization_id == user.organization_id,
@@ -3085,10 +3184,15 @@ def finance_summary(user: User = Depends(get_current_user), database: Session = 
 
 @router.get("/fuel-transactions", response_model=list[FuelTransactionRead])
 def list_fuel_transactions(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[FuelTransaction]:
+    statement = select(FuelTransaction).where(FuelTransaction.organization_id == user.organization_id)
+    if user.role == "driver":
+        statement = statement.where(FuelTransaction.vehicle_id.in_(
+            select(Vehicle.id).where(Vehicle.assigned_driver_id == user.id)
+        ))
+    elif user.role not in {"owner", "fleet_manager", "accountant"}:
+        statement = statement.where(FuelTransaction.id == -1)
     return list(database.scalars(
-        select(FuelTransaction)
-        .where(FuelTransaction.organization_id == user.organization_id)
-        .order_by(FuelTransaction.incurred_on.desc(), FuelTransaction.id.desc())
+        statement.order_by(FuelTransaction.incurred_on.desc(), FuelTransaction.id.desc())
     ).all())
 
 
@@ -3096,12 +3200,16 @@ def list_fuel_transactions(user: User = Depends(get_current_user), database: Ses
 def create_fuel_transaction(
     payload: FuelTransactionCreate,
     request: Request,
-    user: User = Depends(require_permission("finance")),
+    user: User = Depends(get_current_user),
     database: Session = Depends(get_db),
 ) -> FuelTransaction:
     vehicle = database.scalar(select(Vehicle).where(Vehicle.id == payload.vehicle_id, Vehicle.organization_id == user.organization_id))
     if vehicle is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found in this organization")
+    if user.role not in {"owner", "fleet_manager", "accountant"} and not (
+        user.role == "driver" and vehicle.assigned_driver_id == user.id
+    ):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only finance roles or the assigned driver can record fuel")
     total_amount_paise = (payload.litres_milli * payload.price_per_litre_paise) // 1000
     fuel = FuelTransaction(
         organization_id=user.organization_id,
@@ -3468,6 +3576,7 @@ def ingest_telemetry(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
     if payload.odometer_km > vehicle.odometer_km:
         vehicle.odometer_km = payload.odometer_km
+        evaluate_component_thresholds(user, vehicle, database)
     reading = TelemetryReading(
         organization_id=user.organization_id,
         vehicle_id=device.vehicle_id,
@@ -3980,6 +4089,19 @@ def assign_vehicle_driver(
             "closed_assignments": closed_count,
         }),
     ))
+    queue_role_notification(
+        database,
+        organization_id=user.organization_id,
+        notification_type="vehicle_assigned",
+        severity="warning",
+        title=f"Vehicle assigned: {vehicle.registration_number}",
+        detail=f"{vehicle.model} is now assigned to you.",
+        entity_type="vehicle",
+        entity_id=str(vehicle_id),
+        roles={"owner", "fleet_manager"},
+        user_ids={driver.id},
+        dedupe_key=f"vehicle_assigned:{vehicle_id}:{driver.id}",
+    )
     database.commit()
     database.refresh(assignment)
     
@@ -4049,8 +4171,9 @@ def assign_work_order(
             detail=f"{work_order.priority} priority · {work_order.vehicle_id}",
             entity_type="work_order",
             entity_id=str(work_order_id),
-            roles=set(),
+            roles={"owner", "fleet_manager"},
             user_ids={payload.mechanic_id},
+            dedupe_key=f"work_order_assigned:{work_order_id}:{payload.mechanic_id}",
         )
     
     database.commit()
@@ -4147,68 +4270,7 @@ def evaluate_vehicle_maintenance(
     if vehicle is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found in this organization")
     
-    created_work_orders = 0
-    components = list(database.scalars(
-        select(VehicleComponent).where(VehicleComponent.vehicle_id == vehicle_id)
-    ).all())
-    
-    for component in components:
-        if component.status != "Healthy":
-            continue
-        
-        # Calculate consumed and elapsed
-        current_km = vehicle.odometer_km
-        installation_km = component.installed_at_km
-        consumed = current_km - installation_km
-        
-        last_service_km = component.last_service_km or installation_km
-        elapsed_days = 0  # Would need installation date for accurate calculation
-        
-        # Check if threshold reached
-        alert_km = component.service_interval_km or 0
-        if consumed < alert_km:
-            continue
-        
-        # Check for existing work order
-        existing = database.scalar(select(WorkOrder).where(
-            WorkOrder.organization_id == user.organization_id,
-            WorkOrder.vehicle_id == vehicle_id,
-            WorkOrder.status.in_(["Open", "In progress", "REWORK"]),
-            WorkOrder.title.ilike(f"%{component.name}%"),
-        ))
-        if existing:
-            continue
-        
-        # Create work order
-        priority = "HIGH" if consumed >= alert_km else "MEDIUM"
-        work_order = WorkOrder(
-            organization_id=user.organization_id,
-            vehicle_id=vehicle_id,
-            title=f"{component.name} service threshold reached",
-            description=f"{component.name}: {consumed} km consumed since installation",
-            priority=priority,
-            status="Open",
-        )
-        database.add(work_order)
-        database.flush()
-        
-        # Record audit event
-        database.add(AuditEvent(
-            organization_id=user.organization_id,
-            actor_user_id=user.id,
-            actor_role=user.role,
-            action="MAINTENANCE_THRESHOLD_TRIGGERED",
-            entity_type="COMPONENT",
-            entity_id=str(component.id),
-            summary=f"Threshold triggered for {component.name}",
-            metadata=json.dumps({
-                "workOrderId": work_order.id,
-                "consumed_km": consumed,
-                "installation_km": installation_km,
-                "alert_km": alert_km,
-            }),
-        ))
-        created_work_orders += 1
+    created_work_orders = evaluate_component_thresholds(user, vehicle, database)
     
     database.commit()
     return {"created_work_orders": created_work_orders}

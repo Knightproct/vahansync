@@ -529,10 +529,10 @@ function MaintenancePage({ token, data, refresh, query }) {
   const [editing, setEditing] = useState(null)
   const [editForm, setEditForm] = useState({})
   const [plan, setPlan] = useState({ vehicle_id: '', name: '', interval_km: '', interval_days: '', next_due_km: '', next_due_on: today() })
-  const [component, setComponent] = useState({ vehicle_id: '', name: '', component_type: '', installed_at_km: 0, service_interval_km: '' })
+  const [component, setComponent] = useState({ vehicle_id: '', name: '', component_type: '', installed_at_km: 0, service_interval_km: '', alert_threshold_km: '' })
   async function createWork(event) { event.preventDefault(); try { await createWorkOrder(token, { ...form, vehicle_id: Number(form.vehicle_id), assigned_user_id: null }); refresh('Work order dispatched.'); setForm({ ...form, title: '', description: '' }) } catch (error) { refresh(error.message) } }
   async function createPlan(event) { event.preventDefault(); try { await createMaintenancePlan(token, { ...plan, vehicle_id: Number(plan.vehicle_id), interval_km: plan.interval_km ? Number(plan.interval_km) : null, interval_days: plan.interval_days ? Number(plan.interval_days) : null, next_due_km: plan.next_due_km ? Number(plan.next_due_km) : null }); refresh('Maintenance plan created.') } catch (error) { refresh(error.message) } }
-  async function createComp(event) { event.preventDefault(); try { await createComponent(token, { ...component, vehicle_id: Number(component.vehicle_id), installed_at_km: Number(component.installed_at_km), service_interval_km: component.service_interval_km ? Number(component.service_interval_km) : null, next_service_km: component.service_interval_km ? Number(component.installed_at_km) + Number(component.service_interval_km) : null }); refresh('Component lifecycle record created.') } catch (error) { refresh(error.message) } }
+  async function createComp(event) { event.preventDefault(); try { await createComponent(token, { ...component, vehicle_id: Number(component.vehicle_id), installed_at_km: Number(component.installed_at_km), service_interval_km: component.service_interval_km ? Number(component.service_interval_km) : null, alert_threshold_km: component.alert_threshold_km ? Number(component.alert_threshold_km) : null, next_service_km: component.service_interval_km ? Number(component.installed_at_km) + Number(component.service_interval_km) : null, next_alert_km: component.alert_threshold_km ? Number(component.installed_at_km) + Number(component.alert_threshold_km) : null }); refresh('Component lifecycle record created.') } catch (error) { refresh(error.message) } }
   async function transition(order, action) { try { if (action === 'start') await startWorkOrder(token, order.id); if (action === 'complete') await completeWorkOrder(token, order.id); if (action === 'approve') await approveWorkOrder(token, order.id); if (action === 'archive') await archiveWorkOrder(token, order.id); refresh('Work order updated.') } catch (error) { refresh(error.message) } }
   function beginEdit(order) { setEditing(order.id); setEditForm({ title: order.title, description: order.description || '', priority: order.priority, due_date: order.due_date || '', assigned_to: order.assigned_to || '' }) }
   async function saveEdit(event) {
@@ -553,7 +553,77 @@ function MaintenancePage({ token, data, refresh, query }) {
       .catch((error) => refresh(error.message))
     return () => { active = false }
   }, [token])
-  return <PageFrame eyebrow="02 · Fleet operations" title="Maintenance command" description="Plan preventive work, dispatch a repair, track execution evidence, and close the lifecycle record."><div className="tabs">{[['work', 'Work orders'], ['plans', 'Preventive plans'], ['components', 'Components']].map(([id, label]) => <button className={tab === id ? 'tab active' : 'tab'} key={id} onClick={() => setTab(id)}>{label}</button>)}</div>{tab === 'work' && <><FormCard title="Dispatch work" description="A work order carries the vehicle, priority, due date, and accountable handoff."><form className="form-grid" onSubmit={createWork}><SelectField label="Vehicle" value={form.vehicle_id} onChange={(value) => setForm({ ...form, vehicle_id: value })} options={[['', 'Select vehicle'], ...data.vehicles.map((vehicle) => [String(vehicle.id), `${vehicle.registration_number} · ${vehicle.model}`])]} required /><Field label="Work title" value={form.title} onChange={(value) => setForm({ ...form, title: value })} required /><SelectField label="Priority" value={form.priority} onChange={(value) => setForm({ ...form, priority: value })} options={['Low', 'Medium', 'High', 'Critical'].map((value) => [value, value])} /><Field label="Due date" type="date" value={form.due_date} onChange={(value) => setForm({ ...form, due_date: value })} /><Field label="Assigned technician" value={form.assigned_to} onChange={(value) => setForm({ ...form, assigned_to: value })} /><TextField label="Scope and instructions" value={form.description} onChange={(value) => setForm({ ...form, description: value })} /><button className="primary-button">Create work order</button></form></FormCard>{editing && <FormCard title="Edit work order" description="Update planning details before the job is closed."><form className="form-grid" onSubmit={saveEdit}><Field label="Work title" value={editForm.title} onChange={(value) => setEditForm({ ...editForm, title: value })} required /><SelectField label="Priority" value={editForm.priority} onChange={(value) => setEditForm({ ...editForm, priority: value })} options={['Low', 'Medium', 'High', 'Critical'].map((value) => [value, value])} /><Field label="Due date" type="date" value={editForm.due_date} onChange={(value) => setEditForm({ ...editForm, due_date: value })} /><Field label="Assigned technician label" value={editForm.assigned_to} onChange={(value) => setEditForm({ ...editForm, assigned_to: value })} /><TextField label="Scope and instructions" value={editForm.description} onChange={(value) => setEditForm({ ...editForm, description: value })} /><div className="row-actions"><button className="primary-button">Save changes</button><button type="button" className="secondary-button" onClick={() => setEditing(null)}>Cancel</button></div></form></FormCard>}<DataPanel title="Dispatch board" eyebrow={`${work.length} work orders`}><Table headers={['Work', 'Vehicle', 'Priority', 'Due', 'Status', 'Action']} rows={work.map((order) => [<span><strong>{order.title}</strong><small>{order.description || 'No extra instructions'}</small></span>, data.vehicles.find((vehicle) => vehicle.id === order.vehicle_id)?.registration_number || `Vehicle #${order.vehicle_id}`, order.priority, dateText(order.due_date), <span className={`status ${order.status === 'Completed' ? 'good' : order.status === 'Cancelled' ? 'bad' : 'warn'}`}>{order.status}</span>, <div className="row-actions"><button className="table-action" onClick={() => beginEdit(order)}>Edit</button>{order.status === 'Open' && <button className="table-action" onClick={() => transition(order, 'start')}>Start</button>}{['In progress', 'REWORK'].includes(order.status) && <button className="table-action" onClick={() => transition(order, 'complete')}>Submit review</button>}{['Ready for review', 'READY_FOR_REVIEW'].includes(order.status) && <button className="table-action" onClick={() => transition(order, 'approve')}>Approve</button>}</div>])} empty="No work orders have been dispatched." /></DataPanel></>}{tab === 'plans' && <><FormCard title="Preventive maintenance plan" description="Create a service horizon from kilometres, days, or both."><form className="form-grid" onSubmit={createPlan}><SelectField label="Vehicle" value={plan.vehicle_id} onChange={(value) => setPlan({ ...plan, vehicle_id: value })} options={[['', 'Select vehicle'], ...data.vehicles.map((vehicle) => [String(vehicle.id), vehicle.registration_number])]} required /><Field label="Plan name" value={plan.name} onChange={(value) => setPlan({ ...plan, name: value })} required /><Field label="Interval kilometres" type="number" value={plan.interval_km} onChange={(value) => setPlan({ ...plan, interval_km: value })} /><Field label="Interval days" type="number" value={plan.interval_days} onChange={(value) => setPlan({ ...plan, interval_days: value })} /><Field label="Next due kilometres" type="number" value={plan.next_due_km} onChange={(value) => setPlan({ ...plan, next_due_km: value })} /><Field label="Next due date" type="date" value={plan.next_due_on} onChange={(value) => setPlan({ ...plan, next_due_on: value })} /><button className="primary-button">Save maintenance plan</button></form></FormCard><DataPanel title="Preventive plan register" eyebrow={`${data.plans.length} plans`}><Table headers={['Plan', 'Vehicle', 'Next due', 'Active']} rows={data.plans.map((item) => [item.name, data.vehicles.find((vehicle) => vehicle.id === item.vehicle_id)?.registration_number || `#${item.vehicle_id}`, item.next_due_on || `${item.next_due_km || '—'} km`, item.active ? <span className="status good">Active</span> : <span className="status bad">Inactive</span>])} empty="No preventive plans have been created." /></DataPanel></>}{tab === 'components' && <><FormCard title="Component lifecycle" description="Track installation, service interval, and the next threshold for every critical component."><form className="form-grid" onSubmit={createComp}><SelectField label="Vehicle" value={component.vehicle_id} onChange={(value) => setComponent({ ...component, vehicle_id: value })} options={[['', 'Select vehicle'], ...data.vehicles.map((vehicle) => [String(vehicle.id), vehicle.registration_number])]} required /><Field label="Component name" value={component.name} onChange={(value) => setComponent({ ...component, name: value })} required /><Field label="Component type" value={component.component_type} onChange={(value) => setComponent({ ...component, component_type: value })} required /><Field label="Installed at km" type="number" value={component.installed_at_km} onChange={(value) => setComponent({ ...component, installed_at_km: value })} /><Field label="Service interval km" type="number" value={component.service_interval_km} onChange={(value) => setComponent({ ...component, service_interval_km: value })} /><button className="primary-button">Add component</button></form></FormCard><DataPanel title="Component register" eyebrow={`${data.components.length} tracked components`}><Table headers={['Component', 'Vehicle', 'Next service', 'Status', 'Action']} rows={data.components.map((item) => [<span><strong>{item.name}</strong><small>{item.component_type}</small></span>, data.vehicles.find((vehicle) => vehicle.id === item.vehicle_id)?.registration_number || `#${item.vehicle_id}`, `${item.next_service_km || '—'} km`, item.status, <button className="table-action" onClick={async () => { try { await completeComponentService(token, item.id, data.vehicles.find((vehicle) => vehicle.id === item.vehicle_id)?.odometer_km || 0); refresh('Component service completed.') } catch (error) { refresh(error.message) } }}>Complete service</button>])} empty="No component lifecycle records exist." /></DataPanel></>}</PageFrame>
+  return (
+    <PageFrame eyebrow="02 · Fleet operations" title="Maintenance command" description="Plan preventive work, dispatch repairs, track execution, and close component lifecycles.">
+      <div className="tabs">
+        {[['work', 'Work orders'], ['plans', 'Preventive plans'], ['components', 'Components']].map(([id, label]) => (
+          <button className={tab === id ? 'tab active' : 'tab'} key={id} onClick={() => setTab(id)}>{label}</button>
+        ))}
+      </div>
+      {tab === 'work' && (
+        <>
+          <FormCard title="Dispatch work" description="Fleet Managers create work and assign it from the Fleet command workspace.">
+            <form className="form-grid" onSubmit={createWork}>
+              <SelectField label="Vehicle" value={form.vehicle_id} onChange={(value) => setForm({ ...form, vehicle_id: value })} options={[['', 'Select vehicle'], ...data.vehicles.map((vehicle) => [String(vehicle.id), `${vehicle.registration_number} · ${vehicle.model}`])]} required />
+              <Field label="Work title" value={form.title} onChange={(value) => setForm({ ...form, title: value })} required />
+              <SelectField label="Priority" value={form.priority} onChange={(value) => setForm({ ...form, priority: value })} options={['Low', 'Medium', 'High', 'Critical'].map((value) => [value, value])} />
+              <Field label="Due date" type="date" value={form.due_date} onChange={(value) => setForm({ ...form, due_date: value })} />
+              <TextField label="Scope and instructions" value={form.description} onChange={(value) => setForm({ ...form, description: value })} />
+              <button className="primary-button">Create work order</button>
+            </form>
+          </FormCard>
+          <DataPanel title="Maintenance board" eyebrow={`${work.length} work orders`}>
+            <Table headers={['Work', 'Vehicle', 'Priority', 'Due', 'Status', 'Action']} rows={work.map((order) => [
+              <span><strong>{order.title}</strong><small>{order.description || 'No extra instructions'}</small></span>,
+              data.vehicles.find((vehicle) => vehicle.id === order.vehicle_id)?.registration_number || `Vehicle #${order.vehicle_id}`,
+              order.priority,
+              dateText(order.due_date),
+              <span className={`status ${order.status === 'Completed' ? 'good' : 'warn'}`}>{order.status}</span>,
+              <div className="row-actions"><button className="table-action" onClick={() => beginEdit(order)}>Edit</button>{order.status === 'Open' && <button className="table-action" onClick={() => transition(order, 'start')}>Start</button>}{['In progress', 'REWORK'].includes(order.status) && <button className="table-action" onClick={() => transition(order, 'complete')}>Submit review</button>}{['Ready for review', 'READY_FOR_REVIEW'].includes(order.status) && <button className="table-action" onClick={() => transition(order, 'approve')}>Approve</button>}</div>
+            ])} empty="No work orders have been dispatched." />
+          </DataPanel>
+        </>
+      )}
+      {tab === 'plans' && (
+        <FormCard title="Preventive maintenance plan" description="Set a service horizon by kilometres, days, or both.">
+          <form className="form-grid" onSubmit={createPlan}>
+            <SelectField label="Vehicle" value={plan.vehicle_id} onChange={(value) => setPlan({ ...plan, vehicle_id: value })} options={[['', 'Select vehicle'], ...data.vehicles.map((vehicle) => [String(vehicle.id), vehicle.registration_number])]} required />
+            <Field label="Plan name" value={plan.name} onChange={(value) => setPlan({ ...plan, name: value })} required />
+            <Field label="Interval kilometres" type="number" value={plan.interval_km} onChange={(value) => setPlan({ ...plan, interval_km: value })} />
+            <Field label="Interval days" type="number" value={plan.interval_days} onChange={(value) => setPlan({ ...plan, interval_days: value })} />
+            <Field label="Next due kilometres" type="number" value={plan.next_due_km} onChange={(value) => setPlan({ ...plan, next_due_km: value })} />
+            <button className="primary-button">Save maintenance plan</button>
+          </form>
+        </FormCard>
+      )}
+      {tab === 'components' && (
+        <>
+          <FormCard title="Component lifecycle" description="Set the component life and the earlier odometer threshold that should alert Fleet Manager.">
+            <form className="form-grid" onSubmit={createComp}>
+              <SelectField label="Vehicle" value={component.vehicle_id} onChange={(value) => setComponent({ ...component, vehicle_id: value })} options={[['', 'Select vehicle'], ...data.vehicles.map((vehicle) => [String(vehicle.id), vehicle.registration_number])]} required />
+              <Field label="Component name" value={component.name} onChange={(value) => setComponent({ ...component, name: value })} required />
+              <Field label="Component type" value={component.component_type} onChange={(value) => setComponent({ ...component, component_type: value })} required />
+              <Field label="Installed at km" type="number" value={component.installed_at_km} onChange={(value) => setComponent({ ...component, installed_at_km: value })} />
+              <Field label="Component life km" type="number" value={component.service_interval_km} onChange={(value) => setComponent({ ...component, service_interval_km: value })} required />
+              <Field label="Alert threshold km" type="number" value={component.alert_threshold_km} onChange={(value) => setComponent({ ...component, alert_threshold_km: value })} required />
+              <button className="primary-button">Add component</button>
+            </form>
+          </FormCard>
+          <DataPanel title="Component register" eyebrow={`${data.components.length} tracked components`}>
+            <Table headers={['Component', 'Vehicle', 'Alert threshold', 'Next service', 'Status', 'Action']} rows={data.components.map((item) => [
+              <span><strong>{item.name}</strong><small>{item.component_type}</small></span>,
+              data.vehicles.find((vehicle) => vehicle.id === item.vehicle_id)?.registration_number || `#${item.vehicle_id}`,
+              `${item.next_alert_km || '—'} km`,
+              `${item.next_service_km || '—'} km`,
+              item.status,
+              <button className="table-action" onClick={async () => { try { await completeComponentService(token, item.id, data.vehicles.find((vehicle) => vehicle.id === item.vehicle_id)?.odometer_km || 0); refresh('Component service completed and lifecycle reset.') } catch (error) { refresh(error.message) } }}>Complete service</button>
+            ])} empty="No component lifecycle records exist." />
+          </DataPanel>
+        </>
+      )}
+      {editing && <FormCard title="Edit work order" description="Update planning details before the job is closed."><form className="form-grid" onSubmit={saveEdit}><Field label="Work title" value={editForm.title} onChange={(value) => setEditForm({ ...editForm, title: value })} required /><SelectField label="Priority" value={editForm.priority} onChange={(value) => setEditForm({ ...editForm, priority: value })} options={['Low', 'Medium', 'High', 'Critical'].map((value) => [value, value])} /><TextField label="Scope and instructions" value={editForm.description} onChange={(value) => setEditForm({ ...editForm, description: value })} /><div className="row-actions"><button className="primary-button">Save changes</button><button type="button" className="secondary-button" onClick={() => setEditing(null)}>Cancel</button></div></form></FormCard>}
+    </PageFrame>
+  )
 }
 
 function CompliancePage({ token, data, refresh, query }) {
@@ -834,7 +904,7 @@ function FleetManagerWorkspace({ token, data, refresh }) {
               <Field label="Work title" value={form.title} onChange={(value) => setForm({ ...form, title: value })} required />
               <SelectField label="Priority" value={form.priority} onChange={(value) => setForm({ ...form, priority: value })} options={['Low', 'Medium', 'High', 'Critical'].map((value) => [value, value])} />
               <Field label="Due date" type="date" value={form.due_date} onChange={(value) => setForm({ ...form, due_date: value })} />
-              <SelectField label="Assign to mechanic" value={form.mechanic_id} onChange={(value) => setForm({ ...form, mechanic_id: value })} options={[['', 'Not assigned'], ...availableMechanics.map((m) => [String(m.id), m.full_name])]} />
+              <SelectField label="Assign to mechanic or technician" value={form.mechanic_id} onChange={(value) => setForm({ ...form, mechanic_id: value })} options={[['', 'Not assigned'], ...availableMechanics.map((m) => [String(m.id), `${m.full_name} · ${roleNames[m.role] || m.role}`])]} />
               <TextField label="Scope and instructions" value={form.description} onChange={(value) => setForm({ ...form, description: value })} />
               <button className="primary-button" disabled={busy}>{busy ? 'Dispatching…' : 'Create work order'}</button>
             </form>
@@ -848,7 +918,7 @@ function FleetManagerWorkspace({ token, data, refresh }) {
               order.assigned_user_id ? availableMechanics.find((m) => m.id === order.assigned_user_id)?.full_name || 'Unknown' : <span className="muted">Unassigned</span>,
               <span className={`status ${order.status === 'Completed' ? 'good' : order.status === 'Cancelled' ? 'bad' : 'warn'}`}>{order.status}</span>,
               <div className="row-actions">
-                <SelectInline value={order.assigned_user_id || ''} onChange={(value) => assignWorkOrder(order.id, value || null)} options={[['', 'Unassign'], ...availableMechanics.map((m) => [String(m.id), m.full_name])]} />
+                <SelectInline value={order.assigned_user_id || ''} onChange={(value) => assignWorkOrder(order.id, value || null)} options={[['', 'Unassign'], ...availableMechanics.map((m) => [String(m.id), `${m.full_name} · ${roleNames[m.role] || m.role}`])]} />
               </div>
             ])} empty="No work orders have been dispatched." />
           </DataPanel>

@@ -307,6 +307,8 @@ class ComponentCreate(BaseModel):
     installed_at_km: int = Field(default=0, ge=0)
     last_service_km: int | None = Field(default=None, ge=0)
     service_interval_km: int | None = Field(default=None, gt=0)
+    alert_threshold_km: int | None = Field(default=None, gt=0)
+    next_alert_km: int | None = Field(default=None, ge=0)
     next_service_km: int | None = Field(default=None, ge=0)
     status: str = "Healthy"
 
@@ -326,6 +328,8 @@ class ComponentUpdate(BaseModel):
     installed_at_km: int | None = Field(default=None, ge=0)
     last_service_km: int | None = Field(default=None, ge=0)
     service_interval_km: int | None = Field(default=None, gt=0)
+    alert_threshold_km: int | None = Field(default=None, gt=0)
+    next_alert_km: int | None = Field(default=None, ge=0)
     next_service_km: int | None = Field(default=None, ge=0)
     status: str | None = None
 
