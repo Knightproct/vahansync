@@ -18,9 +18,9 @@
 
 .brand-mark{object-fit:cover;border-radius:10px}
 .sidebar-brand .brand-mark{width:38px;height:38px;border-radius:12px}
-.landing-hero-copy em{color:#f15b2a;font-style:normal}
-.landing-master-brand{position:relative;overflow:hidden;margin:0;border:1px solid #f0d4c2;border-radius:24px;background:#fffaf3;box-shadow:0 32px 80px rgba(39,50,65,.12);transform:rotate(1deg)}
-.landing-master-brand::after{content:"";position:absolute;right:-80px;bottom:-90px;width:190px;height:190px;border-radius:50%;background:rgba(242,107,56,.08)}
+.landing-hero-copy em{color:var(--green);font-style:normal}
+.landing-master-brand{position:relative;overflow:hidden;margin:0;border:1px solid #cde4d6;border-radius:24px;background:#f5f7f4;box-shadow:0 32px 80px rgba(35,55,48,.12);transform:rotate(1deg)}
+.landing-master-brand::after{content:"";position:absolute;right:-80px;bottom:-90px;width:190px;height:190px;border-radius:50%;background:rgba(31,107,85,.08)}
 .landing-master-brand img{display:block;width:100%;height:auto;mix-blend-mode:multiply}
 .full-state .brand-mark{width:48px;height:48px;border-radius:14px}
 @media(max-width:800px){.landing-master-brand{transform:none}.landing-master-brand img{min-height:290px;object-fit:cover}}
