@@ -16,7 +16,7 @@ import {
   requestPasswordReset, resolveNotification, revokeInvitation, signupOrganization, startWorkOrder, syncDueTelematics, flushOfflineMutations,
   getWorkOrderTimeline, updateDocument, updateNotification, updateNotificationPreference, updatePurchaseOrder, updateUserRole,
   updateMyProfile, updatePassword, updateVehicle, updateWorkOrder, updateWorkOrderChecklist, uploadDocumentFile, uploadWorkOrderEvidence, downloadFile,
-  assignVehicleDriver, assignWorkOrder, getWorkOrderHandoffTimeline,
+  assignVehicleDriver as assignVehicleDriverApi, assignWorkOrder as assignWorkOrderApi, getWorkOrderHandoffTimeline,
   getSystemHealth, getSystemVersion, getSystemConfig, getOrganizationSettings, updateOrganizationSettings, getOrganizationQuota,
   getDashboardSummary, getDashboardMetrics, listMaintenanceTemplates, createMaintenanceTemplate, getMaintenancePlan, getMaintenanceForecast,
   getOnboardingStatus, getOnboardingChecklist, bootstrapOnboarding, reservePartForWorkOrder, returnReservedPart, getWorkOrderBoard,
@@ -891,7 +891,7 @@ function FleetManagerWorkspace({ token, data, refresh, query }) {
     if (!driverId) return
     try {
       setBusy(true)
-      await assignVehicleDriver(token, vehicleId, driverId)
+      await assignVehicleDriverApi(token, vehicleId, Number(driverId))
       setDriverByVehicle({ ...driverByVehicle, [vehicleId]: '' })
       refresh('Driver assigned to vehicle.')
     } catch (error) {
@@ -902,11 +902,10 @@ function FleetManagerWorkspace({ token, data, refresh, query }) {
   }
 
   async function assignWorkOrder(workOrderId, mechanicId) {
-    if (!mechanicId) return
     try {
       setBusy(true)
-      await assignWorkOrder(token, workOrderId, mechanicId)
-      refresh('Work order assigned to mechanic.')
+      await assignWorkOrderApi(token, workOrderId, mechanicId ? Number(mechanicId) : null)
+      refresh(mechanicId ? 'Work order assignment updated.' : 'Work order unassigned.')
     } catch (error) {
       refresh(error.message)
     } finally {
@@ -973,7 +972,10 @@ function FleetManagerWorkspace({ token, data, refresh, query }) {
                 <div className="card-actions">
                   <select aria-label={`Assign driver to ${vehicle.registration_number}`} value={driverByVehicle[vehicle.id] || ''} onChange={(e) => setDriverByVehicle({ ...driverByVehicle, [vehicle.id]: e.target.value })}>
                     <option value="">Assign driver to this vehicle…</option>
-                    {teamRoster.members?.filter((m) => m.role === 'driver').map((driver) => (
+                    {[
+                      ...(teamRoster.members?.filter((m) => m.id === vehicle.assigned_driver_id) || []),
+                      ...(teamRoster.unassigned_drivers?.filter((driver) => driver.id !== vehicle.assigned_driver_id) || []),
+                    ].map((driver) => (
                       <option key={driver.id} value={driver.id}>{driver.full_name}</option>
                     ))}
                   </select>
