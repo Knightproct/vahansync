@@ -3589,6 +3589,31 @@ def sync_due_telematics(
     return results
 
 
+@router.post("/telematics/cron-sync")
+def cron_sync_telematics(
+    request: Request,
+    database: Session = Depends(get_db),
+) -> dict[str, int | list[dict[str, int | str]]]:
+    settings = get_settings()
+    expected_secret = settings.telematics_cron_secret
+    authorization = request.headers.get("authorization", "")
+    if not expected_secret or authorization != f"Bearer {expected_secret}":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid cron credentials")
+
+    now = utc_now()
+    integrations = database.scalars(select(TelematicsIntegration).where(
+        TelematicsIntegration.active.is_(True),
+    )).all()
+    results = []
+    for integration in integrations:
+        if integration.last_synced_at is not None and (
+            now - integration.last_synced_at
+        ).total_seconds() < integration.sync_interval_minutes * 60:
+            continue
+        results.append(sync_telematics_integration(integration, database))
+    return {"processed": len(results), "results": results}
+
+
 @router.post("/telematics/devices", response_model=TelematicsDeviceRead, status_code=status.HTTP_201_CREATED)
 def create_telematics_device(
     payload: TelematicsDeviceCreate,

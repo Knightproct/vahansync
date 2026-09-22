@@ -204,6 +204,12 @@ function AuthenticatedApp() {
     return () => { active = false }
   }, [token, refreshKey])
 
+  useEffect(() => {
+    if (!token) return undefined
+    const interval = window.setInterval(() => setRefreshKey((value) => value + 1), 5 * 60 * 1000)
+    return () => window.clearInterval(interval)
+  }, [token])
+
   function refresh(message) {
     if (message) {
       setNotice(message)
