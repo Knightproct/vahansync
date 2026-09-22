@@ -1385,9 +1385,12 @@ function MechanicExecutionWorkspace({ role, token, data, refresh, query }) {
   const [timeline, setTimeline] = useState([])
   const [busy, setBusy] = useState(false)
   const [evidenceFile, setEvidenceFile] = useState(null)
+  const [reservation, setReservation] = useState({ part_id: '', quantity: 1 })
+  const [reservedPart, setReservedPart] = useState(null)
 
   async function choose(order) {
     setSelected(order)
+    setReservedPart(null)
     try {
       const [loaded, history] = await Promise.all([
         getWorkOrderChecklist(token, order.id),
@@ -1437,6 +1440,7 @@ function MechanicExecutionWorkspace({ role, token, data, refresh, query }) {
       setLaborHours('0')
       setRepairNotes('')
       setEvidenceFile(null)
+      setReservedPart(null)
       refresh('Work order submitted for Fleet Manager review.')
     } catch (error) {
       refresh(error.message)
@@ -1452,6 +1456,42 @@ function MechanicExecutionWorkspace({ role, token, data, refresh, query }) {
       await uploadWorkOrderEvidence(token, selected.id, evidenceFile)
       setEvidenceFile(null)
       refresh('Repair evidence uploaded.')
+    } catch (error) {
+      refresh(error.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function reservePart() {
+    if (!selected || !reservation.part_id) return
+    try {
+      setBusy(true)
+      const result = await reservePartForWorkOrder(token, selected.id, {
+        part_id: Number(reservation.part_id),
+        quantity: Number(reservation.quantity),
+        reason: 'Assigned work order execution',
+      })
+      setReservedPart(result)
+      refresh('Part reserved for this work order.')
+    } catch (error) {
+      refresh(error.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function returnPart() {
+    if (!selected || !reservedPart) return
+    try {
+      setBusy(true)
+      await returnReservedPart(token, selected.id, {
+        part_id: reservedPart.part_id,
+        quantity: reservedPart.quantity,
+        reason: 'Part returned unused',
+      })
+      setReservedPart(null)
+      refresh('Reserved part returned.')
     } catch (error) {
       refresh(error.message)
     } finally {
@@ -1503,6 +1543,28 @@ function MechanicExecutionWorkspace({ role, token, data, refresh, query }) {
                 <input type="file" accept="image/*,application/pdf" onChange={(event) => setEvidenceFile(event.target.files?.[0] || null)} />
                 <button type="button" className="secondary-button" disabled={busy || !evidenceFile} onClick={uploadEvidence}>Upload evidence</button>
               </div>
+              <div className="evidence-box">
+                <strong>Parts handoff</strong>
+                <div className="form-grid">
+                  <SelectField
+                    label="Inventory part"
+                    value={reservation.part_id}
+                    onChange={(value) => setReservation({ ...reservation, part_id: value })}
+                    options={[['', 'Select part'], ...data.parts.map((item) => [String(item.id), `${item.sku} · ${item.name}`])]}
+                  />
+                  <Field
+                    label="Quantity"
+                    type="number"
+                    min="1"
+                    value={reservation.quantity}
+                    onChange={(value) => setReservation({ ...reservation, quantity: value })}
+                  />
+                </div>
+                <div className="row-actions">
+                  <button type="button" className="secondary-button" disabled={busy || !reservation.part_id} onClick={reservePart}>Reserve part</button>
+                  {reservedPart && <button type="button" className="secondary-button" disabled={busy} onClick={returnPart}>Return reserved part</button>}
+                </div>
+              </div>
               <div className="row-actions">
                 {selected.status === 'Open' && <button className="primary-button" disabled={busy} onClick={startWork}>Start work</button>}
                 {['In progress', 'REWORK'].includes(selected.status) && (
@@ -1535,6 +1597,7 @@ function MechanicExecutionWorkspace({ role, token, data, refresh, query }) {
 function DriverPortal({ token, data, refresh }) {
   const [inspection, setInspection] = useState({ vehicle_id: '', inspection_type: 'pre_trip', status: 'SAFE', odometer_km: 0, notes: '' })
   const [issue, setIssue] = useState({ vehicle_id: '', title: '', detail: '', priority: 'Medium' })
+  const [fuel, setFuel] = useState({ litres_milli: 0, price_per_litre_paise: 0, odometer_km: 0, station: '' })
 
   async function submitInspection(event) {
     event.preventDefault()
@@ -1551,6 +1614,23 @@ function DriverPortal({ token, data, refresh }) {
     try {
       const result = await createDriverIssue(token, { ...issue, vehicle_id: Number(issue.vehicle_id) })
       refresh(result.queued ? 'Issue saved offline and will sync when connected.' : 'Vehicle issue escalated.')
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+
+  async function submitFuel(event) {
+    event.preventDefault()
+    try {
+      await createFuelTransaction(token, {
+        vehicle_id: Number(data.vehicles[0]?.id),
+        litres_milli: Number(fuel.litres_milli),
+        price_per_litre_paise: Number(fuel.price_per_litre_paise),
+        odometer_km: Number(fuel.odometer_km),
+        station: fuel.station || undefined,
+      })
+      setFuel({ litres_milli: 0, price_per_litre_paise: 0, odometer_km: 0, station: '' })
+      refresh('Fuel transaction recorded.')
     } catch (error) {
       refresh(error.message)
     }
@@ -1587,6 +1667,15 @@ function DriverPortal({ token, data, refresh }) {
             <SelectField label="Priority" value={issue.priority} onChange={(value) => setIssue({ ...issue, priority: value })} options={['Low', 'Medium', 'High', 'Critical'].map((value) => [value, value])} />
             <TextField label="Describe the issue" value={issue.detail} onChange={(value) => setIssue({ ...issue, detail: value })} required />
             <button className="primary-button danger-button">Escalate issue</button>
+          </form>
+        </FormCard>
+        <FormCard title="Log fuel" description="Record fuel cost and update the assigned vehicle odometer.">
+          <form className="stack-form" onSubmit={submitFuel}>
+            <Field label="Litres" type="number" min="1" value={Number(fuel.litres_milli) / 1000 || ''} onChange={(value) => setFuel({ ...fuel, litres_milli: Number(value) * 1000 })} required />
+            <Field label="Price per litre (paise)" type="number" min="1" value={fuel.price_per_litre_paise} onChange={(value) => setFuel({ ...fuel, price_per_litre_paise: value })} required />
+            <Field label="Odometer (km)" type="number" min="0" value={fuel.odometer_km} onChange={(value) => setFuel({ ...fuel, odometer_km: value })} required />
+            <Field label="Station" value={fuel.station} onChange={(value) => setFuel({ ...fuel, station: value })} />
+            <button className="primary-button" disabled={!data.vehicles.length}>Save fuel log</button>
           </form>
         </FormCard>
       </div>
