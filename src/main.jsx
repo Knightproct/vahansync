@@ -160,12 +160,29 @@ function AuthenticatedApp() {
       setLoading(true)
       try {
         const current = await getCurrentUser(token)
+        const canSeeVehicles = ['owner', 'fleet_manager', 'driver', 'mechanic', 'technician'].includes(current.role)
+        const canSeeMaintenance = ['owner', 'fleet_manager', 'mechanic', 'technician'].includes(current.role)
+        const canSeeFinance = ['owner', 'fleet_manager', 'accountant'].includes(current.role)
+        const canSeeProcurement = ['owner', 'inventory_manager', 'accountant'].includes(current.role)
+        const canSeeInventory = ['owner', 'fleet_manager', 'inventory_manager', 'mechanic', 'technician'].includes(current.role)
+        const canSeeTelematics = ['owner', 'fleet_manager'].includes(current.role)
         const results = await Promise.allSettled([
-          getVehicles(token), getWorkOrders(token), getComponents(token), getDocuments(token),
-          getNotifications(token), getSubscription(token), getParts(token), getExpenses(token),
-          getMaintenancePlans(token), getVendors(token), getPurchaseOrders(token), getStockLocations(token),
+          canSeeVehicles ? getVehicles(token) : Promise.resolve([]),
+          canSeeMaintenance ? getWorkOrders(token) : Promise.resolve([]),
+          canSeeMaintenance ? getComponents(token) : Promise.resolve([]),
+          ['owner', 'fleet_manager', 'driver'].includes(current.role) ? getDocuments(token) : Promise.resolve([]),
+          getNotifications(token),
+          current.role === 'owner' ? getSubscription(token) : Promise.resolve(null),
+          canSeeInventory ? getParts(token) : Promise.resolve([]),
+          canSeeFinance ? getExpenses(token) : Promise.resolve([]),
+          canSeeMaintenance ? getMaintenancePlans(token) : Promise.resolve([]),
+          canSeeProcurement ? getVendors(token) : Promise.resolve([]),
+          canSeeProcurement ? getPurchaseOrders(token) : Promise.resolve([]),
+          ['owner', 'inventory_manager'].includes(current.role) ? getStockLocations(token) : Promise.resolve([]),
           getNotificationPreferences(token), getNotificationDeliveries(token), current.role === 'driver' ? getDriverInspections(token) : Promise.resolve([]),
-          current.role === 'driver' ? getDriverIssues(token) : Promise.resolve([]), getTelematicsIntegrations(token), getTelematicsDevices(token),
+          current.role === 'driver' ? getDriverIssues(token) : Promise.resolve([]),
+          canSeeTelematics ? getTelematicsIntegrations(token) : Promise.resolve([]),
+          canSeeTelematics ? getTelematicsDevices(token) : Promise.resolve([]),
           current.role === 'owner' ? getUsers(token) : Promise.resolve([]),
           current.role === 'owner' ? getInvitations(token) : Promise.resolve([]),
           current.role === 'owner' ? getAuditLog(token) : Promise.resolve([]),

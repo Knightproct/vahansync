@@ -293,9 +293,9 @@ export function createVehicle(token, vehicle) {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
     body: JSON.stringify({
-      registration_number: vehicle.reg,
+      registration_number: vehicle.registration_number ?? vehicle.reg,
       model: vehicle.model,
-      vehicle_type: vehicle.type,
+      vehicle_type: vehicle.vehicle_type ?? vehicle.type,
       depot: vehicle.depot,
       status: 'Idle / parked',
       health: 100,
