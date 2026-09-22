@@ -1073,6 +1073,7 @@ function MechanicExecutionWorkspace({ role, token, data, refresh, query }) {
   const [repairNotes, setRepairNotes] = useState('')
   const [timeline, setTimeline] = useState([])
   const [busy, setBusy] = useState(false)
+  const [evidenceFile, setEvidenceFile] = useState(null)
 
   async function choose(order) {
     setSelected(order)
@@ -1124,7 +1125,22 @@ function MechanicExecutionWorkspace({ role, token, data, refresh, query }) {
       setSelected(null)
       setLaborHours('0')
       setRepairNotes('')
+      setEvidenceFile(null)
       refresh('Work order submitted for Fleet Manager review.')
+    } catch (error) {
+      refresh(error.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function uploadEvidence() {
+    if (!selected || !evidenceFile) return
+    try {
+      setBusy(true)
+      await uploadWorkOrderEvidence(token, selected.id, evidenceFile)
+      setEvidenceFile(null)
+      refresh('Repair evidence uploaded.')
     } catch (error) {
       refresh(error.message)
     } finally {
@@ -1170,6 +1186,11 @@ function MechanicExecutionWorkspace({ role, token, data, refresh, query }) {
               <div className="form-grid">
                 <Field label="Labor hours" type="number" value={laborHours} onChange={setLaborHours} />
                 <TextField label="Repair notes" value={repairNotes} onChange={setRepairNotes} />
+              </div>
+              <div className="evidence-box">
+                <strong>Repair evidence</strong>
+                <input type="file" accept="image/*,application/pdf" onChange={(event) => setEvidenceFile(event.target.files?.[0] || null)} />
+                <button type="button" className="secondary-button" disabled={busy || !evidenceFile} onClick={uploadEvidence}>Upload evidence</button>
               </div>
               <div className="row-actions">
                 {selected.status === 'Open' && <button className="primary-button" disabled={busy} onClick={startWork}>Start work</button>}

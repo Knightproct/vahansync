@@ -687,10 +687,11 @@ export function startWorkOrder(token, workOrderId) {
   })
 }
 
-export function completeWorkOrder(token, workOrderId) {
+export function completeWorkOrder(token, workOrderId, payload = {}) {
   return request(`/api/v1/work-orders/${workOrderId}/complete`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': crypto.randomUUID() },
+    body: JSON.stringify(payload),
   })
 }
 

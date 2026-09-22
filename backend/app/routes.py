@@ -104,6 +104,7 @@ from .schemas import (
     VendorCreate,
     VendorRead,
     WorkOrderCreate,
+    WorkOrderCompleteRequest,
     WorkOrderChecklistItemRead,
     WorkOrderChecklistUpdate,
     WorkOrderEvidenceRead,
@@ -1842,6 +1843,7 @@ def start_work_order(
 def complete_work_order(
     work_order_id: int,
     request: Request,
+    payload: WorkOrderCompleteRequest | None = None,
     user: User = Depends(require_permission("maintenance")),
     database: Session = Depends(get_db),
 ) -> WorkOrder:
@@ -1857,6 +1859,9 @@ def complete_work_order(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Work order not found")
     if work_order.status != "In progress":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only in-progress work orders can be completed")
+    if payload:
+        work_order.labor_hours = payload.labor_hours
+        work_order.repair_notes = payload.repair_notes
     checklist = database.scalars(select(WorkOrderChecklistItem).where(
         WorkOrderChecklistItem.organization_id == user.organization_id,
         WorkOrderChecklistItem.work_order_id == work_order_id,
