@@ -25,7 +25,7 @@ import {
   getTriageQueue, getTriageStats, updateTriageIssue, createWorkOrderFromIssue, assignTriageIssue, resolveTriageIssue, escalateTriageIssue, getTriageDashboard,
   getMaintenancePerformanceReport, getVehicleMaintenanceHistory, getFuelEfficiencyReport, getFinancialMetrics,
   getFinancialReconciliation, getFinancialApprovalQueue, approveExpense, rejectExpense, bulkApproveExpenses, generateReport, listReports, downloadReport, getFinancialsSummary,
-  getActivityFeed, getActivityFeedByType, scheduleMaintenancePlan, getMaintenancePlanSchedule, updateMaintenancePlan, deleteMaintenancePlan,
+  getActivityFeed, scheduleMaintenancePlan, getMaintenancePlanSchedule, updateMaintenancePlan, deleteMaintenancePlan,
   getVendorList, getVendorDetails, updateVendor, getVendorPricingHistory, createVendorPricingRecord, getVendorPerformanceMetrics,
   getPurchaseOrderDetails, getPurchaseOrderLines, receiveFullPurchaseOrder, receivePartialPurchaseOrder, rejectPurchaseOrderReceipt, getPurchaseOrderHistory, reconcilePurchaseOrder,
   getTelematicsDeviceDetails, getTelemetryReadings, updateTelematicsDevice, deactivateTelematicsDevice,
@@ -1579,8 +1579,16 @@ function ActivityFeedWorkspace({ token, data, refresh }) {
     let active = true
     async function load() {
       try {
-        const activity = filterType === 'all' ? await getActivityFeed(token) : await getActivityFeedByType(token, filterType)
-        if (active) setFeed(activity || [])
+        const response = await getActivityFeed(token)
+        const activity = Array.isArray(response)
+          ? response
+          : Array.isArray(response?.activities)
+            ? response.activities
+            : Object.values(response?.summary || {}).flat()
+        const filtered = filterType === 'all'
+          ? activity
+          : activity.filter((item) => item.type === filterType || item.entity_type === filterType)
+        if (active) setFeed(filtered)
       } catch (error) {
         refresh(error.message)
       } finally {
@@ -1619,8 +1627,8 @@ function ActivityFeedWorkspace({ token, data, refresh }) {
                 </div>
                 <div className="timeline-content">
                   <div className="timeline-header">
-                    <strong>{activity.title || activity.action}</strong>
-                    <small>{dateText(activity.created_at)}</small>
+                    <strong>{activity.title || activity.action || activity.summary}</strong>
+                    <small>{dateText(activity.created_at || activity.timestamp)}</small>
                   </div>
                   <p className="timeline-description">{activity.description || activity.entity_type}</p>
                   {activity.actor && <small className="timeline-actor">By {activity.actor}</small>}
