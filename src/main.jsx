@@ -779,7 +779,14 @@ function PanelHeader({ eyebrow, title }) { return <div className="panel-heading"
 function Field({ label, value, onChange, type = 'text', compact = false, ...props }) { return <label className={compact ? 'field compact' : 'field'}>{label}<input type={type} value={value ?? ''} onChange={(event) => onChange(event.target.value)} {...props} /></label> }
 function TextField({ label, value, onChange, compact = false, ...props }) { return <label className={compact ? 'field compact' : 'field'}>{label}<textarea value={value ?? ''} onChange={(event) => onChange(event.target.value)} {...props} /></label> }
 function SelectField({ label, value, onChange, options, compact = false, ...props }) { return <label className={compact ? 'field compact' : 'field'}>{label}<select value={value ?? ''} onChange={(event) => onChange(event.target.value)} {...props}>{options.map(([option, text]) => <option key={option} value={option}>{text}</option>)}</select></label> }
-function SelectInline({ value, onChange, options }) { return <select className="inline-select" value={value} onChange={(event) => onChange(event.target.value)}>{options.map((option) => <option key={option}>{option}</option>)}</select> }
+function SelectInline({ value, onChange, options }) {
+  return <select className="inline-select" value={value} onChange={(event) => onChange(event.target.value)}>
+    {options.map((option) => {
+      const [optionValue, optionLabel] = Array.isArray(option) ? option : [option, option]
+      return <option key={optionValue} value={optionValue}>{optionLabel}</option>
+    })}
+  </select>
+}
 function Metric({ label, value, detail, tone = 'blue' }) { return <article className={`metric ${tone}`}><span>{label}</span><strong>{value ?? '—'}</strong><small>{detail}</small></article> }
 function Table({ headers, rows, empty }) { return rows.length ? <div className="table-wrap"><table><thead><tr>{headers.map((header) => <th key={header}>{header}</th>)}</tr></thead><tbody>{rows.map((row, index) => <tr key={index}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>)}</tbody></table></div> : <div className="empty-state"><strong>{empty}</strong></div> }
 function EmptyState({ visible, title, text }) { return visible ? <div className="empty-state"><strong>{title}</strong><span>{text}</span></div> : null }
@@ -814,7 +821,7 @@ function RecentActivity({ data }) {
 function roleDescription(role) { return { owner: 'Governance, access, billing, policy, and audit.', fleet_manager: 'Readiness, dispatch, odometer, and compliance.', inventory_manager: 'Parts, locations, movements, and procurement.', technician: 'Assigned repair execution and evidence.', mechanic: 'Workshop execution, parts, evidence, and handoff.', driver: 'Daily safety, odometer, and issue reporting.', accountant: 'Ledger, GST, approvals, and reconciliation.' }[role] }
 
 // Fleet Manager Workspace - Assignment Panel for Mechanics
-function FleetManagerWorkspace({ token, data, refresh }) {
+function FleetManagerWorkspace({ token, data, refresh, query }) {
   const [tab, setTab] = useState('dispatch')
   const [form, setForm] = useState({ vehicle_id: '', title: '', description: '', priority: 'Medium', due_date: today(), mechanic_id: '' })
   const [availableMechanics, setAvailableMechanics] = useState([])
