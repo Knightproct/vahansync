@@ -25,7 +25,7 @@ from uuid import uuid4
 from datetime import datetime, timezone, timedelta
 
 os.environ["VAHANA_DATABASE_URL"] = "sqlite:///./test-preservation.db"
-os.environ["VAHANA_SEED_ADMIN_EMAIL"] = "preservation-test@example.com"
+os.environ["VAHANA_SEED_ADMIN_EMAIL"] = "test-admin@example.com"
 os.environ["VAHANA_SEED_ADMIN_PASSWORD"] = "TestPassword!123"
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -47,7 +47,7 @@ def _get_owner_headers(client):
     login = client.post(
         "/api/v1/auth/login",
         json={
-            "email": "preservation-test@example.com",
+            "email": "test-admin@example.com",
             "password": "TestPassword!123"
         }
     )
@@ -127,7 +127,7 @@ def test_valid_action_substring_searches(tmp_path: Path, monkeypatch, action_ter
         db = _get_test_db()
         
         # Get authenticated user
-        user = db.query(User).filter_by(email="preservation-test@example.com").first()
+        user = db.query(User).filter_by(email="test-admin@example.com").first()
         assert user is not None
         
         # Create baseline logs
@@ -182,7 +182,7 @@ def test_valid_outcome_substring_searches(tmp_path: Path, monkeypatch, outcome_t
         headers = _get_owner_headers(client)
         db = _get_test_db()
         
-        user = db.query(User).filter_by(email="preservation-test@example.com").first()
+        user = db.query(User).filter_by(email="test-admin@example.com").first()
         assert user is not None
         
         _create_baseline_audit_logs(db, user, user.organization_id, num_logs=30)
@@ -236,7 +236,7 @@ def test_combined_filter_and_logic(tmp_path: Path, monkeypatch, action_term, out
         headers = _get_owner_headers(client)
         db = _get_test_db()
         
-        user = db.query(User).filter_by(email="preservation-test@example.com").first()
+        user = db.query(User).filter_by(email="test-admin@example.com").first()
         assert user is not None
         
         _create_baseline_audit_logs(db, user, user.organization_id, num_logs=30)
@@ -368,7 +368,7 @@ def test_pagination_preservation(tmp_path: Path, monkeypatch, limit):
         headers = _get_owner_headers(client)
         db = _get_test_db()
         
-        user = db.query(User).filter_by(email="preservation-test@example.com").first()
+        user = db.query(User).filter_by(email="test-admin@example.com").first()
         assert user is not None
         
         # Create enough logs to test pagination
@@ -423,7 +423,7 @@ def test_empty_null_parameters_preservation(tmp_path: Path, monkeypatch):
         headers = _get_owner_headers(client)
         db = _get_test_db()
         
-        user = db.query(User).filter_by(email="preservation-test@example.com").first()
+        user = db.query(User).filter_by(email="test-admin@example.com").first()
         assert user is not None
         
         logs = _create_baseline_audit_logs(db, user, user.organization_id, num_logs=30)
@@ -476,7 +476,7 @@ def test_special_characters_as_literals(tmp_path: Path, monkeypatch):
         headers = _get_owner_headers(client)
         db = _get_test_db()
         
-        user = db.query(User).filter_by(email="preservation-test@example.com").first()
+        user = db.query(User).filter_by(email="test-admin@example.com").first()
         assert user is not None
         
         # Create a baseline log with no special characters
@@ -548,7 +548,7 @@ def test_integrated_preservation(tmp_path: Path, monkeypatch, action_term, outco
         headers = _get_owner_headers(client)
         db = _get_test_db()
         
-        user = db.query(User).filter_by(email="preservation-test@example.com").first()
+        user = db.query(User).filter_by(email="test-admin@example.com").first()
         assert user is not None
         
         _create_baseline_audit_logs(db, user, user.organization_id, num_logs=50)

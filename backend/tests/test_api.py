@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from fastapi.testclient import TestClient
 
 from backend.app.database import Base, engine
+from backend.app.config import get_settings
 from backend.app.main import app
 
 
@@ -315,6 +316,16 @@ def test_health_and_vehicle_lifecycle(tmp_path: Path, monkeypatch):
         )
         assert synced.status_code == 200
         assert synced.json()["status"] == "missing_credentials"
+        assert client.post("/api/v1/telematics/cron-sync").status_code == 401
+        monkeypatch.setenv("VAHANA_TELEMATICS_CRON_SECRET", "test-cron-secret")
+        get_settings.cache_clear()
+        cron_sync = client.post(
+            "/api/v1/telematics/cron-sync",
+            headers={"Authorization": "Bearer test-cron-secret"},
+        )
+        assert cron_sync.status_code == 200
+        assert cron_sync.json()["processed"] == 1
+        assert cron_sync.json()["results"][0]["status"] == "missing_credentials"
         assert client.post("/api/v1/auth/logout", headers=headers).status_code == 204
         assert client.get("/api/v1/auth/me", headers=headers).status_code == 401
 
@@ -431,4 +442,3 @@ def test_vehicle_driver_fields_schema(tmp_path: Path, monkeypatch):
         assert "assigned_driver_id" in found_vehicle
         assert "driver_name" in found_vehicle
         assert found_vehicle["driver_name"] == "John Doe"
-

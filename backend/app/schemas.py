@@ -307,6 +307,8 @@ class ComponentCreate(BaseModel):
     installed_at_km: int = Field(default=0, ge=0)
     last_service_km: int | None = Field(default=None, ge=0)
     service_interval_km: int | None = Field(default=None, gt=0)
+    alert_threshold_km: int | None = Field(default=None, gt=0)
+    next_alert_km: int | None = Field(default=None, ge=0)
     next_service_km: int | None = Field(default=None, ge=0)
     status: str = "Healthy"
 
@@ -326,6 +328,8 @@ class ComponentUpdate(BaseModel):
     installed_at_km: int | None = Field(default=None, ge=0)
     last_service_km: int | None = Field(default=None, ge=0)
     service_interval_km: int | None = Field(default=None, gt=0)
+    alert_threshold_km: int | None = Field(default=None, gt=0)
+    next_alert_km: int | None = Field(default=None, ge=0)
     next_service_km: int | None = Field(default=None, ge=0)
     status: str | None = None
 
@@ -659,6 +663,7 @@ class ExpenseRead(ExpenseCreate):
 
     id: int
     organization_id: int
+    created_by: int | None
     approved_by: int | None
     approved_at: datetime | None
     created_at: datetime
@@ -924,7 +929,7 @@ class AssignableMemberRead(BaseModel):
 class WorkOrderAssignmentCreate(BaseModel):
     """Request to assign a work order to a mechanic/technician"""
     mechanic_id: int | None = None
-    work_order_id: int
+    work_order_id: int | None = None
 
 
 class WorkOrderAssignmentRead(BaseModel):
@@ -937,8 +942,8 @@ class WorkOrderAssignmentRead(BaseModel):
     work_order_id: int
     assigned_mechanic_id: int | None
     assigned_mechanic_name: str | None
-    assigned_at: datetime | None
-    status: str | None = "pending"
+    assigned_at: datetime | None = None
+    status: str | None = None
 
 
 class WorkOrderAssignmentUpdate(BaseModel):

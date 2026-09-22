@@ -24,7 +24,12 @@ async function request(path, options = {}) {
 
   if (!response.ok) {
     const body = await response.json().catch(() => null)
-    const error = new Error(body?.detail || `Request failed with status ${response.status}`)
+    const detail = Array.isArray(body?.detail)
+      ? body.detail.map((item) => item.msg || item.detail || JSON.stringify(item)).join(', ')
+      : typeof body?.detail === 'object'
+        ? JSON.stringify(body.detail)
+        : body?.detail
+    const error = new Error(detail || `Request failed with status ${response.status}`)
     error.status = response.status
     throw error
   }
@@ -167,6 +172,13 @@ export function updateUserRole(token, userId, role) {
   })
 }
 
+export function deleteUser(token, userId) {
+  return request(`/api/v1/users/${userId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
 export function getVehicles(token) {
   return request('/api/v1/vehicles', {
     headers: { Authorization: `Bearer ${token}` },
@@ -179,6 +191,13 @@ export function updateVehicle(token, vehicleId, payload) {
     headers: { Authorization: `Bearer ${token}` },
     body: JSON.stringify(payload),
   }).then(mapVehicle)
+}
+
+export function deleteVehicle(token, vehicleId) {
+  return request(`/api/v1/vehicles/${vehicleId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  })
 }
 
 export function getCurrentUser(token) {
@@ -274,9 +293,9 @@ export function createVehicle(token, vehicle) {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
     body: JSON.stringify({
-      registration_number: vehicle.reg,
+      registration_number: vehicle.registration_number ?? vehicle.reg,
       model: vehicle.model,
-      vehicle_type: vehicle.type,
+      vehicle_type: vehicle.vehicle_type ?? vehicle.type,
       depot: vehicle.depot,
       status: 'Idle / parked',
       health: 100,
@@ -322,6 +341,13 @@ export function updateWorkOrder(token, workOrderId, payload) {
   })
 }
 
+export function deleteWorkOrder(token, workOrderId) {
+  return request(`/api/v1/work-orders/${workOrderId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
 export function getComponents(token) {
   return request('/api/v1/components', { headers: { Authorization: `Bearer ${token}` } })
 }
@@ -339,6 +365,13 @@ export function updateComponent(token, componentId, payload) {
     method: 'PATCH',
     headers: { Authorization: `Bearer ${token}` },
     body: JSON.stringify(payload),
+  })
+}
+
+export function deleteComponent(token, componentId) {
+  return request(`/api/v1/components/${componentId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
   })
 }
 

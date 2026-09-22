@@ -65,12 +65,21 @@ def require_roles(*roles: str):
 
 ROLE_PERMISSIONS = {
     "owner": {"*"},
-    "fleet_manager": {"fleet", "maintenance", "compliance", "notifications"},
-    "inventory_manager": {"inventory", "procurement", "workshop", "notifications"},
-    "driver": {"driver", "fleet", "maintenance", "finance", "notifications"},
-    "mechanic": {"maintenance", "workshop", "inventory", "notifications"},
-    "technician": {"maintenance", "workshop", "inventory", "notifications"},
-    "accountant": {"finance", "procurement", "notifications"},
+    "fleet_manager": {"fleet", "fleet_read", "maintenance", "maintenance_read", "compliance", "compliance_read", "notifications", "inventory_read", "finance_read", "fuel_read"},
+    "inventory_manager": {"inventory", "procurement", "procurement_read", "notifications"},
+    "driver": {"driver", "fleet_read", "maintenance_read", "compliance_read", "fuel_read", "notifications"},
+    "mechanic": {"maintenance", "maintenance_read", "workshop", "inventory_read", "notifications"},
+    "technician": {"maintenance", "maintenance_read", "workshop", "inventory_read", "notifications"},
+    "accountant": {"finance", "finance_read", "procurement_read", "fuel_read", "notifications"},
+}
+
+ROLE_POLICY_GROUPS = {
+    "governance": {"owner"},
+    "fleet_operations": {"owner", "fleet_manager"},
+    "inventory_control": {"owner", "inventory_manager"},
+    "field_execution": {"mechanic", "technician"},
+    "driver_safety": {"driver"},
+    "finance": {"owner", "accountant"},
 }
 
 

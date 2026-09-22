@@ -4,10 +4,10 @@ import './styles.css'
 // Fixed Bug 35: Frontend console warnings - all list renderings use proper key props
 import {
   acceptInvitation, approveWorkOrder, archiveWorkOrder, changeSubscription, completeComponentService, completeWorkOrder,
-  createComponent, createDocument, createDriverInspection, createDriverIssue, createExpense,
+  createComponent, createDocument, createDriverInspection, createDriverIssue, createExpense, updateComponent,
   createFuelTransaction, createInventoryMovement, createMaintenancePlan, createPart, createPurchaseOrder,
   createStockLocation, createTelematicsDevice, createTelematicsIntegration, createTollTransaction,
-  createVehicle, createInvitation, createVendor, createWorkOrder, dispatchQueuedSms, getAuditLog,
+  createVehicle, createInvitation, createVendor, createWorkOrder, deleteComponent, deleteUser, deleteVehicle, deleteWorkOrder, dispatchQueuedSms, getAuditLog,
   getAssignableMembers, getComponents, getCurrentUser, getDocuments, getDriverInspections, getDriverIssues, getExpenses,
   getFleetAnalytics, getFleetOperationsSummary, getInvitations, getMaintenancePlans, getNotificationDeliveries,
   getNotificationPreferences, getNotifications, getParts, getPurchaseOrders, getStockLocations,
@@ -16,7 +16,7 @@ import {
   requestPasswordReset, resolveNotification, revokeInvitation, signupOrganization, startWorkOrder, syncDueTelematics, flushOfflineMutations,
   getWorkOrderTimeline, updateDocument, updateNotification, updateNotificationPreference, updatePurchaseOrder, updateUserRole,
   updateMyProfile, updatePassword, updateVehicle, updateWorkOrder, updateWorkOrderChecklist, uploadDocumentFile, uploadWorkOrderEvidence, downloadFile,
-  assignVehicleDriver, assignWorkOrder, getWorkOrderHandoffTimeline,
+  assignVehicleDriver as assignVehicleDriverApi, assignWorkOrder as assignWorkOrderApi, getWorkOrderHandoffTimeline,
   getSystemHealth, getSystemVersion, getSystemConfig, getOrganizationSettings, updateOrganizationSettings, getOrganizationQuota,
   getDashboardSummary, getDashboardMetrics, listMaintenanceTemplates, createMaintenanceTemplate, getMaintenancePlan, getMaintenanceForecast,
   getOnboardingStatus, getOnboardingChecklist, bootstrapOnboarding, reservePartForWorkOrder, returnReservedPart, getWorkOrderBoard,
@@ -25,7 +25,7 @@ import {
   getTriageQueue, getTriageStats, updateTriageIssue, createWorkOrderFromIssue, assignTriageIssue, resolveTriageIssue, escalateTriageIssue, getTriageDashboard,
   getMaintenancePerformanceReport, getVehicleMaintenanceHistory, getFuelEfficiencyReport, getFinancialMetrics,
   getFinancialReconciliation, getFinancialApprovalQueue, approveExpense, rejectExpense, bulkApproveExpenses, generateReport, listReports, downloadReport, getFinancialsSummary,
-  getActivityFeed, getActivityFeedByType, scheduleMaintenancePlan, getMaintenancePlanSchedule, updateMaintenancePlan, deleteMaintenancePlan,
+  getActivityFeed, scheduleMaintenancePlan, getMaintenancePlanSchedule, updateMaintenancePlan, deleteMaintenancePlan,
   getVendorList, getVendorDetails, updateVendor, getVendorPricingHistory, createVendorPricingRecord, getVendorPerformanceMetrics,
   getPurchaseOrderDetails, getPurchaseOrderLines, receiveFullPurchaseOrder, receivePartialPurchaseOrder, rejectPurchaseOrderReceipt, getPurchaseOrderHistory, reconcilePurchaseOrder,
   getTelematicsDeviceDetails, getTelemetryReadings, updateTelematicsDevice, deactivateTelematicsDevice,
@@ -36,30 +36,13 @@ import {
   getPendingNotifications, bulkResolveNotifications, getAuditLogsAdvanced,
 } from './api'
 import { supabase } from './supabase'
+import { navigateToWorkspace, navByRole, roleNames, workspaceForRole, workspaceFromLocation } from './navigation'
 
 const routeQuery = new URLSearchParams(window.location.search)
 const route = window.location.pathname === '/'
   ? ({ app: '/app', signup: '/signup', invite: '/invite' }[routeQuery.get('page')] || '/')
   : window.location.pathname
-const invitationToken = routeQuery.get('token') || ''
-const roleNames = {
-  owner: 'Owner / Superadmin',
-  fleet_manager: 'Fleet Manager',
-  inventory_manager: 'Inventory Manager',
-  mechanic: 'Mechanic',
-  technician: 'Technician',
-  driver: 'Driver',
-  accountant: 'Accountant',
-}
-const navByRole = {
-  owner: [['command', 'Command centre', '⌂'], ['members', 'Members & invitations', '♙'], ['billing', 'Billing & plans', '₹'], ['audit', 'Audit trail', '≋'], ['triage', 'Triage queue', '⚠'], ['reports', 'Reports', '📊'], ['finance', 'Financial dashboard', '₹'], ['activity', 'Activity feed', '◈'], ['telematics', 'GPS & telematics', '⛛'], ['driver-behavior', 'Driver behavior', '👤'], ['fuel-tracking', 'Fuel tracking', '⛽'], ['compliance-versions', 'Compliance vault', '🔐'], ['notifications', 'Notifications', '◌'], ['profile', 'Profile & account', '◎']],
-  fleet_manager: [['fleet', 'Fleet command', '⌂'], ['vehicles', 'Vehicle register', '▣'], ['maintenance', 'Maintenance board', '◆'], ['maintenance-planning', 'Maintenance planning', '📅'], ['compliance', 'Compliance vault', '▤'], ['telematics', 'GPS & telematics', '⛛'], ['driver-behavior', 'Driver behavior', '👤'], ['fuel-tracking', 'Fuel tracking', '⛽'], ['triage', 'Triage queue', '⚠'], ['reports', 'Reports', '📊'], ['activity', 'Activity feed', '◈'], ['notifications', 'Notifications', '◌'], ['profile', 'Profile & account', '◎']],
-  inventory_manager: [['command', 'Workshop command', '⌂'], ['inventory', 'Parts & stock', '▦'], ['procurement', 'Procurement', '◇'], ['vendors', 'Vendor directory', '🤝'], ['fuel-tracking', 'Fuel tracking', '⛽'], ['notifications', 'Notifications', '◌'], ['profile', 'Profile & account', '◎']],
-  technician: [['command', 'Repair command', '⌂'], ['work', 'Assigned work', '◆'], ['fuel-tracking', 'Fuel tracking', '⛽'], ['notifications', 'Notifications', '◌'], ['profile', 'Profile & account', '◎']],
-  mechanic: [['command', 'Workshop command', '⌂'], ['work', 'Assigned work', '◆'], ['fuel-tracking', 'Fuel tracking', '⛽'], ['notifications', 'Notifications', '◌'], ['profile', 'Profile & account', '◎']],
-  driver: [['command', 'Driver home', '⌂'], ['checks', 'Daily checks', '✓'], ['driver-behavior', 'Driver behavior', '👤'], ['fuel-tracking', 'Fuel tracking', '⛽'], ['notifications', 'Notifications', '◌'], ['profile', 'Profile & account', '◎']],
-  accountant: [['command', 'Finance command', '⌂'], ['finance', 'Financial dashboard', '₹'], ['activity', 'Activity feed', '◈'], ['fuel-tracking', 'Fuel tracking', '⛽'], ['notifications', 'Notifications', '◌'], ['profile', 'Profile & account', '◎']],
-}
+const invitationToken = routeQuery.get('token') || (window.location.pathname.startsWith('/invite/') ? decodeURIComponent(window.location.pathname.slice('/invite/'.length)) : '')
 const today = () => new Date().toISOString().slice(0, 10)
 const money = (paise = 0) => `₹${(Number(paise) / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
 const dateText = (value) => value ? new Date(value).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
@@ -108,13 +91,29 @@ function AuthPage({ mode, token }) {
 function AuthenticatedApp() {
   const [token, setToken] = useState(() => sessionStorage.getItem('vahana:access-token'))
   const [user, setUser] = useState(null)
-  const [page, setPage] = useState('command')
+  const [page, setPage] = useState(workspaceFromLocation)
   const [query, setQuery] = useState('')
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [refreshKey, setRefreshKey] = useState(0)
   const [data, setData] = useState({})
+
+  useEffect(() => {
+    const syncWorkspace = () => setPage(workspaceFromLocation())
+    window.addEventListener('popstate', syncWorkspace)
+    return () => window.removeEventListener('popstate', syncWorkspace)
+  }, [])
+
+  useEffect(() => {
+    if (!user) return
+    const workspace = workspaceForRole(page, user.role)
+    if (workspace !== page) navigate(workspace)
+  }, [page, user])
+
+  function navigate(workspace) {
+    navigateToWorkspace(workspace)
+  }
 
   useEffect(() => {
     if (!supabase) return
@@ -161,12 +160,29 @@ function AuthenticatedApp() {
       setLoading(true)
       try {
         const current = await getCurrentUser(token)
+        const canSeeVehicles = ['owner', 'fleet_manager', 'driver', 'mechanic', 'technician'].includes(current.role)
+        const canSeeMaintenance = ['owner', 'fleet_manager', 'mechanic', 'technician'].includes(current.role)
+        const canSeeFinance = ['owner', 'fleet_manager', 'accountant'].includes(current.role)
+        const canSeeProcurement = ['owner', 'inventory_manager', 'accountant'].includes(current.role)
+        const canSeeInventory = ['owner', 'fleet_manager', 'inventory_manager', 'mechanic', 'technician'].includes(current.role)
+        const canSeeTelematics = ['owner', 'fleet_manager'].includes(current.role)
         const results = await Promise.allSettled([
-          getVehicles(token), getWorkOrders(token), getComponents(token), getDocuments(token),
-          getNotifications(token), getSubscription(token), getParts(token), getExpenses(token),
-          getMaintenancePlans(token), getVendors(token), getPurchaseOrders(token), getStockLocations(token),
+          canSeeVehicles ? getVehicles(token) : Promise.resolve([]),
+          canSeeMaintenance ? getWorkOrders(token) : Promise.resolve([]),
+          canSeeMaintenance ? getComponents(token) : Promise.resolve([]),
+          ['owner', 'fleet_manager', 'driver'].includes(current.role) ? getDocuments(token) : Promise.resolve([]),
+          getNotifications(token),
+          current.role === 'owner' ? getSubscription(token) : Promise.resolve(null),
+          canSeeInventory ? getParts(token) : Promise.resolve([]),
+          canSeeFinance ? getExpenses(token) : Promise.resolve([]),
+          canSeeMaintenance ? getMaintenancePlans(token) : Promise.resolve([]),
+          canSeeProcurement ? getVendors(token) : Promise.resolve([]),
+          canSeeProcurement ? getPurchaseOrders(token) : Promise.resolve([]),
+          ['owner', 'inventory_manager'].includes(current.role) ? getStockLocations(token) : Promise.resolve([]),
           getNotificationPreferences(token), getNotificationDeliveries(token), current.role === 'driver' ? getDriverInspections(token) : Promise.resolve([]),
-          current.role === 'driver' ? getDriverIssues(token) : Promise.resolve([]), getTelematicsIntegrations(token), getTelematicsDevices(token),
+          current.role === 'driver' ? getDriverIssues(token) : Promise.resolve([]),
+          canSeeTelematics ? getTelematicsIntegrations(token) : Promise.resolve([]),
+          canSeeTelematics ? getTelematicsDevices(token) : Promise.resolve([]),
           current.role === 'owner' ? getUsers(token) : Promise.resolve([]),
           current.role === 'owner' ? getInvitations(token) : Promise.resolve([]),
           current.role === 'owner' ? getAuditLog(token) : Promise.resolve([]),
@@ -205,6 +221,12 @@ function AuthenticatedApp() {
     return () => { active = false }
   }, [token, refreshKey])
 
+  useEffect(() => {
+    if (!token) return undefined
+    const interval = window.setInterval(() => setRefreshKey((value) => value + 1), 5 * 60 * 1000)
+    return () => window.clearInterval(interval)
+  }, [token])
+
   function refresh(message) {
     if (message) {
       setNotice(message)
@@ -225,19 +247,19 @@ function AuthenticatedApp() {
 
   const nav = navByRole[user.role] || navByRole.owner
   const filteredQuery = query.trim().toLowerCase()
-  return <div className="app-shell"><aside className="sidebar"><div className="sidebar-brand"><span className="brand-symbol">V</span><div><strong>VahanSync</strong><small>Operations OS</small></div></div><div className="tenant-switch"><span className="status-dot" /><div><small>Organisation</small><strong>{user.organization_name}</strong></div><span>⌄</span></div><nav className="primary-nav"><span className="nav-caption">Your workspace</span>{nav.map(([id, label, icon]) => <button key={id} className={page === id ? 'nav-item active' : 'nav-item'} onClick={() => setPage(id)}><span className="nav-icon">{icon}</span>{label}{id === 'notifications' && data.notifications?.some((item) => item.status === 'unread') && <i className="nav-badge" />}</button>)}</nav><div className="sidebar-bottom"><div className="user-card"><span className="avatar">{initials(user.full_name)}</span><div><strong>{user.full_name}</strong><small>{roleNames[user.role]}</small></div></div><button className="signout" onClick={signOut}>↪ Sign out</button></div></aside><main className="main-area"><header className="topbar"><div><span className="breadcrumb">VahanSync <b>/</b> {nav.find(([id]) => id === page)?.[1] || 'Workspace'}</span><h1>{pageTitle(page, user.role)}</h1></div><div className="topbar-actions"><label className="global-search"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search this workspace" /></label><span className="live-pill"><i /> Live data</span><button className="avatar avatar-button" onClick={() => setPage('notifications')}>{initials(user.full_name)}</button></div></header><div className="content">
-    {page === 'command' && <><CommandPage role={user.role} data={data} onNavigate={setPage} />{['owner', 'fleet_manager'].includes(user.role) && <FleetAnalyticsPanel analytics={data.analytics} />}</>}
+  return <div className="app-shell"><aside className="sidebar"><div className="sidebar-brand"><img className="brand-mark" src="/vahansync-v-check-road-mark.png" alt="" /><div><strong>VahanSync</strong><small>Fleet intelligence for India’s operators</small></div></div><div className="tenant-switch"><span className="status-dot" /><div><small>Organisation</small><strong>{user.organization_name}</strong></div><span>⌄</span></div><nav className="primary-nav"><span className="nav-caption">Your workspace</span>{nav.map(([id, label, icon]) => <button key={id} className={page === id ? 'nav-item active' : 'nav-item'} onClick={() => navigate(id)}><span className="nav-icon">{icon}</span>{label}{id === 'notifications' && data.notifications?.some((item) => item.status === 'unread') && <i className="nav-badge" />}</button>)}</nav><div className="sidebar-bottom"><div className="user-card"><span className="avatar">{initials(user.full_name)}</span><div><strong>{user.full_name}</strong><small>{roleNames[user.role]}</small></div></div><button className="signout" onClick={signOut}>↪ Sign out</button></div></aside><main className="main-area"><header className="topbar"><div><span className="breadcrumb">VahanSync <b>/</b> {nav.find(([id]) => id === page)?.[1] || 'Workspace'}</span><h1>{pageTitle(page, user.role)}</h1></div><div className="topbar-actions"><label className="global-search"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search this workspace" /></label><span className="live-pill"><i /> Live data</span><button className="avatar avatar-button" onClick={() => navigate('notifications')}>{initials(user.full_name)}</button></div></header><div className="content">
+    {page === 'command' && <><CommandPage token={token} role={user.role} data={data} onNavigate={navigate} />{['owner', 'fleet_manager'].includes(user.role) && <FleetAnalyticsPanel analytics={data.analytics} />}</>}
     {page === 'members' && <MembersPage token={token} data={data} refresh={refresh} />}
     {page === 'billing' && <BillingPage token={token} data={data} refresh={refresh} />}
     {page === 'audit' && <AuditPage token={token} entries={data.audit} summary={data.operations} />}
+    {page === 'settings' && <OrganizationSettingsPage token={token} refresh={refresh} />}
+    {page === 'onboarding' && <OnboardingPage token={token} refresh={refresh} />}
     {page === 'vehicles' && <VehiclesPage token={token} data={data} refresh={refresh} query={filteredQuery} />}
     {page === 'maintenance' && <MaintenancePage token={token} data={data} refresh={refresh} query={filteredQuery} />}
     {page === 'compliance' && <CompliancePage token={token} data={data} refresh={refresh} query={filteredQuery} />}
-    {page === 'telematics' && <TelematicsPage token={token} data={data} refresh={refresh} />}
     {page === 'inventory' && <InventoryPage token={token} data={data} refresh={refresh} query={filteredQuery} />}
-    {page === 'procurement' && <ProcurementPage token={token} data={data} refresh={refresh} />}
     {page === 'fleet' && <FleetManagerWorkspace token={token} data={data} refresh={refresh} query={filteredQuery} />}
-    {page === 'work' && (user.role === 'fleet_manager' ? <FleetManagerWorkspace token={token} data={data} refresh={refresh} query={filteredQuery} /> : <MechanicExecutionWorkspace token={token} data={data} refresh={refresh} query={filteredQuery} />)}
+    {page === 'work' && (user.role === 'fleet_manager' ? <FleetManagerWorkspace token={token} data={data} refresh={refresh} query={filteredQuery} /> : <MechanicExecutionWorkspace role={user.role} token={token} data={data} refresh={refresh} query={filteredQuery} />)}
     {page === 'checks' && <DriverPortal token={token} data={data} refresh={refresh} />}
     {page === 'finance' && (user.role === 'accountant' ? <FinancialsWorkspace token={token} data={data} refresh={refresh} /> : <FinancePage token={token} data={data} refresh={refresh} />)}
     {page === 'triage' && <TriageWorkspace token={token} data={data} refresh={refresh} />}
@@ -250,7 +272,7 @@ function AuthenticatedApp() {
     {page === 'driver-behavior' && <DriverBehaviorWorkspace token={token} data={data} refresh={refresh} />}
     {page === 'fuel-tracking' && <FuelTrackingWorkspace token={token} data={data} refresh={refresh} />}
     {page === 'compliance-versions' && <ComplianceVersioningWorkspace token={token} data={data} refresh={refresh} />}
-    {page === 'notifications' && <NotificationsPage token={token} data={data} refresh={refresh} />}
+    {page === 'notifications' && <NotificationsPage token={token} data={data} refresh={refresh} role={user.role} />}
     {page === 'profile' && <ProfilePage token={token} user={user} refresh={(message, updated) => { if (updated) setUser(updated); refresh(message) }} />}
   </div></main>{notice && <div className="toast">{notice}</div>}</div>
 }
@@ -326,24 +348,40 @@ function ResetPasswordPage() {
 }
 
 function LandingPage() {
-  return <div className="landing-page"><header className="landing-header"><Brand /><nav><a href="#platform">Platform</a><a href="#roles">Roles</a><a href="#india">India-ready</a></nav><div><a className="text-link" href="/app">Sign in</a><a className="primary-button small" href="/signup">Create organisation</a></div></header><main><section className="landing-hero"><div><span className="overline">A calmer fleet operating rhythm</span><h1>Make the next responsible action impossible to miss.</h1><p>VahanSync connects vehicle readiness, maintenance execution, parts, compliance, driver safety, GPS signals, and INR finance in one organisation-scoped operating picture.</p><div className="landing-actions"><a className="primary-button" href="/signup">Start your organisation →</a><a className="text-link" href="#platform">Explore the platform ↓</a></div><div className="proof-row"><span>14-day trial</span><span>Unlimited members</span><span>India-ready workflows</span></div></div><div className="hero-board"><div className="hero-board-top"><span><i /> VahanSync command centre</span><b>Live</b></div><div className="hero-board-main"><div className="hero-ring"><strong>92%</strong><span>readiness</span></div><div className="hero-board-list"><span><i className="green" /> Vehicles operational <b>24</b></span><span><i className="amber" /> Work needing action <b>07</b></span><span><i className="red" /> Compliance horizon <b>03</b></span></div></div><div className="hero-board-footer"><span>GPS sync</span><span>Workshop queue</span><span>INR ledger</span></div></div></section><section className="landing-section" id="platform"><div className="section-heading"><span className="overline">One connected platform</span><h2>From register to resolution.</h2><p>Every workspace is role-specific, but every action stays attached to the same operational record.</p></div><div className="feature-grid"><Feature number="01" title="Signal" text="Vehicle identity, odometer, components, documents, and telematics expose the next risk." /><Feature number="02" title="Execute" text="Fleet Managers dispatch. Technicians work. Drivers report. Inventory protects availability." /><Feature number="03" title="Close" text="Accountants reconcile the rupee trail while owners retain governance and audit visibility." /></div></section><section className="role-band" id="roles"><div className="section-heading"><span className="overline">Every member, the right surface</span><h2>Responsibility without noise.</h2></div><div className="role-grid">{Object.entries(roleNames).map(([key, name], index) => <article key={key}><span>{String(index + 1).padStart(2, '0')}</span><strong>{name}</strong><p>{roleDescription(key)}</p></article>)}</div></section><section className="landing-section india-section" id="india"><div className="india-copy"><span className="overline">Built for Indian fleet realities</span><h2>Registration numbers, PUC, fitness, GST, FASTag, and paise-precise finance.</h2><p>Provider-neutral telematics and daily odometer sync keep the operating model ready for the way Indian transport businesses actually work.</p><a className="text-link" href="/signup">Build your workspace →</a></div><div className="india-grid"><span><b>₹</b><small>INR-native</small></span><span><b>24/7</b><small>operational visibility</small></span><span><b>1</b><small>source of truth</small></span><span><b>∞</b><small>members per plan</small></span></div></section></main><footer className="landing-footer"><Brand /><span>© 2026 VahanSync · Built for fleet operators in India</span><a className="text-link" href="/app">Sign in →</a></footer></div>
+  return <div className="landing-page"><header className="landing-header"><Brand /><nav><a href="#platform">Platform</a><a href="#roles">Roles</a><a href="#india">India-ready</a></nav><div><a className="text-link" href="/app">Sign in</a><a className="primary-button small" href="/signup">Create organisation →</a></div></header><main><section className="landing-hero"><div className="landing-hero-copy"><span className="overline">VahanSync operating intelligence</span><h1>Keep the fleet moving with a <em>single accountable signal.</em></h1><p>VahanSync connects vehicle identity, people, maintenance, parts, safety, and INR finance so the next responsible action is visible before a roadside failure becomes a business interruption.</p><div className="landing-actions"><a className="primary-button" href="/signup">Create your organisation →</a><a className="text-link" href="#platform">See how it works ↓</a></div><div className="proof-row"><span>Organisation-scoped access</span><span>Role-constrained workspaces</span><span>VIN-first records</span></div></div><figure className="landing-master-brand"><img src="/vahansync-master-readiness-logo.png" alt="VahanSync fleet readiness illustration with buses, route, readiness check, and upward movement" /></figure></section><section className="landing-proof"><span><b>01</b> Preventive maintenance</span><span><b>02</b> Evidence at every handoff</span><span><b>03</b> INR-native accountability</span></section><section className="landing-section" id="platform"><div className="section-heading"><span className="overline">The operating chain</span><h2>Not another dashboard. A connected way to move work.</h2><p>Every workspace is role-specific, but every action stays attached to the same operational record.</p></div><div className="feature-grid"><Feature number="01" title="Signal the condition" text="Odometer, component life, documents, and driver reports create a clear readiness picture." /><Feature number="02" title="Route the decision" text="Fleet Managers assign accountable maintenance work with vehicle identity and exception context attached." /><Feature number="03" title="Protect the handoff" text="Parts, supplier receipts, work evidence, and approval states stay linked to the same record." /></div></section><section className="role-band" id="roles"><div className="section-heading"><span className="overline">Every member, the right surface</span><h2>Responsibility without noise.</h2></div><div className="role-grid">{Object.entries(roleNames).map(([key, name], index) => <article key={key}><span>{String(index + 1).padStart(2, '0')}</span><strong>{name}</strong><p>{roleDescription(key)}</p></article>)}</div></section><section className="landing-section india-section" id="india"><div className="india-copy"><span className="overline">Built for Indian fleet realities</span><h2>Registration numbers, PUC, fitness, GST, FASTag, and paise-precise finance.</h2><p>Provider-neutral telematics and daily odometer sync keep the operating model ready for the way Indian transport businesses actually work.</p><a className="text-link" href="/signup">Build your workspace →</a></div><div className="india-grid"><span><b>₹</b><small>INR-native</small></span><span><b>24/7</b><small>operational visibility</small></span><span><b>1</b><small>source of truth</small></span><span><b>∞</b><small>members per plan</small></span></div></section></main><footer className="landing-footer"><Brand /><span>© 2026 VahanSync · Built for fleet operators in India</span><a className="text-link" href="/app">Sign in →</a></footer></div>
 }
 
 function Feature({ number, title, text }) { return <article className="feature-card"><span>{number}</span><h3>{title}</h3><p>{text}</p><a className="text-link" href="/signup">Explore the workflow →</a></article> }
-function Brand() { return <a className="brand" href="/"><span className="brand-symbol">V</span><span><strong>VahanSync</strong><small>Fleet operating system</small></span></a> }
+function Brand() { return <a className="brand" href="/"><img className="brand-mark" src="/vahansync-v-check-road-mark.png" alt="" /><span><strong>VahanSync</strong><small>Fleet intelligence for India’s operators</small></span></a> }
 
-function CommandPage({ role, data, onNavigate }) {
-  return <div className={`command-page role-${role}`}><section className="workspace-hero"><div><span className="overline">{roleNames[role]} workspace</span><h2>{commandHeadline(role)}</h2><p>{commandSubhead(role)}</p></div><div className="hero-date"><span>Today</span><strong>{new Date().toLocaleDateString('en-IN', { weekday: 'long', day: '2-digit', month: 'short' })}</strong><small>Live from organisation records</small></div></section><section className="stat-grid">{commandStats(role, data).map((stat) => <Metric key={stat.label} {...stat} />)}</section><div className="command-grid"><section className="panel"><PanelHeader eyebrow="Next actions" title="Move the operation forward" /><div className="action-list">{commandActions(role).map((action) => <button key={action.page} className="action-card" onClick={() => onNavigate(action.page)}><span className={`action-icon ${action.tone}`}>{action.icon}</span><span><strong>{action.title}</strong><small>{action.detail}</small></span><b>→</b></button>)}</div></section><section className="panel"><PanelHeader eyebrow="Operating picture" title="What needs attention" /><AttentionList role={role} data={data} onNavigate={onNavigate} /></section></div><section className="panel activity-panel"><PanelHeader eyebrow="Connected records" title="Recent organisation activity" /><RecentActivity data={data} /></section></div>
+function CommandPage({ token, role, data, onNavigate }) {
+  const [summary, setSummary] = useState(null)
+  const [workOrderMetrics, setWorkOrderMetrics] = useState(null)
+
+  useEffect(() => {
+    let active = true
+    Promise.all([getDashboardSummary(token), getDashboardMetrics(token, 'work_orders')])
+      .then(([dashboardSummary, metrics]) => {
+        if (!active) return
+        setSummary(dashboardSummary)
+        setWorkOrderMetrics(metrics)
+      })
+      .catch(() => {})
+    return () => { active = false }
+  }, [token])
+
+  return <div className={`command-page role-${role}`}><section className="workspace-hero"><div><span className="overline">{roleNames[role]} workspace</span><h2>{commandHeadline(role)}</h2><p>{commandSubhead(role)}</p></div><div className="hero-date"><span>Today</span><strong>{new Date().toLocaleDateString('en-IN', { weekday: 'long', day: '2-digit', month: 'short' })}</strong><small>Live from organisation records</small></div></section><section className="stat-grid">{commandStats(role, data).map((stat) => <Metric key={stat.label} {...stat} />)}</section>{summary && <DataPanel title="Live dashboard metrics" eyebrow="Backend KPI snapshot"><div className="detail-list"><span><small>Total vehicles</small><strong>{summary.vehicle_count ?? summary.total_vehicles ?? '—'}</strong></span><span><small>Active work orders</small><strong>{summary.active_work_orders ?? summary.open_work_orders ?? '—'}</strong></span><span><small>Work-order statuses</small><strong>{Object.values(workOrderMetrics?.status_counts || {}).reduce((total, count) => total + count, 0) || '—'}</strong></span></div></DataPanel>}<div className="command-grid"><section className="panel"><PanelHeader eyebrow="Next actions" title="Move the operation forward" /><div className="action-list">{commandActions(role).map((action) => <button key={action.page} className="action-card" onClick={() => onNavigate(action.page)}><span className={`action-icon ${action.tone}`}>{action.icon}</span><span><strong>{action.title}</strong><small>{action.detail}</small></span><b>→</b></button>)}</div></section><section className="panel"><PanelHeader eyebrow="Operating picture" title="What needs attention" /><AttentionList role={role} data={data} onNavigate={onNavigate} /></section></div><section className="panel activity-panel"><PanelHeader eyebrow="Connected records" title="Recent organisation activity" /><RecentActivity data={data} /></section></div>
 }
 
 function MembersPage({ token, data, refresh }) {
   const [showInvite, setShowInvite] = useState(false)
   const [form, setForm] = useState({ email: '', full_name: '', mobile_phone: '', role: 'fleet_manager' })
   const [error, setError] = useState('')
-  async function invite(event) { event.preventDefault(); try { await createInvitation(token, form); setForm({ email: '', full_name: '', mobile_phone: '', role: 'fleet_manager' }); setShowInvite(false); refresh('Invitation created.') } catch (requestError) { setError(requestError.message) } }
+  async function invite(event) { event.preventDefault(); try { const invitation = await createInvitation(token, form); const inviteLink = `${window.location.origin}${invitation.invite_path}`; window.prompt('Copy this invitation link', inviteLink); setForm({ email: '', full_name: '', mobile_phone: '', role: 'fleet_manager' }); setShowInvite(false); refresh('Invitation created.') } catch (requestError) { setError(requestError.message) } }
   async function changeRole(id, role) { try { await updateUserRole(token, id, role); refresh('Member role updated.') } catch (requestError) { setError(requestError.message) } }
+  async function removeMember(id) { if (!window.confirm('Remove this member?')) return; try { await deleteUser(token, id); refresh('Member removed.') } catch (requestError) { setError(requestError.message) } }
   async function revoke(id) { try { await revokeInvitation(token, id); refresh('Invitation revoked.') } catch (requestError) { setError(requestError.message) } }
-  return <PageFrame eyebrow="01 · Governance" title="Members & invitations" description="Give each person the least-privileged workspace needed to move the fleet forward. The first account remains the organisation owner."><div className="page-toolbar"><div><strong>{data.users.length} members</strong><span>{data.invitations.filter((item) => !item.accepted_at && !item.revoked_at).length} pending invitations</span></div><button className="primary-button" onClick={() => setShowInvite(!showInvite)}>{showInvite ? 'Close invite form' : 'Invite teammate'}</button></div>{showInvite && <FormCard title="Invite a teammate" description="Mobile numbers enable SMS and WhatsApp delivery when provider credentials are configured."><form className="form-grid" onSubmit={invite}><Field label="Full name" value={form.full_name} onChange={(value) => setForm({ ...form, full_name: value })} required /><Field label="Work email" type="email" value={form.email} onChange={(value) => setForm({ ...form, email: value })} required /><Field label="Mobile number" type="tel" value={form.mobile_phone} onChange={(value) => setForm({ ...form, mobile_phone: value })} /><SelectField label="Workspace role" value={form.role} onChange={(value) => setForm({ ...form, role: value })} options={Object.keys(roleNames).filter((role) => role !== 'owner').map((role) => [role, roleNames[role]])} /><button className="primary-button">Send invitation</button></form>{error && <div className="error-box">{error}</div>}</FormCard>}<section className="split-grid"><DataPanel title="Organisation directory" eyebrow="Current access"><Table headers={['Member', 'Role', 'Mobile', 'Action']} rows={data.users.map((member) => [<span className="person-cell"><span className="avatar small">{initials(member.full_name)}</span><span><strong>{member.full_name}</strong><small>{member.email}</small></span></span>, member.role === 'owner' ? roleNames.owner : <select className="inline-select" value={member.role} onChange={(event) => changeRole(member.id, event.target.value)}>{Object.keys(roleNames).filter((role) => role !== 'owner').map((role) => <option key={role} value={role}>{roleNames[role]}</option>)}</select>, member.mobile_phone || 'Not added', member.role === 'owner' ? <span className="muted">Protected</span> : <span className="status good">Active</span>])} empty="No additional members have joined yet." /></DataPanel><DataPanel title="Invitation ledger" eyebrow="Access handoffs"><Table headers={['Invitee', 'Role', 'Expires', 'Status', 'Action']} rows={data.invitations.map((invite) => [<span><strong>{invite.full_name}</strong><small>{invite.email}</small></span>, roleNames[invite.role] || invite.role, dateText(invite.expires_at), invite.accepted_at ? <span className="status good">Accepted</span> : invite.revoked_at ? <span className="status bad">Revoked</span> : <span className="status warn">Pending</span>, !invite.accepted_at && !invite.revoked_at ? <button className="table-action" onClick={() => revoke(invite.id)}>Revoke</button> : '—'])} empty="No invitations have been created." /></DataPanel></section></PageFrame>
+  return <PageFrame eyebrow="01 · Governance" title="Members & invitations" description="Give each person the least-privileged workspace needed to move the fleet forward. The first account remains the organisation owner."><div className="page-toolbar"><div><strong>{data.users.length} members</strong><span>{data.invitations.filter((item) => !item.accepted_at && !item.revoked_at).length} pending invitations</span></div><button className="primary-button" onClick={() => setShowInvite(!showInvite)}>{showInvite ? 'Close invite form' : 'Invite teammate'}</button></div>{showInvite && <FormCard title="Invite a teammate" description="Mobile numbers enable SMS and WhatsApp delivery when provider credentials are configured."><form className="form-grid" onSubmit={invite}><Field label="Full name" value={form.full_name} onChange={(value) => setForm({ ...form, full_name: value })} required /><Field label="Work email" type="email" value={form.email} onChange={(value) => setForm({ ...form, email: value })} required /><Field label="Mobile number" type="tel" value={form.mobile_phone} onChange={(value) => setForm({ ...form, mobile_phone: value })} /><SelectField label="Workspace role" value={form.role} onChange={(value) => setForm({ ...form, role: value })} options={Object.keys(roleNames).filter((role) => role !== 'owner').map((role) => [role, roleNames[role]])} /><button className="primary-button">Send invitation</button></form>{error && <div className="error-box">{error}</div>}</FormCard>}<section className="split-grid"><DataPanel title="Organisation directory" eyebrow="Current access"><Table headers={['Member', 'Role', 'Mobile', 'Action']} rows={data.users.map((member) => [<span className="person-cell"><span className="avatar small">{initials(member.full_name)}</span><span><strong>{member.full_name}</strong><small>{member.email}</small></span></span>, member.role === 'owner' ? roleNames.owner : <select className="inline-select" value={member.role} onChange={(event) => changeRole(member.id, event.target.value)}>{Object.keys(roleNames).filter((role) => role !== 'owner').map((role) => <option key={role} value={role}>{roleNames[role]}</option>)}</select>, member.mobile_phone || 'Not added', member.role === 'owner' ? <span className="muted">Protected</span> : <div className="row-actions"><span className="status good">Active</span><button className="table-action" onClick={() => removeMember(member.id)}>Remove</button></div>])} empty="No additional members have joined yet." /></DataPanel><DataPanel title="Invitation ledger" eyebrow="Access handoffs"><Table headers={['Invitee', 'Role', 'Expires', 'Status', 'Action']} rows={data.invitations.map((invite) => [<span><strong>{invite.full_name}</strong><small>{invite.email}</small></span>, roleNames[invite.role] || invite.role, dateText(invite.expires_at), invite.accepted_at ? <span className="status good">Accepted</span> : invite.revoked_at ? <span className="status bad">Revoked</span> : <span className="status warn">Pending</span>, !invite.accepted_at && !invite.revoked_at ? <button className="table-action" onClick={() => revoke(invite.id)}>Revoke</button> : '—'])} empty="No invitations have been created." /></DataPanel></section></PageFrame>
 }
 
 function ProfilePage({ token, user, refresh }) {
@@ -358,6 +396,130 @@ function ProfilePage({ token, user, refresh }) {
     }
   }
   return <PageFrame eyebrow="Account control" title="Profile & account" description="Keep your identity and mobile contact current for workspace access and consent-aware notifications."><div className="split-grid"><FormCard title="Personal profile" description="Changes apply to your VahanSync member record immediately."><form className="stack-form" onSubmit={save}><Field label="Full name" value={form.full_name} onChange={(value) => setForm({ ...form, full_name: value })} required /><Field label="Work email" value={user.email} onChange={() => {}} type="email" disabled /><Field label="Mobile number" type="tel" value={form.mobile_phone} onChange={(value) => setForm({ ...form, mobile_phone: value })} placeholder="+91 98765 43210" /><button className="primary-button">Save profile</button></form></FormCard><DataPanel title="Access details" eyebrow="Read-only identity"><div className="detail-list"><span><small>Workspace role</small><strong>{roleNames[user.role]}</strong></span><span><small>Organisation</small><strong>{user.organization_name}</strong></span><span><small>Member ID</small><strong>#{user.id}</strong></span></div></DataPanel></div></PageFrame>
+}
+
+function OrganizationSettingsPage({ token, refresh }) {
+  const [settings, setSettings] = useState(null)
+  const [quota, setQuota] = useState(null)
+  const [form, setForm] = useState({ name: '', timezone: 'Asia/Kolkata', default_currency: 'INR' })
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    Promise.all([getOrganizationSettings(token), getOrganizationQuota(token)])
+      .then(([organizationSettings, organizationQuota]) => {
+        if (!active) return
+        setSettings(organizationSettings)
+        setQuota(organizationQuota)
+        setForm({
+          name: organizationSettings?.name || '',
+          timezone: organizationSettings?.timezone || 'Asia/Kolkata',
+          default_currency: organizationSettings?.default_currency || 'INR',
+        })
+      })
+      .catch((error) => refresh(error.message))
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [token])
+
+  async function save(event) {
+    event.preventDefault()
+    setSaving(true)
+    try {
+      const updated = await updateOrganizationSettings(token, form)
+      setSettings(updated)
+      refresh('Organisation settings saved.')
+    } catch (error) {
+      refresh(error.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) return <div className="page-frame"><h2>Loading organisation settings…</h2></div>
+
+  return <PageFrame eyebrow="02 · Governance" title="Organisation settings" description="Control tenant defaults and monitor the capacity available to your operating teams.">
+    <div className="split-grid">
+      <FormCard title="Tenant defaults" description="These values are applied to new operational records unless overridden by a workflow.">
+        <form className="stack-form" onSubmit={save}>
+          <Field label="Organisation name" value={form.name} onChange={(value) => setForm({ ...form, name: value })} required />
+          <SelectField label="Timezone" value={form.timezone} onChange={(value) => setForm({ ...form, timezone: value })} options={['Asia/Kolkata', 'UTC', 'Asia/Dubai', 'Asia/Singapore'].map((value) => [value, value])} />
+          <SelectField label="Default currency" value={form.default_currency} onChange={(value) => setForm({ ...form, default_currency: value })} options={['INR', 'USD', 'AED', 'SGD'].map((value) => [value, value])} />
+          <button className="primary-button" disabled={saving}>{saving ? 'Saving…' : 'Save settings'}</button>
+        </form>
+      </FormCard>
+      <DataPanel title="Capacity" eyebrow="Current plan quota">
+        <div className="detail-list">
+          <span><small>Vehicles used</small><strong>{quota?.vehicles_used ?? '—'} / {quota?.vehicles_limit ?? '—'}</strong></span>
+          <span><small>Members used</small><strong>{quota?.members_used ?? '—'} / {quota?.members_limit ?? '—'}</strong></span>
+          <span><small>Subscription</small><strong>{settings?.subscription_status || quota?.plan_code || '—'}</strong></span>
+        </div>
+      </DataPanel>
+    </div>
+  </PageFrame>
+}
+
+function OnboardingPage({ token, refresh }) {
+  const [status, setStatus] = useState(null)
+  const [checklist, setChecklist] = useState([])
+  const [form, setForm] = useState({ organization_name: '', first_name: '', last_name: '', industry: '', fleet_size: '' })
+  const [loading, setLoading] = useState(true)
+
+  async function load() {
+    try {
+      const [onboardingStatus, onboardingChecklist] = await Promise.all([getOnboardingStatus(token), getOnboardingChecklist(token)])
+      setStatus(onboardingStatus)
+      setChecklist(onboardingChecklist || [])
+      setForm((current) => ({
+        ...current,
+        organization_name: onboardingStatus?.organization_name || '',
+      }))
+    } catch (error) {
+      refresh(error.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    load()
+  }, [token])
+
+  async function bootstrap(event) {
+    event.preventDefault()
+    try {
+      await bootstrapOnboarding(token, form)
+      refresh('Onboarding defaults created.')
+      await load()
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+
+  if (loading) return <div className="page-frame"><h2>Loading onboarding checklist…</h2></div>
+
+  return <PageFrame eyebrow="01 · Setup" title="Onboarding checklist" description="Complete the foundational setup steps before handing the operating system to the wider team.">
+    <div className="stat-grid">
+      <Metric label="Completion" value={`${status?.completion_percent ?? 0}%`} detail={status?.is_complete ? 'Ready for operations' : 'Setup remains'} tone={status?.is_complete ? 'green' : 'amber'} />
+      <Metric label="Checklist items" value={checklist.length} detail={`${checklist.filter((item) => item.completed).length} completed`} tone="blue" />
+    </div>
+    <div className="split-grid">
+      <FormCard title="Bootstrap organisation" description="Create the default warehouse and notification preferences for this tenant.">
+        <form className="stack-form" onSubmit={bootstrap}>
+          <Field label="Organisation name" value={form.organization_name} onChange={(value) => setForm({ ...form, organization_name: value })} required />
+          <Field label="First name" value={form.first_name} onChange={(value) => setForm({ ...form, first_name: value })} required />
+          <Field label="Last name" value={form.last_name} onChange={(value) => setForm({ ...form, last_name: value })} required />
+          <Field label="Industry" value={form.industry} onChange={(value) => setForm({ ...form, industry: value })} />
+          <Field label="Fleet size" value={form.fleet_size} onChange={(value) => setForm({ ...form, fleet_size: value })} />
+          <button className="primary-button">Bootstrap defaults</button>
+        </form>
+      </FormCard>
+      <DataPanel title="Setup progress" eyebrow={`${checklist.filter((item) => item.completed).length} of ${checklist.length} complete`}>
+        <Table headers={['Step', 'Description', 'Status']} rows={checklist.map((item) => [<strong>{item.title}</strong>, item.description, item.completed ? <span className="status good">Complete</span> : <span className="status warn">Pending</span>])} empty="No onboarding steps returned." />
+      </DataPanel>
+    </div>
+  </PageFrame>
 }
 
 function BillingPage({ token, data, refresh }) {
@@ -376,29 +538,87 @@ function AuditPage({ token, entries, summary }) {
 
 function VehiclesPage({ token, data, refresh, query }) {
   const [showForm, setShowForm] = useState(false)
+  const [editing, setEditing] = useState(null)
+  const [editForm, setEditForm] = useState({})
+  const [assignableMembers, setAssignableMembers] = useState([])
+  const [teamRoster, setTeamRoster] = useState({ members: [] })
+  const [driverByVehicle, setDriverByVehicle] = useState({})
   const [form, setForm] = useState({ registration_number: '', model: '', vehicle_type: 'Bus', depot: '', status: 'Idle / parked', health: 100, odometer_km: 0, driver_name: '' })
+  useEffect(() => {
+    getTeamRoster(token).then(setTeamRoster).catch((error) => refresh(error.message))
+  }, [token])
   const rows = data.vehicles.filter((vehicle) => JSON.stringify(vehicle).toLowerCase().includes(query))
   async function submit(event) { event.preventDefault(); try { await createVehicle(token, { ...form, health: Number(form.health), odometer_km: Number(form.odometer_km), assigned_driver_id: null }); setShowForm(false); refresh('Vehicle added to the register.') } catch (error) { refresh(error.message) } }
-  async function update(id, status) { try { await updateVehicle(token, id, { status }); refresh('Vehicle status updated.') } catch (error) { refresh(error.message) } }
-  return <PageFrame eyebrow="01 · Fleet operations" title="Vehicle register" description="One identity record for registration, depot, current odometer, readiness, and driver context."><div className="page-toolbar"><div><strong>{data.vehicles.length} fleet assets</strong><span>{data.vehicles.filter((vehicle) => vehicle.status !== 'Out of service').length} available in operating picture</span></div><button className="primary-button" onClick={() => setShowForm(!showForm)}>{showForm ? 'Close form' : 'Add vehicle'}</button></div>{showForm && <FormCard title="Add a vehicle" description="Start the lifecycle record with the identifiers your operations team already uses."><form className="form-grid" onSubmit={submit}><Field label="Registration number" value={form.registration_number} onChange={(value) => setForm({ ...form, registration_number: value })} required /><Field label="Model" value={form.model} onChange={(value) => setForm({ ...form, model: value })} required /><SelectField label="Vehicle type" value={form.vehicle_type} onChange={(value) => setForm({ ...form, vehicle_type: value })} options={['Bus', 'Truck', 'LCV', 'Car', 'Other'].map((value) => [value, value])} /><Field label="Depot" value={form.depot} onChange={(value) => setForm({ ...form, depot: value })} required /><Field label="Opening odometer (km)" type="number" value={form.odometer_km} onChange={(value) => setForm({ ...form, odometer_km: value })} required /><button className="primary-button">Create vehicle</button></form></FormCard>}<div className="vehicle-grid">{rows.map((vehicle) => <article className="vehicle-card" key={vehicle.id}><div className="card-top"><span className={`status ${vehicle.status === 'Out of service' ? 'bad' : vehicle.status === 'In workshop' ? 'warn' : 'good'}`}>{vehicle.status}</span><span className="vehicle-id">#{vehicle.id}</span></div><h3>{vehicle.registration_number}</h3><p>{vehicle.model} · {vehicle.vehicle_type}</p><div className="vehicle-data"><span><small>Depot</small><b>{vehicle.depot}</b></span><span><small>Odometer</small><b>{Number(vehicle.odometer_km).toLocaleString('en-IN')} km</b></span><span><small>Health</small><b>{vehicle.health}%</b></span></div><div className="card-actions"><SelectInline value={vehicle.status} onChange={(value) => update(vehicle.id, value)} options={['Idle / parked', 'On route', 'In workshop', 'Out of service']} /></div></article>)}</div><EmptyState visible={!rows.length} title="No vehicle records found" text={query ? 'Try a different search term.' : 'Add the first vehicle to start the operating picture.'} /></PageFrame>
+  function beginEdit(vehicle) { setEditing(vehicle.id); setEditForm({ model: vehicle.model, vehicle_type: vehicle.vehicle_type, depot: vehicle.depot, status: vehicle.status, health: vehicle.health, odometer_km: vehicle.odometer_km }) }
+  async function saveEdit(event) { event.preventDefault(); try { await updateVehicle(token, editing, { ...editForm, health: Number(editForm.health), odometer_km: Number(editForm.odometer_km) }); setEditing(null); refresh('Vehicle details updated.') } catch (error) { refresh(error.message) } }
+  async function assignDriver(vehicleId) {
+    const driverId = driverByVehicle[vehicleId]
+    if (!driverId) return
+    try {
+      await assignVehicleDriverApi(token, vehicleId, Number(driverId))
+      setDriverByVehicle((current) => ({ ...current, [vehicleId]: '' }))
+      refresh('Driver assigned to vehicle.')
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+  const drivers = teamRoster.members?.filter((member) => member.role === 'driver') || []
+  async function update(id, status) { try { if (status === 'Out of service' && window.confirm('Delete this vehicle? This requires no dependent records.')) await deleteVehicle(token, id); else await updateVehicle(token, id, { status }); refresh(status === 'Out of service' ? 'Vehicle deleted.' : 'Vehicle status updated.') } catch (error) { refresh(error.message) } }
+  return <PageFrame eyebrow="01 · Fleet operations" title="Vehicle register" description="One identity record for registration, depot, current odometer, readiness, and driver context."><div className="page-toolbar"><div><strong>{data.vehicles.length} fleet assets</strong><span>{data.vehicles.filter((vehicle) => vehicle.status !== 'Out of service').length} available in operating picture</span></div><button className="primary-button" onClick={() => setShowForm(!showForm)}>{showForm ? 'Close form' : 'Add vehicle'}</button></div>{showForm && <FormCard title="Add a vehicle" description="Start the lifecycle record with the identifiers your operations team already uses."><form className="form-grid" onSubmit={submit}><Field label="Registration number" value={form.registration_number} onChange={(value) => setForm({ ...form, registration_number: value })} required /><Field label="Model" value={form.model} onChange={(value) => setForm({ ...form, model: value })} required /><SelectField label="Vehicle type" value={form.vehicle_type} onChange={(value) => setForm({ ...form, vehicle_type: value })} options={['Bus', 'Truck', 'LCV', 'Car', 'Other'].map((value) => [value, value])} /><Field label="Depot" value={form.depot} onChange={(value) => setForm({ ...form, depot: value })} required /><Field label="Opening odometer (km)" type="number" value={form.odometer_km} onChange={(value) => setForm({ ...form, odometer_km: value })} required /><button className="primary-button">Create vehicle</button></form></FormCard>}{editing && <FormCard title="Edit vehicle" description="Update operational details. Registration numbers remain the vehicle identity."><form className="form-grid" onSubmit={saveEdit}><Field label="Model" value={editForm.model} onChange={(value) => setEditForm({ ...editForm, model: value })} required /><SelectField label="Vehicle type" value={editForm.vehicle_type} onChange={(value) => setEditForm({ ...editForm, vehicle_type: value })} options={['Bus', 'Truck', 'LCV', 'Car', 'Other'].map((value) => [value, value])} /><Field label="Depot" value={editForm.depot} onChange={(value) => setEditForm({ ...editForm, depot: value })} required /><SelectField label="Status" value={editForm.status} onChange={(value) => setEditForm({ ...editForm, status: value })} options={['Idle / parked', 'On route', 'In workshop', 'Out of service', 'Retired'].map((value) => [value, value])} /><Field label="Health" type="number" value={editForm.health} onChange={(value) => setEditForm({ ...editForm, health: value })} required /><Field label="Odometer (km)" type="number" value={editForm.odometer_km} onChange={(value) => setEditForm({ ...editForm, odometer_km: value })} required /><div className="row-actions"><button className="primary-button">Save changes</button><button type="button" className="secondary-button" onClick={() => setEditing(null)}>Cancel</button></div></form></FormCard>}<div className="vehicle-grid">{rows.map((vehicle) => <article className="vehicle-card" key={vehicle.id}><div className="card-top"><span className={`status ${vehicle.status === 'Out of service' ? 'bad' : vehicle.status === 'In workshop' ? 'warn' : 'good'}`}>{vehicle.status}</span><span className="vehicle-id">#{vehicle.id}</span></div><h3>{vehicle.registration_number}</h3><p>{vehicle.model} · {vehicle.vehicle_type}</p><div className="vehicle-data"><span><small>Depot</small><b>{vehicle.depot}</b></span><span><small>Odometer</small><b>{Number(vehicle.odometer_km).toLocaleString('en-IN')} km</b></span><span><small>Health</small><b>{vehicle.health}%</b></span></div><div className="card-actions"><SelectInline value={vehicle.status} onChange={(value) => update(vehicle.id, value)} options={['Idle / parked', 'On route', 'In workshop', 'Out of service']} /><button className="table-action" onClick={() => beginEdit(vehicle)}>Edit</button></div><div className="card-actions"><select aria-label={`Assign driver to ${vehicle.registration_number}`} value={driverByVehicle[vehicle.id] || ''} onChange={(event) => setDriverByVehicle({ ...driverByVehicle, [vehicle.id]: event.target.value })}><option value="">Assign driver to this vehicle…</option>{drivers.map((driver) => <option key={driver.id} value={driver.id}>{driver.full_name}</option>)}</select><button className="table-action" disabled={!driverByVehicle[vehicle.id]} onClick={() => assignDriver(vehicle.id)}>Assign</button></div></article>)}</div><EmptyState visible={!rows.length} title="No vehicle records found" text={query ? 'Try a different search term.' : 'Add the first vehicle to start the operating picture.'} /></PageFrame>
 }
 
 function MaintenancePage({ token, data, refresh, query }) {
   const [tab, setTab] = useState('work')
+  const [boardStats, setBoardStats] = useState(null)
   const [form, setForm] = useState({ vehicle_id: '', title: '', description: '', priority: 'Medium', due_date: today(), assigned_to: '' })
   const [editing, setEditing] = useState(null)
   const [editForm, setEditForm] = useState({})
   const [plan, setPlan] = useState({ vehicle_id: '', name: '', interval_km: '', interval_days: '', next_due_km: '', next_due_on: today() })
-  const [component, setComponent] = useState({ vehicle_id: '', name: '', component_type: '', installed_at_km: 0, service_interval_km: '' })
+  const [component, setComponent] = useState({ vehicle_id: '', name: '', component_type: '', installed_at_km: 0, service_interval_km: '', alert_threshold_km: '' })
+  const [editingComponent, setEditingComponent] = useState(null)
+  const [componentEditForm, setComponentEditForm] = useState({})
   async function createWork(event) { event.preventDefault(); try { await createWorkOrder(token, { ...form, vehicle_id: Number(form.vehicle_id), assigned_user_id: null }); refresh('Work order dispatched.'); setForm({ ...form, title: '', description: '' }) } catch (error) { refresh(error.message) } }
+  useEffect(() => {
+    getAssignableMembers(token).then(setAssignableMembers).catch((error) => refresh(error.message))
+  }, [token])
   async function createPlan(event) { event.preventDefault(); try { await createMaintenancePlan(token, { ...plan, vehicle_id: Number(plan.vehicle_id), interval_km: plan.interval_km ? Number(plan.interval_km) : null, interval_days: plan.interval_days ? Number(plan.interval_days) : null, next_due_km: plan.next_due_km ? Number(plan.next_due_km) : null }); refresh('Maintenance plan created.') } catch (error) { refresh(error.message) } }
-  async function createComp(event) { event.preventDefault(); try { await createComponent(token, { ...component, vehicle_id: Number(component.vehicle_id), installed_at_km: Number(component.installed_at_km), service_interval_km: component.service_interval_km ? Number(component.service_interval_km) : null, next_service_km: component.service_interval_km ? Number(component.installed_at_km) + Number(component.service_interval_km) : null }); refresh('Component lifecycle record created.') } catch (error) { refresh(error.message) } }
+  async function createComp(event) { event.preventDefault(); try { await createComponent(token, { ...component, vehicle_id: Number(component.vehicle_id), installed_at_km: Number(component.installed_at_km), service_interval_km: component.service_interval_km ? Number(component.service_interval_km) : null, alert_threshold_km: component.alert_threshold_km ? Number(component.alert_threshold_km) : null, next_service_km: component.service_interval_km ? Number(component.installed_at_km) + Number(component.service_interval_km) : null, next_alert_km: component.alert_threshold_km ? Number(component.installed_at_km) + Number(component.alert_threshold_km) : null }); refresh('Component lifecycle record created.') } catch (error) { refresh(error.message) } }
+  function beginComponentEdit(item) { setEditingComponent(item.id); setComponentEditForm({ name: item.name, component_type: item.component_type, serial_number: item.serial_number || '', installed_at_km: item.installed_at_km, service_interval_km: item.service_interval_km || '', alert_threshold_km: item.alert_threshold_km || '', status: item.status || 'Healthy' }) }
+  async function saveComponentEdit(event) {
+    event.preventDefault()
+    try {
+      const installedAt = Number(componentEditForm.installed_at_km)
+      const interval = componentEditForm.service_interval_km ? Number(componentEditForm.service_interval_km) : null
+      const threshold = componentEditForm.alert_threshold_km ? Number(componentEditForm.alert_threshold_km) : null
+      await updateComponent(token, editingComponent, {
+        name: componentEditForm.name,
+        component_type: componentEditForm.component_type,
+        serial_number: componentEditForm.serial_number || null,
+        installed_at_km: installedAt,
+        service_interval_km: interval,
+        alert_threshold_km: threshold,
+        next_service_km: interval ? installedAt + interval : null,
+        next_alert_km: threshold ? installedAt + threshold : null,
+        status: componentEditForm.status,
+      })
+      setEditingComponent(null)
+      refresh('Component details updated.')
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
   async function transition(order, action) { try { if (action === 'start') await startWorkOrder(token, order.id); if (action === 'complete') await completeWorkOrder(token, order.id); if (action === 'approve') await approveWorkOrder(token, order.id); if (action === 'archive') await archiveWorkOrder(token, order.id); refresh('Work order updated.') } catch (error) { refresh(error.message) } }
-  function beginEdit(order) { setEditing(order.id); setEditForm({ title: order.title, description: order.description || '', priority: order.priority, due_date: order.due_date || '', assigned_to: order.assigned_to || '' }) }
+  function beginEdit(order) { setEditing(order.id); setEditForm({ title: order.title, description: order.description || '', priority: order.priority, due_date: order.due_date || '', assigned_user_id: order.assigned_user_id ? String(order.assigned_user_id) : '' }) }
   async function saveEdit(event) {
     event.preventDefault()
     try {
-      await updateWorkOrder(token, editing, editForm)
+      await updateWorkOrder(token, editing, {
+        title: editForm.title,
+        description: editForm.description,
+        priority: editForm.priority,
+        due_date: editForm.due_date,
+      })
+      await assignWorkOrderApi(token, editing, editForm.assigned_user_id ? Number(editForm.assigned_user_id) : null)
       setEditing(null)
       refresh('Work order details updated.')
     } catch (error) {
@@ -406,7 +626,85 @@ function MaintenancePage({ token, data, refresh, query }) {
     }
   }
   const work = data.workOrders.filter((order) => JSON.stringify(order).toLowerCase().includes(query))
-  return <PageFrame eyebrow="02 · Fleet operations" title="Maintenance command" description="Plan preventive work, dispatch a repair, track execution evidence, and close the lifecycle record."><div className="tabs">{[['work', 'Work orders'], ['plans', 'Preventive plans'], ['components', 'Components']].map(([id, label]) => <button className={tab === id ? 'tab active' : 'tab'} key={id} onClick={() => setTab(id)}>{label}</button>)}</div>{tab === 'work' && <><FormCard title="Dispatch work" description="A work order carries the vehicle, priority, due date, and accountable handoff."><form className="form-grid" onSubmit={createWork}><SelectField label="Vehicle" value={form.vehicle_id} onChange={(value) => setForm({ ...form, vehicle_id: value })} options={[['', 'Select vehicle'], ...data.vehicles.map((vehicle) => [String(vehicle.id), `${vehicle.registration_number} · ${vehicle.model}`])]} required /><Field label="Work title" value={form.title} onChange={(value) => setForm({ ...form, title: value })} required /><SelectField label="Priority" value={form.priority} onChange={(value) => setForm({ ...form, priority: value })} options={['Low', 'Medium', 'High', 'Critical'].map((value) => [value, value])} /><Field label="Due date" type="date" value={form.due_date} onChange={(value) => setForm({ ...form, due_date: value })} /><Field label="Assigned technician" value={form.assigned_to} onChange={(value) => setForm({ ...form, assigned_to: value })} /><TextField label="Scope and instructions" value={form.description} onChange={(value) => setForm({ ...form, description: value })} /><button className="primary-button">Create work order</button></form></FormCard>{editing && <FormCard title="Edit work order" description="Update planning details before the job is closed."><form className="form-grid" onSubmit={saveEdit}><Field label="Work title" value={editForm.title} onChange={(value) => setEditForm({ ...editForm, title: value })} required /><SelectField label="Priority" value={editForm.priority} onChange={(value) => setEditForm({ ...editForm, priority: value })} options={['Low', 'Medium', 'High', 'Critical'].map((value) => [value, value])} /><Field label="Due date" type="date" value={editForm.due_date} onChange={(value) => setEditForm({ ...editForm, due_date: value })} /><Field label="Assigned technician label" value={editForm.assigned_to} onChange={(value) => setEditForm({ ...editForm, assigned_to: value })} /><TextField label="Scope and instructions" value={editForm.description} onChange={(value) => setEditForm({ ...editForm, description: value })} /><div className="row-actions"><button className="primary-button">Save changes</button><button type="button" className="secondary-button" onClick={() => setEditing(null)}>Cancel</button></div></form></FormCard>}<DataPanel title="Dispatch board" eyebrow={`${work.length} work orders`}><Table headers={['Work', 'Vehicle', 'Priority', 'Due', 'Status', 'Action']} rows={work.map((order) => [<span><strong>{order.title}</strong><small>{order.description || 'No extra instructions'}</small></span>, data.vehicles.find((vehicle) => vehicle.id === order.vehicle_id)?.registration_number || `Vehicle #${order.vehicle_id}`, order.priority, dateText(order.due_date), <span className={`status ${order.status === 'Completed' ? 'good' : order.status === 'Cancelled' ? 'bad' : 'warn'}`}>{order.status}</span>, <div className="row-actions"><button className="table-action" onClick={() => beginEdit(order)}>Edit</button>{order.status === 'Open' && <button className="table-action" onClick={() => transition(order, 'start')}>Start</button>}{['In progress', 'REWORK'].includes(order.status) && <button className="table-action" onClick={() => transition(order, 'complete')}>Submit review</button>}{['Ready for review', 'READY_FOR_REVIEW'].includes(order.status) && <button className="table-action" onClick={() => transition(order, 'approve')}>Approve</button>}</div>])} empty="No work orders have been dispatched." /></DataPanel></>}{tab === 'plans' && <><FormCard title="Preventive maintenance plan" description="Create a service horizon from kilometres, days, or both."><form className="form-grid" onSubmit={createPlan}><SelectField label="Vehicle" value={plan.vehicle_id} onChange={(value) => setPlan({ ...plan, vehicle_id: value })} options={[['', 'Select vehicle'], ...data.vehicles.map((vehicle) => [String(vehicle.id), vehicle.registration_number])]} required /><Field label="Plan name" value={plan.name} onChange={(value) => setPlan({ ...plan, name: value })} required /><Field label="Interval kilometres" type="number" value={plan.interval_km} onChange={(value) => setPlan({ ...plan, interval_km: value })} /><Field label="Interval days" type="number" value={plan.interval_days} onChange={(value) => setPlan({ ...plan, interval_days: value })} /><Field label="Next due kilometres" type="number" value={plan.next_due_km} onChange={(value) => setPlan({ ...plan, next_due_km: value })} /><Field label="Next due date" type="date" value={plan.next_due_on} onChange={(value) => setPlan({ ...plan, next_due_on: value })} /><button className="primary-button">Save maintenance plan</button></form></FormCard><DataPanel title="Preventive plan register" eyebrow={`${data.plans.length} plans`}><Table headers={['Plan', 'Vehicle', 'Next due', 'Active']} rows={data.plans.map((item) => [item.name, data.vehicles.find((vehicle) => vehicle.id === item.vehicle_id)?.registration_number || `#${item.vehicle_id}`, item.next_due_on || `${item.next_due_km || '—'} km`, item.active ? <span className="status good">Active</span> : <span className="status bad">Inactive</span>])} empty="No preventive plans have been created." /></DataPanel></>}{tab === 'components' && <><FormCard title="Component lifecycle" description="Track installation, service interval, and the next threshold for every critical component."><form className="form-grid" onSubmit={createComp}><SelectField label="Vehicle" value={component.vehicle_id} onChange={(value) => setComponent({ ...component, vehicle_id: value })} options={[['', 'Select vehicle'], ...data.vehicles.map((vehicle) => [String(vehicle.id), vehicle.registration_number])]} required /><Field label="Component name" value={component.name} onChange={(value) => setComponent({ ...component, name: value })} required /><Field label="Component type" value={component.component_type} onChange={(value) => setComponent({ ...component, component_type: value })} required /><Field label="Installed at km" type="number" value={component.installed_at_km} onChange={(value) => setComponent({ ...component, installed_at_km: value })} /><Field label="Service interval km" type="number" value={component.service_interval_km} onChange={(value) => setComponent({ ...component, service_interval_km: value })} /><button className="primary-button">Add component</button></form></FormCard><DataPanel title="Component register" eyebrow={`${data.components.length} tracked components`}><Table headers={['Component', 'Vehicle', 'Next service', 'Status', 'Action']} rows={data.components.map((item) => [<span><strong>{item.name}</strong><small>{item.component_type}</small></span>, data.vehicles.find((vehicle) => vehicle.id === item.vehicle_id)?.registration_number || `#${item.vehicle_id}`, `${item.next_service_km || '—'} km`, item.status, <button className="table-action" onClick={async () => { try { await completeComponentService(token, item.id, data.vehicles.find((vehicle) => vehicle.id === item.vehicle_id)?.odometer_km || 0); refresh('Component service completed.') } catch (error) { refresh(error.message) } }}>Complete service</button>])} empty="No component lifecycle records exist." /></DataPanel></>}</PageFrame>
+  useEffect(() => {
+    let active = true
+    Promise.all([getWorkOrderBoard(token), getWorkOrderBoardStats(token)])
+      .then(([, stats]) => { if (active) setBoardStats(stats) })
+      .catch((error) => refresh(error.message))
+    return () => { active = false }
+  }, [token])
+  return (
+    <PageFrame eyebrow="02 · Fleet operations" title="Maintenance command" description="Plan preventive work, dispatch repairs, track execution, and close component lifecycles.">
+      <div className="tabs">
+        {[['work', 'Work orders'], ['plans', 'Preventive plans'], ['components', 'Components']].map(([id, label]) => (
+          <button className={tab === id ? 'tab active' : 'tab'} key={id} onClick={() => setTab(id)}>{label}</button>
+        ))}
+      </div>
+      {tab === 'work' && (
+        <>
+          <FormCard title="Dispatch work" description="Fleet Managers create work and assign it from the Fleet command workspace.">
+            <form className="form-grid" onSubmit={createWork}>
+              <SelectField label="Vehicle" value={form.vehicle_id} onChange={(value) => setForm({ ...form, vehicle_id: value })} options={[['', 'Select vehicle'], ...data.vehicles.map((vehicle) => [String(vehicle.id), `${vehicle.registration_number} · ${vehicle.model}`])]} required />
+              <Field label="Work title" value={form.title} onChange={(value) => setForm({ ...form, title: value })} required />
+              <SelectField label="Priority" value={form.priority} onChange={(value) => setForm({ ...form, priority: value })} options={['Low', 'Medium', 'High', 'Critical'].map((value) => [value, value])} />
+              <Field label="Due date" type="date" value={form.due_date} onChange={(value) => setForm({ ...form, due_date: value })} />
+              <TextField label="Scope and instructions" value={form.description} onChange={(value) => setForm({ ...form, description: value })} />
+              <button className="primary-button">Create work order</button>
+            </form>
+          </FormCard>
+          <DataPanel title="Maintenance board" eyebrow={`${work.length} work orders`}>
+            <Table headers={['Work', 'Vehicle', 'Priority', 'Due', 'Status', 'Action']} rows={work.map((order) => [
+              <span><strong>{order.title}</strong><small>{order.description || 'No extra instructions'}</small></span>,
+              data.vehicles.find((vehicle) => vehicle.id === order.vehicle_id)?.registration_number || `Vehicle #${order.vehicle_id}`,
+              order.priority,
+              dateText(order.due_date),
+              <span className={`status ${order.status === 'Completed' ? 'good' : 'warn'}`}>{order.status}</span>,
+              <div className="row-actions"><button className="table-action" onClick={() => beginEdit(order)}>Edit</button>{order.status === 'Open' && <button className="table-action" onClick={() => transition(order, 'start')}>Start</button>}{['In progress', 'REWORK'].includes(order.status) && <button className="table-action" onClick={() => transition(order, 'complete')}>Submit review</button>}{['Ready for review', 'READY_FOR_REVIEW'].includes(order.status) && <button className="table-action" onClick={() => transition(order, 'approve')}>Approve</button>}</div>
+            ])} empty="No work orders have been dispatched." />
+          </DataPanel>
+        </>
+      )}
+      {tab === 'plans' && (
+        <FormCard title="Preventive maintenance plan" description="Set a service horizon by kilometres, days, or both.">
+          <form className="form-grid" onSubmit={createPlan}>
+            <SelectField label="Vehicle" value={plan.vehicle_id} onChange={(value) => setPlan({ ...plan, vehicle_id: value })} options={[['', 'Select vehicle'], ...data.vehicles.map((vehicle) => [String(vehicle.id), vehicle.registration_number])]} required />
+            <Field label="Plan name" value={plan.name} onChange={(value) => setPlan({ ...plan, name: value })} required />
+            <Field label="Interval kilometres" type="number" value={plan.interval_km} onChange={(value) => setPlan({ ...plan, interval_km: value })} />
+            <Field label="Interval days" type="number" value={plan.interval_days} onChange={(value) => setPlan({ ...plan, interval_days: value })} />
+            <Field label="Next due kilometres" type="number" value={plan.next_due_km} onChange={(value) => setPlan({ ...plan, next_due_km: value })} />
+            <button className="primary-button">Save maintenance plan</button>
+          </form>
+        </FormCard>
+      )}
+      {tab === 'components' && (
+        <>
+          <FormCard title="Component lifecycle" description="Set the component life and the earlier odometer threshold that should alert Fleet Manager.">
+            <form className="form-grid" onSubmit={createComp}>
+              <SelectField label="Vehicle" value={component.vehicle_id} onChange={(value) => setComponent({ ...component, vehicle_id: value })} options={[['', 'Select vehicle'], ...data.vehicles.map((vehicle) => [String(vehicle.id), vehicle.registration_number])]} required />
+              <Field label="Component name" value={component.name} onChange={(value) => setComponent({ ...component, name: value })} required />
+              <Field label="Component type" value={component.component_type} onChange={(value) => setComponent({ ...component, component_type: value })} required />
+              <Field label="Installed at km" type="number" value={component.installed_at_km} onChange={(value) => setComponent({ ...component, installed_at_km: value })} />
+              <Field label="Component life km" type="number" value={component.service_interval_km} onChange={(value) => setComponent({ ...component, service_interval_km: value })} required />
+              <Field label="Alert threshold km" type="number" value={component.alert_threshold_km} onChange={(value) => setComponent({ ...component, alert_threshold_km: value })} required />
+              <button className="primary-button">Add component</button>
+            </form>
+          </FormCard>
+          <DataPanel title="Component register" eyebrow={`${data.components.length} tracked components`}>
+            <Table headers={['Component', 'Vehicle', 'Alert threshold', 'Next service', 'Status', 'Action']} rows={data.components.map((item) => [
+              <span><strong>{item.name}</strong><small>{item.component_type}</small></span>,
+              data.vehicles.find((vehicle) => vehicle.id === item.vehicle_id)?.registration_number || `#${item.vehicle_id}`,
+              `${item.next_alert_km || '—'} km`,
+              `${item.next_service_km || '—'} km`,
+              item.status,
+              <div className="row-actions"><button className="table-action" onClick={() => beginComponentEdit(item)}>Edit</button><button className="table-action" onClick={async () => { try { await completeComponentService(token, item.id, data.vehicles.find((vehicle) => vehicle.id === item.vehicle_id)?.odometer_km || 0); refresh('Component service completed and lifecycle reset.') } catch (error) { refresh(error.message) } }}>Complete service</button></div>
+            ])} empty="No component lifecycle records exist." />
+          </DataPanel>
+        </>
+      )}
+      {editingComponent && <FormCard title="Edit component" description="Update the component identity and lifecycle thresholds."><form className="form-grid" onSubmit={saveComponentEdit}><Field label="Component name" value={componentEditForm.name} onChange={(value) => setComponentEditForm({ ...componentEditForm, name: value })} required /><Field label="Component type" value={componentEditForm.component_type} onChange={(value) => setComponentEditForm({ ...componentEditForm, component_type: value })} required /><Field label="Serial number" value={componentEditForm.serial_number} onChange={(value) => setComponentEditForm({ ...componentEditForm, serial_number: value })} /><Field label="Installed at km" type="number" value={componentEditForm.installed_at_km} onChange={(value) => setComponentEditForm({ ...componentEditForm, installed_at_km: value })} required /><Field label="Component life km" type="number" value={componentEditForm.service_interval_km} onChange={(value) => setComponentEditForm({ ...componentEditForm, service_interval_km: value })} /><Field label="Alert threshold km" type="number" value={componentEditForm.alert_threshold_km} onChange={(value) => setComponentEditForm({ ...componentEditForm, alert_threshold_km: value })} /><SelectField label="Status" value={componentEditForm.status} onChange={(value) => setComponentEditForm({ ...componentEditForm, status: value })} options={['Healthy', 'Due soon', 'Due', 'Replaced', 'Retired'].map((value) => [value, value])} /><div className="row-actions"><button className="primary-button">Save changes</button><button type="button" className="secondary-button" onClick={() => setEditingComponent(null)}>Cancel</button></div></form></FormCard>}
+      {editing && <FormCard title="Edit work order" description="Update planning details and assign the existing order to a mechanic or technician."><form className="form-grid" onSubmit={saveEdit}><Field label="Work title" value={editForm.title} onChange={(value) => setEditForm({ ...editForm, title: value })} required /><SelectField label="Priority" value={editForm.priority} onChange={(value) => setEditForm({ ...editForm, priority: value })} options={['Low', 'Medium', 'High', 'Critical'].map((value) => [value, value])} /><Field label="Due date" type="date" value={editForm.due_date} onChange={(value) => setEditForm({ ...editForm, due_date: value })} /><SelectField label="Assign to mechanic or technician" value={editForm.assigned_user_id || ''} onChange={(value) => setEditForm({ ...editForm, assigned_user_id: value })} options={[['', 'Leave unassigned'], ...assignableMembers.map((member) => [String(member.id), `${member.full_name} · ${roleNames[member.role] || member.role}`])]} /><TextField label="Scope and instructions" value={editForm.description} onChange={(value) => setEditForm({ ...editForm, description: value })} /><div className="row-actions"><button className="primary-button">Save changes</button><button type="button" className="secondary-button" onClick={() => setEditing(null)}>Cancel</button></div></form></FormCard>}
+    </PageFrame>
+  )
 }
 
 function CompliancePage({ token, data, refresh, query }) {
@@ -434,6 +732,7 @@ function TelematicsPage({ token, data, refresh }) {
 
 function InventoryPage({ token, data, refresh, query }) {
   const [tab, setTab] = useState('parts')
+  const [inventorySummary, setInventorySummary] = useState(null)
   const [part, setPart] = useState({ sku: '', name: '', category: '', quantity_on_hand: 0, reorder_level: 0, unit_cost_paise: 0, supplier: '' })
   const [location, setLocation] = useState({ name: '', code: '', address: '' })
   const [movement, setMovement] = useState({ part_id: '', location_id: '', transaction_type: 'receipt', quantity: 1, reference: '' })
@@ -441,6 +740,13 @@ function InventoryPage({ token, data, refresh, query }) {
   async function addLocation(event) { event.preventDefault(); try { await createStockLocation(token, location); refresh('Stock location added.') } catch (error) { refresh(error.message) } }
   async function move(event) { event.preventDefault(); try { await createInventoryMovement(token, { ...movement, part_id: Number(movement.part_id), location_id: Number(movement.location_id), quantity: Number(movement.quantity) }); refresh('Inventory movement recorded.') } catch (error) { refresh(error.message) } }
   const parts = data.parts.filter((item) => JSON.stringify(item).toLowerCase().includes(query))
+  useEffect(() => {
+    let active = true
+    getInventorySummary(token)
+      .then((summary) => { if (active) setInventorySummary(summary) })
+      .catch((error) => refresh(error.message))
+    return () => { active = false }
+  }, [token])
   return <PageFrame eyebrow="01 · Workshop control" title="Parts & stock" description="Know what is available, where it lives, why it moved, and which part needs a reorder decision."><div className="tabs">{[['parts', 'Catalogue'], ['locations', 'Locations'], ['movement', 'Movement']].map(([id, label]) => <button className={tab === id ? 'tab active' : 'tab'} key={id} onClick={() => setTab(id)}>{label}</button>)}</div>{tab === 'parts' && <><FormCard title="Add catalogue item" description="Unit cost is stored in paise for precise finance handoff."><form className="form-grid" onSubmit={addPart}><Field label="SKU" value={part.sku} onChange={(value) => setPart({ ...part, sku: value })} required /><Field label="Part name" value={part.name} onChange={(value) => setPart({ ...part, name: value })} required /><Field label="Category" value={part.category} onChange={(value) => setPart({ ...part, category: value })} required /><Field label="Opening quantity" type="number" value={part.quantity_on_hand} onChange={(value) => setPart({ ...part, quantity_on_hand: value })} /><Field label="Reorder level" type="number" value={part.reorder_level} onChange={(value) => setPart({ ...part, reorder_level: value })} /><Field label="Unit cost (paise)" type="number" value={part.unit_cost_paise} onChange={(value) => setPart({ ...part, unit_cost_paise: value })} /><Field label="Supplier" value={part.supplier} onChange={(value) => setPart({ ...part, supplier: value })} /><button className="primary-button">Create part</button></form></FormCard><DataPanel title="Parts catalogue" eyebrow={`${parts.length} items`}><Table headers={['Part', 'Category', 'On hand', 'Reorder at', 'Unit cost', 'Supplier']} rows={parts.map((item) => [<span><strong>{item.name}</strong><small>{item.sku}</small></span>, item.category, <span className={item.quantity_on_hand <= item.reorder_level ? 'number bad' : 'number'}>{item.quantity_on_hand}</span>, item.reorder_level, money(item.unit_cost_paise), item.supplier || '—'])} empty="No parts have been catalogued." /></DataPanel></>}{tab === 'locations' && <><FormCard title="Add stock location" description="Make bins, depots, and workshop stores explicit."><form className="form-grid" onSubmit={addLocation}><Field label="Location name" value={location.name} onChange={(value) => setLocation({ ...location, name: value })} required /><Field label="Code" value={location.code} onChange={(value) => setLocation({ ...location, code: value })} required /><Field label="Address" value={location.address} onChange={(value) => setLocation({ ...location, address: value })} /><button className="primary-button">Create location</button></form></FormCard><DataPanel title="Location register" eyebrow={`${data.locations.length} locations`}><Table headers={['Name', 'Code', 'Address', 'Status']} rows={data.locations.map((item) => [item.name, item.code, item.address || '—', item.active ? <span className="status good">Active</span> : <span className="status bad">Inactive</span>])} empty="No stock locations have been defined." /></DataPanel></>}{tab === 'movement' && <><FormCard title="Record movement" description="Every receipt, issue, or adjustment keeps a reason and location reference."><form className="form-grid" onSubmit={move}><SelectField label="Part" value={movement.part_id} onChange={(value) => setMovement({ ...movement, part_id: value })} options={[['', 'Select part'], ...data.parts.map((item) => [String(item.id), `${item.sku} · ${item.name}`])]} required /><SelectField label="Location" value={movement.location_id} onChange={(value) => setMovement({ ...movement, location_id: value })} options={[['', 'Select location'], ...data.locations.map((item) => [String(item.id), item.name])]} required /><SelectField label="Movement type" value={movement.transaction_type} onChange={(value) => setMovement({ ...movement, transaction_type: value })} options={['receipt', 'issue', 'adjustment'].map((value) => [value, value])} /><Field label="Quantity" type="number" value={movement.quantity} onChange={(value) => setMovement({ ...movement, quantity: value })} /><Field label="Reference / reason" value={movement.reference} onChange={(value) => setMovement({ ...movement, reference: value })} /><button className="primary-button">Record movement</button></form></FormCard><DataPanel title="Movement history" eyebrow="Latest stock events"><p className="empty-copy">Movement history is available from the API and will appear here after the first recorded receipt, issue, or adjustment.</p></DataPanel></>}</PageFrame>
 }
 
@@ -504,10 +810,47 @@ function FinancePageLegacy({ token, data, refresh }) {
   return <PageFrame eyebrow="01 · Finance control" title="Ledger & costs" description="Record operating spend with GST context, reconcile the evidence, and keep vehicle cost visible to the organisation."><div className="stat-grid"><Metric label="Pending review" value={data.expenses.filter((item) => item.status === 'Pending').length} detail="expense records" tone="amber" /><Metric label="Approved spend" value={money(data.expenses.filter((item) => item.status === 'Approved').reduce((sum, item) => sum + item.amount_paise, 0))} detail="current loaded ledger" tone="green" /><Metric label="GST captured" value={money(data.expenses.reduce((sum, item) => sum + item.gst_amount_paise, 0))} detail="tax context" tone="blue" /></div><div className="three-grid"><FormCard title="Expense" description="GST-ready operational cost."><form className="stack-form" onSubmit={addExpense}><SelectField label="Vehicle" value={expense.vehicle_id} onChange={(value) => setExpense({ ...expense, vehicle_id: value })} options={[['', 'Organisation expense'], ...data.vehicles.map((vehicle) => [String(vehicle.id), vehicle.registration_number])]} /><Field label="Category" value={expense.category} onChange={(value) => setExpense({ ...expense, category: value })} required /><Field label="Description" value={expense.description} onChange={(value) => setExpense({ ...expense, description: value })} required /><Field label="Amount (paise)" type="number" value={expense.amount_paise} onChange={(value) => setExpense({ ...expense, amount_paise: value })} required /><Field label="GST (paise)" type="number" value={expense.gst_amount_paise} onChange={(value) => setExpense({ ...expense, gst_amount_paise: value })} /><Field label="Incurred on" type="date" value={expense.incurred_on} onChange={(value) => setExpense({ ...expense, incurred_on: value })} /><button className="primary-button">Submit expense</button></form></FormCard><FormCard title="Fuel log" description="Capture litres, rate, and odometer together."><form className="stack-form" onSubmit={addFuel}><SelectField label="Vehicle" value={fuel.vehicle_id} onChange={(value) => setFuel({ ...fuel, vehicle_id: value })} options={[['', 'Select vehicle'], ...data.vehicles.map((vehicle) => [String(vehicle.id), vehicle.registration_number])]} required /><Field label="Station" value={fuel.station} onChange={(value) => setFuel({ ...fuel, station: value })} /><Field label="Fuel type" value={fuel.fuel_type} onChange={(value) => setFuel({ ...fuel, fuel_type: value })} required /><Field label="Litres (milli)" type="number" value={fuel.litres_milli} onChange={(value) => setFuel({ ...fuel, litres_milli: value })} required /><Field label="Rate per litre (paise)" type="number" value={fuel.price_per_litre_paise} onChange={(value) => setFuel({ ...fuel, price_per_litre_paise: value })} required /><Field label="Odometer (km)" type="number" value={fuel.odometer_km} onChange={(value) => setFuel({ ...fuel, odometer_km: value })} required /><Field label="Date" type="date" value={fuel.incurred_on} onChange={(value) => setFuel({ ...fuel, incurred_on: value })} /><button className="primary-button">Record fuel</button></form></FormCard><FormCard title="Toll" description="FASTag and plaza context for route cost."><form className="stack-form" onSubmit={addToll}><SelectField label="Vehicle" value={toll.vehicle_id} onChange={(value) => setToll({ ...toll, vehicle_id: value })} options={[['', 'Select vehicle'], ...data.vehicles.map((vehicle) => [String(vehicle.id), vehicle.registration_number])]} required /><Field label="Plaza" value={toll.plaza} onChange={(value) => setToll({ ...toll, plaza: value })} required /><Field label="Amount (paise)" type="number" value={toll.amount_paise} onChange={(value) => setToll({ ...toll, amount_paise: value })} required /><Field label="Date" type="date" value={toll.incurred_on} onChange={(value) => setToll({ ...toll, incurred_on: value })} /><button className="primary-button">Record toll</button></form></FormCard></div><DataPanel title="Expense approval queue" eyebrow={`${data.expenses.length} records`}><Table headers={['Date', 'Category', 'Vehicle', 'Amount', 'Status', 'Action']} rows={data.expenses.map((item) => [dateText(item.incurred_on), item.category, item.vehicle_id ? `#${item.vehicle_id}` : 'Organisation', money(item.amount_paise), <span className={`status ${item.status === 'Approved' ? 'good' : item.status === 'Rejected' ? 'bad' : 'warn'}`}>{item.status}</span>, item.status === 'Pending' ? <button className="table-action" onClick={() => approve(item)}>Reconcile</button> : '—'])} empty="No expense records have been submitted." /></DataPanel></PageFrame>
 }
 
-function NotificationsPage({ token, data, refresh }) {
+function NotificationsPage({ token, data, refresh, role }) {
+  const [selected, setSelected] = useState([])
+  const [source, setSource] = useState(null)
+  const [pending, setPending] = useState(null)
+
+  useEffect(() => {
+    let active = true
+    getPendingNotifications(token).then((result) => {
+      if (active) setPending(result)
+    }).catch((error) => refresh(error.message))
+    return () => { active = false }
+  }, [token])
+
   async function mark(item, status) { try { if (status === 'resolved') await resolveNotification(token, item.id); else await updateNotification(token, item.id, status); refresh('Notification updated.') } catch (error) { refresh(error.message) } }
   async function savePreference(preference) { try { await updateNotificationPreference(token, preference); refresh('Notification preference saved.') } catch (error) { refresh(error.message) } }
-  return <PageFrame eyebrow="01 · Shared control" title="Notifications" description="Every member receives durable in-app delivery. SMS and WhatsApp remain explicit, consent-aware provider boundaries."><div className="notification-banner"><div><span className="overline">Delivery centre</span><h3>{data.notifications.filter((item) => item.status === 'unread').length} unread operational alerts</h3><p>Mobile delivery requires a saved mobile number and configured provider credentials.</p></div><button className="secondary-button" onClick={async () => { try { await dispatchQueuedSms(token); refresh('Queued SMS delivery attempted.') } catch (error) { refresh(error.message) } }}>Dispatch queued SMS</button></div><div className="split-grid"><DataPanel title="In-app alert inbox" eyebrow={`${data.notifications.length} alerts`}><div className="notification-list">{data.notifications.map((item) => <article key={item.id}><div><span className={`severity ${item.severity}`}>{item.severity}</span><strong>{item.title}</strong><p>{item.detail}</p><small>{dateText(item.created_at)} · {item.entity_type} #{item.entity_id}</small></div><div className="row-actions">{item.status === 'unread' && <button className="table-action" onClick={() => mark(item, 'read')}>Mark read</button>}{item.status !== 'resolved' && <button className="table-action" onClick={() => mark(item, 'resolved')}>Resolve</button>}</div></article>)}{!data.notifications.length && <EmptyState visible title="No alerts" text="Operational alerts generated by the backend will appear here." />}</div></DataPanel><DataPanel title="Channel preferences" eyebrow="Member delivery policy"><div className="preference-list">{data.notificationPreferences.map((item) => <div className="preference-row" key={item.notification_type}><span><strong>{item.notification_type}</strong><small>Choose how this alert reaches you.</small></span><label><input type="checkbox" checked={item.in_app} onChange={(event) => savePreference({ ...item, in_app: event.target.checked })} /> In-app</label><label><input type="checkbox" checked={item.sms} onChange={(event) => savePreference({ ...item, sms: event.target.checked })} /> SMS</label><label><input type="checkbox" checked={item.whatsapp} onChange={(event) => savePreference({ ...item, whatsapp: event.target.checked })} /> WhatsApp</label></div>)}{!data.notificationPreferences.length && <p className="empty-copy">Preferences will be created when notification types are first provisioned.</p>}</div></DataPanel></div><DataPanel title="Delivery attempts" eyebrow={`${data.deliveries.length} records`}><Table headers={['Channel', 'User', 'Status', 'Provider message', 'Sent']} rows={data.deliveries.map((item) => [item.channel, `User #${item.user_id}`, item.status, item.provider_message_id || '—', dateText(item.sent_at)])} empty="No delivery attempts recorded." /></DataPanel></PageFrame>
+  async function inspect(item) {
+    try {
+      setSource(await getNotificationSourceDetail(token, item.id))
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+  async function escalate(item) {
+    try {
+      await escalateNotification(token, item.id, { severity: 'CRITICAL', reason: 'Escalated from notification workspace' })
+      refresh('Notification escalated.')
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+  async function resolveSelected() {
+    if (!selected.length) return
+    try {
+      await bulkResolveNotifications(token, { notification_ids: selected })
+      setSelected([])
+      refresh('Selected notifications resolved.')
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+  return <PageFrame eyebrow="01 · Shared control" title="Notifications" description="Every member receives durable in-app delivery. SMS and WhatsApp remain explicit, consent-aware provider boundaries."><div className="notification-banner"><div><span className="overline">Delivery centre</span><h3>{data.notifications.filter((item) => item.status === 'unread').length} unread operational alerts</h3><p>{pending?.total_pending ?? 0} pending notifications across all severities.</p></div><div className="row-actions"><button className="secondary-button" disabled={!selected.length} onClick={resolveSelected}>Resolve selected</button><button className="secondary-button" onClick={async () => { try { await dispatchQueuedSms(token); refresh('Queued SMS delivery attempted.') } catch (error) { refresh(error.message) } }}>Dispatch queued SMS</button></div></div><div className="split-grid"><DataPanel title="In-app alert inbox" eyebrow={`${data.notifications.length} alerts`}><div className="notification-list">{data.notifications.map((item) => <article key={item.id}><div><label className="checkbox-row"><input type="checkbox" checked={selected.includes(item.id)} onChange={(event) => setSelected(event.target.checked ? [...selected, item.id] : selected.filter((id) => id !== item.id))} /><span><span className={`severity ${item.severity}`}>{item.severity}</span><strong>{item.title}</strong><p>{item.detail}</p><small>{dateText(item.created_at)} · {item.entity_type} #{item.entity_id}</small></span></label></div><div className="row-actions"><button className="table-action" onClick={() => inspect(item)}>Inspect source</button>{item.status === 'unread' && <button className="table-action" onClick={() => mark(item, 'read')}>Mark read</button>}{item.status !== 'resolved' && <button className="table-action" onClick={() => mark(item, 'resolved')}>Resolve</button>}{['owner', 'fleet_manager'].includes(role) && <button className="table-action" onClick={() => escalate(item)}>Escalate</button>}</div></article>)}{!data.notifications.length && <EmptyState visible title="No alerts" text="Operational alerts generated by the backend will appear here." />}</div></DataPanel><DataPanel title="Channel preferences" eyebrow="Member delivery policy"><div className="preference-list">{data.notificationPreferences.map((item) => <div className="preference-row" key={item.notification_type}><span><strong>{item.notification_type}</strong><small>Choose how this alert reaches you.</small></span><label><input type="checkbox" checked={item.in_app} onChange={(event) => savePreference({ ...item, in_app: event.target.checked })} /> In-app</label><label><input type="checkbox" checked={item.sms} onChange={(event) => savePreference({ ...item, sms: event.target.checked })} /> SMS</label><label><input type="checkbox" checked={item.whatsapp} onChange={(event) => savePreference({ ...item, whatsapp: event.target.checked })} /> WhatsApp</label></div>)}{!data.notificationPreferences.length && <p className="empty-copy">Preferences will be created when notification types are first provisioned.</p>}</div></DataPanel></div>{source && <DataPanel title="Notification source" eyebrow={source.source?.type || 'Linked record'}><div className="detail-list"><span><small>Title</small><strong>{source.title}</strong></span><span><small>Detail</small><strong>{source.detail}</strong></span><span><small>Status</small><strong>{source.status}</strong></span><span><small>Source</small><strong>{source.source?.registration || source.source?.title || `#${source.source?.id || '—'}`}</strong></span></div></DataPanel>}<DataPanel title="Delivery attempts" eyebrow={`${data.deliveries.length} records`}><Table headers={['Channel', 'User', 'Status', 'Provider message', 'Sent']} rows={data.deliveries.map((item) => [item.channel, `User #${item.user_id}`, item.status, item.provider_message_id || '—', dateText(item.sent_at)])} empty="No delivery attempts recorded." /></DataPanel></PageFrame>
 }
 
 function PageFrame({ eyebrow, title, description, children }) { return <div className="page-frame"><div className="page-intro"><span className="overline">{eyebrow}</span><h2>{title}</h2><p>{description}</p></div>{children}</div> }
@@ -517,11 +860,18 @@ function PanelHeader({ eyebrow, title }) { return <div className="panel-heading"
 function Field({ label, value, onChange, type = 'text', compact = false, ...props }) { return <label className={compact ? 'field compact' : 'field'}>{label}<input type={type} value={value ?? ''} onChange={(event) => onChange(event.target.value)} {...props} /></label> }
 function TextField({ label, value, onChange, compact = false, ...props }) { return <label className={compact ? 'field compact' : 'field'}>{label}<textarea value={value ?? ''} onChange={(event) => onChange(event.target.value)} {...props} /></label> }
 function SelectField({ label, value, onChange, options, compact = false, ...props }) { return <label className={compact ? 'field compact' : 'field'}>{label}<select value={value ?? ''} onChange={(event) => onChange(event.target.value)} {...props}>{options.map(([option, text]) => <option key={option} value={option}>{text}</option>)}</select></label> }
-function SelectInline({ value, onChange, options }) { return <select className="inline-select" value={value} onChange={(event) => onChange(event.target.value)}>{options.map((option) => <option key={option}>{option}</option>)}</select> }
+function SelectInline({ value, onChange, options }) {
+  return <select className="inline-select" value={value} onChange={(event) => onChange(event.target.value)}>
+    {options.map((option) => {
+      const [optionValue, optionLabel] = Array.isArray(option) ? option : [option, option]
+      return <option key={optionValue} value={optionValue}>{optionLabel}</option>
+    })}
+  </select>
+}
 function Metric({ label, value, detail, tone = 'blue' }) { return <article className={`metric ${tone}`}><span>{label}</span><strong>{value ?? '—'}</strong><small>{detail}</small></article> }
 function Table({ headers, rows, empty }) { return rows.length ? <div className="table-wrap"><table><thead><tr>{headers.map((header) => <th key={header}>{header}</th>)}</tr></thead><tbody>{rows.map((row, index) => <tr key={index}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>)}</tbody></table></div> : <div className="empty-state"><strong>{empty}</strong></div> }
 function EmptyState({ visible, title, text }) { return visible ? <div className="empty-state"><strong>{title}</strong><span>{text}</span></div> : null }
-function LoadingScreen() { return <div className="full-state"><span className="brand-symbol">V</span><h2>Loading your workspace</h2><p>Connecting to organisation records…</p></div> }
+function LoadingScreen() { return <div className="full-state"><img className="brand-mark" src="/vahansync-v-check-road-mark.png" alt="" /><h2>Loading your workspace</h2><p>Connecting to organisation records…</p></div> }
 function ErrorScreen({ error, onRetry }) { return <div className="full-state"><span className="brand-symbol">!</span><h2>Workspace could not load</h2><p>{error}</p><button className="primary-button" onClick={onRetry}>Retry</button></div> }
 function pageTitle(page, role) { if (page === 'command') return role === 'owner' ? 'Governance command centre' : `${roleNames[role]} workspace`; return navByRole[role]?.find(([id]) => id === page)?.[1] || 'Workspace' }
 function commandHeadline(role) { return { owner: 'Govern the organisation without operating every task.', fleet_manager: 'See readiness, risk, and the next fleet decision.', inventory_manager: 'Keep every critical part available before the job starts.', technician: 'Turn assigned work into evidence-ready handoffs.', mechanic: 'Keep workshop execution moving with accountable handoffs.', driver: 'Start every route with a clear safety record.', accountant: 'Close the rupee trail with operational context.' }[role] }
@@ -552,7 +902,7 @@ function RecentActivity({ data }) {
 function roleDescription(role) { return { owner: 'Governance, access, billing, policy, and audit.', fleet_manager: 'Readiness, dispatch, odometer, and compliance.', inventory_manager: 'Parts, locations, movements, and procurement.', technician: 'Assigned repair execution and evidence.', mechanic: 'Workshop execution, parts, evidence, and handoff.', driver: 'Daily safety, odometer, and issue reporting.', accountant: 'Ledger, GST, approvals, and reconciliation.' }[role] }
 
 // Fleet Manager Workspace - Assignment Panel for Mechanics
-function FleetManagerWorkspace({ token, data, refresh }) {
+function FleetManagerWorkspace({ token, data, refresh, query }) {
   const [tab, setTab] = useState('dispatch')
   const [form, setForm] = useState({ vehicle_id: '', title: '', description: '', priority: 'Medium', due_date: today(), mechanic_id: '' })
   const [availableMechanics, setAvailableMechanics] = useState([])
@@ -599,7 +949,7 @@ function FleetManagerWorkspace({ token, data, refresh }) {
     if (!driverId) return
     try {
       setBusy(true)
-      await assignVehicleDriver(token, vehicleId, driverId)
+      await assignVehicleDriverApi(token, vehicleId, Number(driverId))
       setDriverByVehicle({ ...driverByVehicle, [vehicleId]: '' })
       refresh('Driver assigned to vehicle.')
     } catch (error) {
@@ -610,11 +960,10 @@ function FleetManagerWorkspace({ token, data, refresh }) {
   }
 
   async function assignWorkOrder(workOrderId, mechanicId) {
-    if (!mechanicId) return
     try {
       setBusy(true)
-      await assignWorkOrder(token, workOrderId, mechanicId)
-      refresh('Work order assigned to mechanic.')
+      await assignWorkOrderApi(token, workOrderId, mechanicId ? Number(mechanicId) : null)
+      refresh(mechanicId ? 'Work order assignment updated.' : 'Work order unassigned.')
     } catch (error) {
       refresh(error.message)
     } finally {
@@ -642,7 +991,7 @@ function FleetManagerWorkspace({ token, data, refresh }) {
               <Field label="Work title" value={form.title} onChange={(value) => setForm({ ...form, title: value })} required />
               <SelectField label="Priority" value={form.priority} onChange={(value) => setForm({ ...form, priority: value })} options={['Low', 'Medium', 'High', 'Critical'].map((value) => [value, value])} />
               <Field label="Due date" type="date" value={form.due_date} onChange={(value) => setForm({ ...form, due_date: value })} />
-              <SelectField label="Assign to mechanic" value={form.mechanic_id} onChange={(value) => setForm({ ...form, mechanic_id: value })} options={[['', 'Not assigned'], ...availableMechanics.map((m) => [String(m.id), m.full_name])]} />
+              <SelectField label="Assign to mechanic or technician" value={form.mechanic_id} onChange={(value) => setForm({ ...form, mechanic_id: value })} options={[['', 'Not assigned'], ...availableMechanics.map((m) => [String(m.id), `${m.full_name} · ${roleNames[m.role] || m.role}`])]} />
               <TextField label="Scope and instructions" value={form.description} onChange={(value) => setForm({ ...form, description: value })} />
               <button className="primary-button" disabled={busy}>{busy ? 'Dispatching…' : 'Create work order'}</button>
             </form>
@@ -656,7 +1005,7 @@ function FleetManagerWorkspace({ token, data, refresh }) {
               order.assigned_user_id ? availableMechanics.find((m) => m.id === order.assigned_user_id)?.full_name || 'Unknown' : <span className="muted">Unassigned</span>,
               <span className={`status ${order.status === 'Completed' ? 'good' : order.status === 'Cancelled' ? 'bad' : 'warn'}`}>{order.status}</span>,
               <div className="row-actions">
-                <SelectInline value={order.assigned_user_id || ''} onChange={(value) => assignWorkOrder(order.id, value || null)} options={[['', 'Unassign'], ...availableMechanics.map((m) => [String(m.id), m.full_name])]} />
+                <SelectInline value={order.assigned_user_id || ''} onChange={(value) => assignWorkOrder(order.id, value || null)} options={[['', 'Unassign'], ...availableMechanics.map((m) => [String(m.id), `${m.full_name} · ${roleNames[m.role] || m.role}`])]} />
               </div>
             ])} empty="No work orders have been dispatched." />
           </DataPanel>
@@ -681,7 +1030,10 @@ function FleetManagerWorkspace({ token, data, refresh }) {
                 <div className="card-actions">
                   <select aria-label={`Assign driver to ${vehicle.registration_number}`} value={driverByVehicle[vehicle.id] || ''} onChange={(e) => setDriverByVehicle({ ...driverByVehicle, [vehicle.id]: e.target.value })}>
                     <option value="">Assign driver to this vehicle…</option>
-                    {teamRoster.members?.filter((m) => m.role === 'driver').map((driver) => (
+                    {[
+                      ...(teamRoster.members?.filter((m) => m.id === vehicle.assigned_driver_id) || []),
+                      ...(teamRoster.unassigned_drivers?.filter((driver) => driver.id !== vehicle.assigned_driver_id) || []),
+                    ].map((driver) => (
                       <option key={driver.id} value={driver.id}>{driver.full_name}</option>
                     ))}
                   </select>
@@ -709,12 +1061,13 @@ function FleetManagerWorkspace({ token, data, refresh }) {
 }
 
 // Mechanic Execution Workspace - Work Acceptance and Completion
-function MechanicExecutionWorkspace({ token, data, refresh, query }) {
+function MechanicExecutionWorkspace({ role, token, data, refresh, query }) {
+  const isMechanic = role === 'mechanic'
   const [selected, setSelected] = useState(null)
   const [checklist, setChecklist] = useState([
-    { title: 'Confirm safety isolation', completed: false },
-    { title: 'Diagnosis and affected component confirmed', completed: false },
-    { title: 'Repair quality and handoff evidence checked', completed: false }
+    { title: isMechanic ? 'Confirm safety isolation and workshop setup' : 'Confirm technical diagnosis and test scope', completed: false },
+    { title: isMechanic ? 'Repair quality and affected component confirmed' : 'Technical findings and affected component confirmed', completed: false },
+    { title: isMechanic ? 'Parts, tools, and handoff evidence checked' : 'Validation results and handoff evidence checked', completed: false }
   ])
   const [laborHours, setLaborHours] = useState('0')
   const [repairNotes, setRepairNotes] = useState('')
@@ -783,7 +1136,7 @@ function MechanicExecutionWorkspace({ token, data, refresh, query }) {
   const activeRepairs = orders.filter((order) => ['In progress', 'REWORK'].includes(order.status))
 
   return (
-    <PageFrame eyebrow="01 · Field execution" title="Assigned work" description="Execute only the work assigned to you. Record checklist completion, repair notes, and submit for Fleet Manager review.">
+    <PageFrame eyebrow={isMechanic ? '01 · Field execution · Workshop' : '01 · Field execution · Technical'} title={isMechanic ? 'Mechanic workspace' : 'Technician workspace'} description={isMechanic ? 'Execute assigned workshop repairs, record parts and quality checks, and hand off completed work.' : 'Execute assigned technical work, document diagnosis and validation, and hand off completed work.'}>
       <div className="execution-layout">
         <DataPanel title="My queue" eyebrow={`${orders.length} assigned records`}>
           <div className="queue-list">
@@ -929,6 +1282,7 @@ root.render(<App />)
 function TriageWorkspace({ token, data, refresh }) {
   const [triageData, setTriageData] = useState([])
   const [triageStats, setTriageStats] = useState(null)
+  const [assignableMembers, setAssignableMembers] = useState([])
   const [selectedIssue, setSelectedIssue] = useState(null)
   const [escalateForm, setEscalateForm] = useState({ priority: 'high', reason: '', assignee: '' })
   const [loading, setLoading] = useState(true)
@@ -938,10 +1292,11 @@ function TriageWorkspace({ token, data, refresh }) {
     let active = true
     async function load() {
       try {
-        const [queue, stats] = await Promise.all([getTriageQueue(token), getTriageStats(token)])
+        const [queue, stats, members] = await Promise.all([getTriageQueue(token), getTriageStats(token), getAssignableMembers(token)])
         if (active) {
           setTriageData(Array.isArray(queue) ? queue : queue?.queue || queue?.data || [])
           setTriageStats(stats)
+          setAssignableMembers(members || [])
         }
       } catch (error) {
         refresh(error.message)
@@ -956,7 +1311,7 @@ function TriageWorkspace({ token, data, refresh }) {
 
   async function escalate(issue) {
     try {
-      await escalateTriageIssue(token, issue.id, { ...escalateForm, issue_id: issue.id })
+      await escalateTriageIssue(token, issue.id, { ...escalateForm, assigned_user_id: escalateForm.assignee ? Number(escalateForm.assignee) : null, issue_id: issue.id })
       refresh('Issue escalated successfully.')
       setSelectedIssue(null)
       setEscalateForm({ priority: 'high', reason: '', assignee: '' })
@@ -983,6 +1338,50 @@ function TriageWorkspace({ token, data, refresh }) {
     }
   }
 
+  async function update(issue, status = issue.status) {
+    try {
+      await updateTriageIssue(token, issue.id, { priority: escalateForm.priority, status })
+      refresh('Issue updated.')
+      setSelectedIssue(null)
+      const [queue, stats] = await Promise.all([getTriageQueue(token), getTriageStats(token)])
+      setTriageData(Array.isArray(queue) ? queue : queue?.queue || queue?.data || [])
+      setTriageStats(stats)
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+
+  async function createWorkOrder(issue) {
+    try {
+      await createWorkOrderFromIssue(token, issue.id, {
+        title: issue.title,
+        description: issue.description || issue.detail,
+        priority: issue.priority,
+      })
+      refresh('Work order created from issue.')
+      setSelectedIssue(null)
+      const [queue, stats] = await Promise.all([getTriageQueue(token), getTriageStats(token)])
+      setTriageData(Array.isArray(queue) ? queue : queue?.queue || queue?.data || [])
+      setTriageStats(stats)
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+
+  async function assign(issue, assignedUserId) {
+    if (!assignedUserId) return
+    try {
+      await assignTriageIssue(token, issue.id, { assigned_user_id: Number(assignedUserId) })
+      refresh('Issue assigned.')
+      setSelectedIssue(null)
+      const [queue, stats] = await Promise.all([getTriageQueue(token), getTriageStats(token)])
+      setTriageData(Array.isArray(queue) ? queue : queue?.queue || queue?.data || [])
+      setTriageStats(stats)
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+
   if (loading) return <div className="page-frame"><h2>Loading triage queue…</h2></div>
 
   return (
@@ -998,11 +1397,14 @@ function TriageWorkspace({ token, data, refresh }) {
           <form className="form-grid" onSubmit={(e) => { e.preventDefault(); escalate(selectedIssue) }}>
             <SelectField label="Priority" value={escalateForm.priority} onChange={(value) => setEscalateForm({ ...escalateForm, priority: value })} options={['low', 'medium', 'high', 'critical'].map((p) => [p, p.charAt(0).toUpperCase() + p.slice(1)])} />
             <Field label="Reason" value={escalateForm.reason} onChange={(value) => setEscalateForm({ ...escalateForm, reason: value })} required />
-            <Field label="Assign to" value={escalateForm.assignee} onChange={(value) => setEscalateForm({ ...escalateForm, assignee: value })} />
+            <SelectField label="Assign to" value={escalateForm.assignee} onChange={(value) => setEscalateForm({ ...escalateForm, assignee: value })} options={[['', 'Select mechanic or technician'], ...assignableMembers.map((member) => [String(member.id), member.full_name])]} />
             <div className="row-actions">
               <button className="primary-button">Escalate to work order</button>
               <button type="button" className="secondary-button" onClick={() => setSelectedIssue(null)}>Cancel</button>
               <button type="button" className="secondary-button" onClick={() => resolve(selectedIssue)}>Mark resolved</button>
+              <button type="button" className="secondary-button" onClick={() => update(selectedIssue, 'IN_PROGRESS')}>Save status</button>
+              <button type="button" className="secondary-button" onClick={() => createWorkOrder(selectedIssue)}>Create work order</button>
+              <button type="button" className="secondary-button" disabled={!escalateForm.assignee} onClick={() => assign(selectedIssue, escalateForm.assignee)}>Assign issue</button>
             </div>
           </form>
         </FormCard>
@@ -1176,6 +1578,18 @@ function FinancialsWorkspace({ token, data, refresh }) {
     }
   }
 
+  async function approve(expenseId) {
+    try {
+      await approveExpense(token, expenseId)
+      refresh('Expense approved.')
+      const [summary, queue] = await Promise.all([getFinancialsSummary(token), getFinancialApprovalQueue(token)])
+      setFinancials(summary)
+      setApprovalQueue(queue || [])
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+
   if (loading) return <div className="page-frame"><h2>Loading financial dashboard…</h2></div>
 
   return (
@@ -1225,6 +1639,7 @@ function FinancialsWorkspace({ token, data, refresh }) {
             dateText(expense.incurred_on),
             <span className="status warn">Pending review</span>,
             <div className="row-actions">
+              <button className="table-action" onClick={() => approve(expense.id)}>Approve</button>
               <button className="table-action" onClick={() => reject(expense.id)}>Reject</button>
             </div>
           ])}
@@ -1247,8 +1662,16 @@ function ActivityFeedWorkspace({ token, data, refresh }) {
     let active = true
     async function load() {
       try {
-        const activity = filterType === 'all' ? await getActivityFeed(token) : await getActivityFeedByType(token, filterType)
-        if (active) setFeed(activity || [])
+        const response = await getActivityFeed(token)
+        const activity = Array.isArray(response)
+          ? response
+          : Array.isArray(response?.activities)
+            ? response.activities
+            : Object.values(response?.summary || {}).flat()
+        const filtered = filterType === 'all'
+          ? activity
+          : activity.filter((item) => item.type === filterType || item.entity_type === filterType)
+        if (active) setFeed(filtered)
       } catch (error) {
         refresh(error.message)
       } finally {
@@ -1287,8 +1710,8 @@ function ActivityFeedWorkspace({ token, data, refresh }) {
                 </div>
                 <div className="timeline-content">
                   <div className="timeline-header">
-                    <strong>{activity.title || activity.action}</strong>
-                    <small>{dateText(activity.created_at)}</small>
+                    <strong>{activity.title || activity.action || activity.summary}</strong>
+                    <small>{dateText(activity.created_at || activity.timestamp)}</small>
                   </div>
                   <p className="timeline-description">{activity.description || activity.entity_type}</p>
                   {activity.actor && <small className="timeline-actor">By {activity.actor}</small>}
@@ -1308,8 +1731,10 @@ function ActivityFeedWorkspace({ token, data, refresh }) {
 function MaintenancePlanningWorkspace({ token, data, refresh }) {
   const [plans, setPlans] = useState([])
   const [forecast, setForecast] = useState([])
+  const [templates, setTemplates] = useState([])
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ vehicle_id: '', name: '', interval_km: '', interval_days: '', next_due_km: '', next_due_on: today() })
+  const [templateForm, setTemplateForm] = useState({ name: '', description: '', interval_km: '', interval_days: '' })
   const [schedule, setSchedule] = useState({ plan_id: '', scheduled_date: today(), mechanic_id: '', notes: '' })
   const [loading, setLoading] = useState(true)
 
@@ -1318,10 +1743,11 @@ function MaintenancePlanningWorkspace({ token, data, refresh }) {
     let active = true
     async function load() {
       try {
-        const [planList, forecastData] = await Promise.all([getMaintenancePlans(token), getMaintenanceForecast(token)])
+        const [planList, forecastData, templateList] = await Promise.all([getMaintenancePlans(token), getMaintenanceForecast(token), listMaintenanceTemplates(token)])
         if (active) {
           setPlans(planList || [])
           setForecast(forecastData || [])
+          setTemplates(templateList || [])
         }
       } catch (error) {
         refresh(error.message)
@@ -1364,6 +1790,23 @@ function MaintenancePlanningWorkspace({ token, data, refresh }) {
       })
       refresh('Plan scheduled successfully.')
       setSchedule({ plan_id: '', scheduled_date: today(), mechanic_id: '', notes: '' })
+    } catch (error) {
+      refresh(error.message)
+    }
+  }
+
+  async function createTemplate(event) {
+    event.preventDefault()
+    try {
+      await createMaintenanceTemplate(token, {
+        ...templateForm,
+        interval_km: templateForm.interval_km ? Number(templateForm.interval_km) : null,
+        interval_days: templateForm.interval_days ? Number(templateForm.interval_days) : null,
+      })
+      const templateList = await listMaintenanceTemplates(token)
+      setTemplates(templateList || [])
+      setTemplateForm({ name: '', description: '', interval_km: '', interval_days: '' })
+      refresh('Maintenance template created.')
     } catch (error) {
       refresh(error.message)
     }
@@ -1422,6 +1865,29 @@ function MaintenancePlanningWorkspace({ token, data, refresh }) {
           empty="No maintenance plans created."
         />
       </DataPanel>
+
+      <div className="split-grid">
+        <FormCard title="Create reusable template" description="Save common service intervals for faster vehicle onboarding.">
+          <form className="stack-form" onSubmit={createTemplate}>
+            <Field label="Template name" value={templateForm.name} onChange={(value) => setTemplateForm({ ...templateForm, name: value })} required />
+            <TextField label="Description" value={templateForm.description} onChange={(value) => setTemplateForm({ ...templateForm, description: value })} />
+            <Field label="Interval km" type="number" value={templateForm.interval_km} onChange={(value) => setTemplateForm({ ...templateForm, interval_km: value })} />
+            <Field label="Interval days" type="number" value={templateForm.interval_days} onChange={(value) => setTemplateForm({ ...templateForm, interval_days: value })} />
+            <button className="primary-button">Save template</button>
+          </form>
+        </FormCard>
+        <DataPanel title="Maintenance templates" eyebrow={`${templates.length} reusable templates`}>
+          <Table
+            headers={['Template', 'Description', 'Interval']}
+            rows={templates.map((template) => [
+              <strong>{template.name}</strong>,
+              template.description || '—',
+              template.interval_km ? `${template.interval_km} km` : template.interval_days ? `${template.interval_days} days` : '—',
+            ])}
+            empty="No reusable templates created."
+          />
+        </DataPanel>
+      </div>
 
       {forecast.length > 0 && (
         <DataPanel title="Forecast horizon" eyebrow={`${forecast.length} upcoming services`}>

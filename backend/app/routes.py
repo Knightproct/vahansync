@@ -16,12 +16,13 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select, func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from .config import get_settings
 from .database import get_db
 from .dependencies import get_current_user, require_permission, require_roles
-from .models import AuditLog, BillingInvoice, BillingPayment, ComplianceDocument, DocumentAsset, DocumentVersion, DriverInspection, Expense, FuelTransaction, IdempotencyRecord, InventoryMovement, InventoryTransaction, MaintenancePlan, NotificationPreference, NotificationDelivery, OdometerLog, OperationalNotification, Organization, OrganizationInvitation, Part, PurchaseOrder, PurchaseOrderLine, PurchaseOrderReceipt, StockLocation, TelematicsDevice, TelematicsIntegration, TelemetryReading, TollTransaction, User, Vehicle, VehicleAssignment, VehicleComponent, VehicleIssue, Vendor, WorkOrder, WorkOrderChecklistItem, WorkOrderEvidence, WorkOrderPartUsage, utc_now
+from .models import AuditEvent, AuditLog, BillingInvoice, BillingPayment, ComplianceDocument, DocumentAsset, DocumentVersion, DriverInspection, Expense, FuelTransaction, IdempotencyRecord, InventoryMovement, InventoryTransaction, MaintenancePlan, NotificationPreference, NotificationDelivery, OdometerLog, OperationalNotification, Organization, OrganizationInvitation, Part, PurchaseOrder, PurchaseOrderLine, PurchaseOrderReceipt, StockLocation, TelematicsDevice, TelematicsIntegration, TelemetryReading, TollTransaction, User, Vehicle, VehicleAssignment, VehicleComponent, VehicleIssue, Vendor, WorkOrder, WorkOrderChecklistItem, WorkOrderEvidence, WorkOrderPartUsage, utc_now
 from .security import create_access_token, hash_password, provision_supabase_user, verify_password
 from .schemas import (
     ComponentCreate,
@@ -720,13 +721,43 @@ def update_user_role(
     return member
 
 
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_user(
+    user_id: int,
+    request: Request,
+    user: User = Depends(require_roles("owner")),
+    database: Session = Depends(get_db),
+) -> Response:
+    member = database.scalar(select(User).where(User.id == user_id, User.organization_id == user.organization_id))
+    if member is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    if member.id == user.id or member.role == "owner":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Owner accounts cannot be removed")
+    database.delete(member)
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="user.deleted",
+        entity_type="user",
+        entity_id=str(member.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps({"email": member.email, "role": member.role}),
+    ))
+    try:
+        database.commit()
+    except IntegrityError as error:
+        database.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Member cannot be removed while linked operational records exist") from error
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.get("/subscription/plans", response_model=list[SubscriptionPlanRead])
 def list_subscription_plans() -> list[dict]:
     return list(SUBSCRIPTION_PLANS.values())
 
 
 @router.get("/subscription", response_model=SubscriptionRead)
-def get_subscription(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> SubscriptionRead:
+def get_subscription(user: User = Depends(require_roles("owner")), database: Session = Depends(get_db)) -> SubscriptionRead:
     organization = database.get(Organization, user.organization_id)
     plan = SUBSCRIPTION_PLANS.get(organization.subscription_plan, SUBSCRIPTION_PLANS["starter"])
     vehicle_count = database.query(Vehicle).filter(Vehicle.organization_id == user.organization_id).count()
@@ -967,6 +998,7 @@ def dispatch_queued_notifications(
         select(NotificationDelivery)
         .where(
             NotificationDelivery.organization_id == user.organization_id,
+            NotificationDelivery.user_id == user.id,
             NotificationDelivery.channel.in_(("sms", "whatsapp")),
             NotificationDelivery.status.in_(("queued", "failed")),
         )
@@ -990,7 +1022,7 @@ def dispatch_queued_notifications(
 
 @router.get("/vehicles", response_model=list[VehicleRead])
 def list_vehicles(
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("fleet_read")),
     database: Session = Depends(get_db),
     skip: int = 0,
     limit: int = 20
@@ -1095,7 +1127,6 @@ def update_vehicle(
     database: Session = Depends(get_db),
 ) -> Vehicle:
     # Fixed Bug 15: Add row-level locking for atomic status transitions
-    from sqlalchemy.orm import with_for_update
     vehicle = database.scalar(select(Vehicle).where(
         Vehicle.id == vehicle_id,
         Vehicle.organization_id == user.organization_id,
@@ -1146,6 +1177,7 @@ def update_vehicle(
             source="vehicle_update",
             is_flagged=False,
         ))
+        evaluate_component_thresholds(user, vehicle, database)
     database.add(AuditLog(
         organization_id=user.organization_id,
         actor_user_id=user.id,
@@ -1158,6 +1190,34 @@ def update_vehicle(
     database.commit()
     database.refresh(vehicle)
     return vehicle
+
+
+@router.delete("/vehicles/{vehicle_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_vehicle(
+    vehicle_id: int,
+    request: Request,
+    user: User = Depends(require_permission("fleet")),
+    database: Session = Depends(get_db),
+) -> Response:
+    vehicle = database.scalar(select(Vehicle).where(Vehicle.id == vehicle_id, Vehicle.organization_id == user.organization_id))
+    if vehicle is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
+    database.delete(vehicle)
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="vehicle.deleted",
+        entity_type="vehicle",
+        entity_id=str(vehicle.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps({"registration_number": vehicle.registration_number}),
+    ))
+    try:
+        database.commit()
+    except IntegrityError as error:
+        database.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Vehicle cannot be deleted while dependent records exist") from error
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/vehicles/{vehicle_id}/assignments", response_model=list[VehicleAssignmentRead])
@@ -1181,7 +1241,7 @@ def list_vehicle_assignments(
 @router.get("/vehicles/{vehicle_id}/odometer", response_model=list[OdometerLogRead])
 def list_vehicle_odometer(
     vehicle_id: int,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("fleet_read")),
     database: Session = Depends(get_db),
 ) -> list[OdometerLog]:
     vehicle = database.scalar(select(Vehicle).where(
@@ -1197,7 +1257,7 @@ def list_vehicle_odometer(
 
 
 @router.get("/components", response_model=list[ComponentRead])
-def list_components(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[VehicleComponent]:
+def list_components(user: User = Depends(require_permission("maintenance_read")), database: Session = Depends(get_db)) -> list[VehicleComponent]:
     statement = select(VehicleComponent).where(VehicleComponent.organization_id == user.organization_id)
     if user.role == "driver":
         statement = statement.where(VehicleComponent.vehicle_id.in_(
@@ -1219,20 +1279,26 @@ def list_components(user: User = Depends(get_current_user), database: Session = 
 def create_component(
     payload: ComponentCreate,
     request: Request,
-    user: User = Depends(require_permission("maintenance")),
+    user: User = Depends(require_roles("owner", "fleet_manager")),
     database: Session = Depends(get_db),
 ) -> VehicleComponent:
     vehicle = database.scalar(select(Vehicle).where(Vehicle.id == payload.vehicle_id, Vehicle.organization_id == user.organization_id))
     if vehicle is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found in this organization")
     component_data = payload.model_dump()
+    alert_threshold_km = component_data.get("alert_threshold_km")
+    service_interval_km = component_data.get("service_interval_km")
+    if alert_threshold_km is not None and service_interval_km is not None and alert_threshold_km > service_interval_km:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Alert threshold cannot exceed component life")
     if (
         component_data["next_service_km"] is None
-        and component_data["service_interval_km"] is not None
+        and service_interval_km is not None
     ):
         component_data["next_service_km"] = (
-            component_data["installed_at_km"] + component_data["service_interval_km"]
+            component_data["installed_at_km"] + service_interval_km
         )
+    if component_data.get("next_alert_km") is None and alert_threshold_km is not None:
+        component_data["next_alert_km"] = component_data["installed_at_km"] + alert_threshold_km
     component = VehicleComponent(organization_id=user.organization_id, **component_data)
     database.add(component)
     database.flush()
@@ -1255,7 +1321,7 @@ def update_component(
     component_id: int,
     payload: ComponentUpdate,
     request: Request,
-    user: User = Depends(require_permission("maintenance")),
+    user: User = Depends(require_roles("owner", "fleet_manager")),
     database: Session = Depends(get_db),
 ) -> VehicleComponent:
     statement = select(VehicleComponent).where(
@@ -1273,10 +1339,17 @@ def update_component(
     if component is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Component not found")
     changes = payload.model_dump(exclude_unset=True)
+    interval_km = changes.get("service_interval_km", component.service_interval_km)
+    threshold_km = changes.get("alert_threshold_km", component.alert_threshold_km)
+    if threshold_km is not None and interval_km is not None and threshold_km > interval_km:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Alert threshold cannot exceed component life")
     for key, value in changes.items():
         setattr(component, key, value)
-    if component.service_interval_km and component.last_service_km is not None and "next_service_km" not in changes:
-        component.next_service_km = component.last_service_km + component.service_interval_km
+    lifecycle_start_km = component.last_service_km or component.installed_at_km
+    if interval_km and "next_service_km" not in changes:
+        component.next_service_km = lifecycle_start_km + interval_km
+    if threshold_km and "next_alert_km" not in changes:
+        component.next_alert_km = lifecycle_start_km + threshold_km
     database.add(AuditLog(
         organization_id=user.organization_id,
         actor_user_id=user.id,
@@ -1291,12 +1364,43 @@ def update_component(
     return component
 
 
+@router.delete("/components/{component_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_component(
+    component_id: int,
+    request: Request,
+    user: User = Depends(require_roles("owner", "fleet_manager")),
+    database: Session = Depends(get_db),
+) -> Response:
+    component = database.scalar(select(VehicleComponent).where(
+        VehicleComponent.id == component_id,
+        VehicleComponent.organization_id == user.organization_id,
+    ))
+    if component is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Component not found")
+    database.delete(component)
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="component.deleted",
+        entity_type="vehicle_component",
+        entity_id=str(component.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps({"vehicle_id": component.vehicle_id, "name": component.name}),
+    ))
+    try:
+        database.commit()
+    except IntegrityError as error:
+        database.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Component cannot be deleted while linked service records exist") from error
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.post("/components/{component_id}/service-complete", response_model=ComponentRead)
 def complete_component_service(
     component_id: int,
     odometer_km: int,
     request: Request,
-    user: User = Depends(require_permission("maintenance")),
+    user: User = Depends(require_roles("owner", "fleet_manager", "mechanic")),
     database: Session = Depends(get_db),
 ) -> VehicleComponent:
     statement = select(VehicleComponent).where(
@@ -1323,6 +1427,7 @@ def complete_component_service(
         )
     component.last_service_km = odometer_km
     component.next_service_km = odometer_km + component.service_interval_km if component.service_interval_km else None
+    component.next_alert_km = odometer_km + component.alert_threshold_km if component.alert_threshold_km else component.next_service_km
     component.status = "Healthy"
     database.add(AuditLog(
         organization_id=user.organization_id,
@@ -1340,7 +1445,7 @@ def complete_component_service(
 
 @router.get("/work-orders", response_model=list[WorkOrderRead])
 def list_work_orders(
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("maintenance_read")),
     database: Session = Depends(get_db),
     skip: int = 0,
     limit: int = 20
@@ -1397,6 +1502,7 @@ def create_driver_inspection(
         source=f"driver_{payload.inspection_type}",
         is_flagged=False,
     ))
+    evaluate_component_thresholds(user, vehicle, database)
     inspection = DriverInspection(
         organization_id=user.organization_id,
         driver_id=user.id,
@@ -1475,7 +1581,7 @@ def create_driver_issue(
 def create_work_order(
     payload: WorkOrderCreate,
     request: Request,
-    user: User = Depends(require_permission("maintenance")),
+    user: User = Depends(require_roles("owner", "fleet_manager")),
     database: Session = Depends(get_db),
 ) -> WorkOrder:
     reserve_idempotency_key(request, user, database)
@@ -1511,8 +1617,13 @@ def create_work_order(
         detail=f"{vehicle.registration_number} · {work_order.priority} priority",
         entity_type="work_order",
         entity_id=str(work_order.id),
-        roles={"owner", "fleet_manager", "technician"},
+        roles={"owner", "fleet_manager"},
         user_ids={work_order.assigned_user_id} if work_order.assigned_user_id is not None else set(),
+        dedupe_key=(
+            f"work_order_assigned:{work_order.id}:{work_order.assigned_user_id}"
+            if work_order.assigned_user_id is not None
+            else f"work_order_created:{work_order.id}"
+        ),
     )
     database.commit()
     database.refresh(work_order)
@@ -1584,6 +1695,39 @@ def update_work_order(
     database.commit()
     database.refresh(work_order)
     return work_order
+
+
+@router.delete("/work-orders/{work_order_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_work_order(
+    work_order_id: int,
+    request: Request,
+    user: User = Depends(require_roles("owner", "fleet_manager")),
+    database: Session = Depends(get_db),
+) -> Response:
+    work_order = database.scalar(select(WorkOrder).where(
+        WorkOrder.id == work_order_id,
+        WorkOrder.organization_id == user.organization_id,
+    ))
+    if work_order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Work order not found")
+    if work_order.status not in {"Draft", "Open", "Archived"}:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only draft, open, or archived work orders can be deleted")
+    database.delete(work_order)
+    database.add(AuditLog(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="work_order.deleted",
+        entity_type="work_order",
+        entity_id=str(work_order.id),
+        request_id=request.headers.get("x-request-id", str(uuid4())),
+        changes=json.dumps({"vehicle_id": work_order.vehicle_id, "title": work_order.title}),
+    ))
+    try:
+        database.commit()
+    except IntegrityError as error:
+        database.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Work order cannot be deleted while checklist, evidence, or parts records exist") from error
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/work-orders/{work_order_id}/checklist", response_model=list[WorkOrderChecklistItemRead])
@@ -1722,8 +1866,7 @@ def complete_work_order(
     work_order.status = "Ready for review"
     work_order.completed_at = utc_now()
     
-    # Fixed Bug 21: Sync inventory when work order is completed - deduct used parts
-    from sqlalchemy import and_
+    # Deduct reserved parts when the repair is completed.
     part_usages = database.scalars(select(WorkOrderPartUsage).where(
         WorkOrderPartUsage.work_order_id == work_order_id,
         WorkOrderPartUsage.organization_id == user.organization_id
@@ -1733,8 +1876,8 @@ def complete_work_order(
             Part.id == part_usage.part_id,
             Part.organization_id == user.organization_id
         ))
-        if part and part_usage.quantity_used and part_usage.quantity_used > 0:
-            delta = -part_usage.quantity_used
+        if part and part_usage.quantity > 0:
+            delta = -part_usage.quantity
             if part.quantity_on_hand + delta < 0:
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Insufficient inventory for part {part.name}")
             part.quantity_on_hand += delta
@@ -1742,9 +1885,9 @@ def complete_work_order(
                 organization_id=user.organization_id,
                 part_id=part.id,
                 transaction_type="issue",
-                quantity=part_usage.quantity_used,
+                quantity=part_usage.quantity,
                 created_by=user.id,
-                notes=f"Used in work order #{work_order.id}"
+                reference=f"Work order #{work_order.id}",
             ))
     
     database.add(AuditLog(
@@ -1944,9 +2087,10 @@ def record_work_order_part(
     ))
     if work_order is None or part is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Work order or part not found")
+    if payload.quantity <= 0:
+        raise HTTPException(status_code=400, detail="Part quantity must be positive")
     if part.quantity_on_hand < payload.quantity:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Insufficient stock for this work order")
-    part.quantity_on_hand -= payload.quantity
     usage = WorkOrderPartUsage(
         organization_id=user.organization_id,
         work_order_id=work_order_id,
@@ -2000,7 +2144,7 @@ def download_work_order(
 
 
 @router.get("/maintenance-plans", response_model=list[MaintenancePlanRead])
-def list_maintenance_plans(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[MaintenancePlan]:
+def list_maintenance_plans(user: User = Depends(require_permission("maintenance_read")), database: Session = Depends(get_db)) -> list[MaintenancePlan]:
     return list(database.scalars(select(MaintenancePlan).where(MaintenancePlan.organization_id == user.organization_id).order_by(MaintenancePlan.id.desc())).all())
 
 
@@ -2008,7 +2152,7 @@ def list_maintenance_plans(user: User = Depends(get_current_user), database: Ses
 def create_maintenance_plan(
     payload: MaintenancePlanCreate,
     request: Request,
-    user: User = Depends(require_permission("maintenance")),
+    user: User = Depends(require_roles("owner", "fleet_manager")),
     database: Session = Depends(get_db),
 ) -> MaintenancePlan:
     vehicle = database.scalar(select(Vehicle).where(Vehicle.id == payload.vehicle_id, Vehicle.organization_id == user.organization_id))
@@ -2034,7 +2178,7 @@ def create_maintenance_plan(
 
 
 @router.get("/parts", response_model=list[PartRead])
-def list_parts(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[Part]:
+def list_parts(user: User = Depends(require_permission("inventory_read")), database: Session = Depends(get_db)) -> list[Part]:
     return list(database.scalars(select(Part).where(Part.organization_id == user.organization_id).order_by(Part.id.desc())).all())
 
 
@@ -2073,7 +2217,6 @@ def create_inventory_transaction(
     database: Session = Depends(get_db),
 ) -> Part:
     # Fixed Bug 14: Add row-level locking to prevent race condition on inventory updates
-    from sqlalchemy.orm import with_for_update
     part = database.scalar(select(Part).where(Part.id == payload.part_id, Part.organization_id == user.organization_id).with_for_update())
     if part is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Part not found in this organization")
@@ -2100,7 +2243,7 @@ def create_inventory_transaction(
 
 @router.get("/inventory/transactions", response_model=list[InventoryTransactionRead])
 def list_inventory_transactions(
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_roles("owner", "inventory_manager")),
     database: Session = Depends(get_db),
     skip: int = 0,
     limit: int = 20
@@ -2114,7 +2257,7 @@ def list_inventory_transactions(
 
 
 @router.get("/stock-locations", response_model=list[StockLocationRead])
-def list_stock_locations(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[StockLocation]:
+def list_stock_locations(user: User = Depends(require_roles("owner", "inventory_manager")), database: Session = Depends(get_db)) -> list[StockLocation]:
     return list(database.scalars(select(StockLocation).where(StockLocation.organization_id == user.organization_id).order_by(StockLocation.name.asc())).all())
 
 
@@ -2147,7 +2290,7 @@ def create_stock_location(
 
 
 @router.get("/inventory/movements", response_model=list[InventoryMovementRead])
-def list_inventory_movements(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[InventoryMovement]:
+def list_inventory_movements(user: User = Depends(require_roles("owner", "inventory_manager")), database: Session = Depends(get_db)) -> list[InventoryMovement]:
     return list(database.scalars(select(InventoryMovement).where(InventoryMovement.organization_id == user.organization_id).order_by(InventoryMovement.id.desc())).all())
 
 
@@ -2186,7 +2329,7 @@ def create_inventory_movement(
 
 
 @router.get("/documents", response_model=list[DocumentRead])
-def list_documents(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[ComplianceDocument]:
+def list_documents(user: User = Depends(require_permission("compliance_read")), database: Session = Depends(get_db)) -> list[ComplianceDocument]:
     statement = select(ComplianceDocument).where(ComplianceDocument.organization_id == user.organization_id)
     if user.role == "driver":
         statement = statement.where(ComplianceDocument.vehicle_id.in_(
@@ -2319,7 +2462,7 @@ def upload_document_file(
 @router.get("/documents/{document_id}/versions", response_model=list[DocumentVersionRead])
 def list_document_versions(
     document_id: int,
-    user: User = Depends(require_permission("compliance")),
+    user: User = Depends(require_permission("compliance_read")),
     database: Session = Depends(get_db),
 ) -> list[DocumentVersion]:
     document = database.scalar(select(ComplianceDocument).where(
@@ -2328,6 +2471,13 @@ def list_document_versions(
     ))
     if document is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+    if user.role == "driver":
+        assigned = database.scalar(select(Vehicle.id).where(
+            Vehicle.id == document.vehicle_id,
+            Vehicle.assigned_driver_id == user.id,
+        ))
+        if assigned is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
     return list(database.scalars(select(DocumentVersion).where(
         DocumentVersion.document_id == document_id,
         DocumentVersion.organization_id == user.organization_id,
@@ -2337,9 +2487,22 @@ def list_document_versions(
 @router.get("/documents/{document_id}/file")
 def download_document_file(
     document_id: int,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("compliance_read")),
     database: Session = Depends(get_db),
 ) -> Response:
+    document = database.scalar(select(ComplianceDocument).where(
+        ComplianceDocument.id == document_id,
+        ComplianceDocument.organization_id == user.organization_id,
+    ))
+    if document is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+    if user.role == "driver":
+        assigned = database.scalar(select(Vehicle.id).where(
+            Vehicle.id == document.vehicle_id,
+            Vehicle.assigned_driver_id == user.id,
+        ))
+        if assigned is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
     asset = database.scalar(
         select(DocumentAsset)
         .where(DocumentAsset.document_id == document_id, DocumentAsset.organization_id == user.organization_id)
@@ -2395,13 +2558,14 @@ def build_alerts(user: User, database: Session) -> list[dict[str, str | int]]:
             VehicleComponent.vehicle_id == vehicle.id,
         )).all()
         for component in components:
-            if component.next_service_km is not None and vehicle.odometer_km >= component.next_service_km:
+            alert_km = component.next_alert_km or component.next_service_km
+            if alert_km is not None and vehicle.odometer_km >= alert_km:
                 alerts.append({
                     "type": "component_due",
                     "severity": "danger",
                     "entity_id": component.id,
                     "title": f"{component.name} service due",
-                    "detail": f"{vehicle.registration_number} has reached {vehicle.odometer_km} km; service threshold {component.next_service_km} km",
+                    "detail": f"{vehicle.registration_number} has reached {vehicle.odometer_km} km; service threshold {alert_km} km",
                 })
         if vehicle.status == "Out of service":
             alerts.append({
@@ -2424,11 +2588,124 @@ def build_alerts(user: User, database: Session) -> list[dict[str, str | int]]:
                 "title": f"Work order {work_order.id} is overdue",
                 "detail": f"Due {work_order.due_date}; current status is {work_order.status}",
             })
+    if user.role == "accountant":
+        return []
+    if user.role == "inventory_manager":
+        return [alert for alert in alerts if alert["type"] == "stock_reorder"]
+    if user.role == "driver":
+        assigned_vehicle_ids = {
+            assignment.vehicle_id
+            for assignment in database.scalars(select(VehicleAssignment).where(
+                VehicleAssignment.organization_id == user.organization_id,
+                VehicleAssignment.driver_id == user.id,
+                VehicleAssignment.active.is_(True),
+            )).all()
+        }
+        return [
+            alert for alert in alerts
+            if alert["type"] == "driver_safety" and alert["entity_id"] in assigned_vehicle_ids
+        ]
+    if user.role in {"mechanic", "technician"}:
+        assigned_work_orders = database.scalars(select(WorkOrder).where(
+            WorkOrder.organization_id == user.organization_id,
+            WorkOrder.assigned_user_id == user.id,
+        )).all()
+        assigned_work_order_ids = {work_order.id for work_order in assigned_work_orders}
+        assigned_vehicle_ids = {work_order.vehicle_id for work_order in assigned_work_orders}
+        assigned_component_ids = {
+            component.id
+            for component in database.scalars(select(VehicleComponent).where(
+                VehicleComponent.organization_id == user.organization_id,
+                VehicleComponent.vehicle_id.in_(assigned_vehicle_ids or {-1}),
+            )).all()
+        }
+        return [
+            alert for alert in alerts
+            if (
+                alert["type"] == "maintenance_due"
+                and alert["entity_id"] in assigned_work_order_ids
+            ) or (
+                alert["type"] == "component_due"
+                and alert["entity_id"] in assigned_component_ids
+            )
+        ]
     return alerts
 
 
+def evaluate_component_thresholds(user: User, vehicle: Vehicle, database: Session) -> int:
+    created_work_orders = 0
+    components = database.scalars(select(VehicleComponent).where(
+        VehicleComponent.organization_id == user.organization_id,
+        VehicleComponent.vehicle_id == vehicle.id,
+        VehicleComponent.status == "Healthy",
+    )).all()
+    for component in components:
+        alert_km = component.next_alert_km or component.next_service_km
+        if alert_km is None or vehicle.odometer_km < alert_km:
+            continue
+        existing = database.scalar(select(WorkOrder).where(
+            WorkOrder.organization_id == user.organization_id,
+            WorkOrder.vehicle_id == vehicle.id,
+            WorkOrder.status.in_(["Open", "Assigned", "Scheduled", "In progress", "Ready for review", "REWORK"]),
+            WorkOrder.title.ilike(f"%{component.name}%"),
+        ))
+        if existing is not None:
+            continue
+        work_order = WorkOrder(
+            organization_id=user.organization_id,
+            vehicle_id=vehicle.id,
+            title=f"{component.name} service threshold reached",
+            description=(
+                f"{component.name}: {vehicle.odometer_km - (component.last_service_km or component.installed_at_km)} "
+                f"km since last service; alert threshold {alert_km} km."
+            ),
+            priority="High",
+            status="Open",
+        )
+        database.add(work_order)
+        database.flush()
+        queue_role_notification(
+            database,
+            organization_id=user.organization_id,
+            notification_type="component_threshold",
+            severity="danger",
+            title=f"{component.name} service due",
+            detail=f"{vehicle.registration_number} reached {alert_km:,} km.",
+            entity_type="vehicle_component",
+            entity_id=str(component.id),
+            roles={"owner", "fleet_manager"},
+            dedupe_key=f"component_threshold:{component.id}:{alert_km}",
+        )
+        database.add(AuditEvent(
+            organization_id=user.organization_id,
+            actor_user_id=user.id,
+            actor_role=user.role,
+            action="MAINTENANCE_THRESHOLD_TRIGGERED",
+            entity_type="COMPONENT",
+            entity_id=str(component.id),
+            summary=f"Threshold triggered for {component.name}",
+            metadata=json.dumps({
+                "workOrderId": work_order.id,
+                "current_km": vehicle.odometer_km,
+                "alert_km": alert_km,
+            }),
+        ))
+        created_work_orders += 1
+    return created_work_orders
+
+
+ALERT_RECIPIENT_ROLES = {
+    "document_expiry": {"owner", "fleet_manager"},
+    "stock_reorder": {"owner", "inventory_manager"},
+    "component_due": {"owner", "fleet_manager"},
+    "component_threshold": {"owner", "fleet_manager"},
+    "driver_safety": {"fleet_manager"},
+    "maintenance_due": {"owner", "fleet_manager"},
+}
+
+
 @router.get("/alerts")
-def list_alerts(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[dict[str, str | int]]:
+def list_alerts(user: User = Depends(require_permission("notifications")), database: Session = Depends(get_db)) -> list[dict[str, str | int]]:
     return build_alerts(user, database)
 
 
@@ -2551,8 +2828,9 @@ def queue_role_notification(
     entity_id: str,
     roles: set[str],
     user_ids: set[int] | None = None,
+    dedupe_key: str | None = None,
 ) -> None:
-    dedupe_key = f"{notification_type}:{entity_id}"
+    dedupe_key = dedupe_key or f"{notification_type}:{entity_id}"
     existing = database.scalar(select(OperationalNotification).where(
         OperationalNotification.organization_id == organization_id,
         OperationalNotification.dedupe_key == dedupe_key,
@@ -2601,14 +2879,20 @@ def queue_role_notification(
             if preference.push:
                 channels.append("push")
         for channel in channels:
-            database.add(NotificationDelivery(
+            delivery = NotificationDelivery(
                 organization_id=organization_id,
                 notification_id=notification.id,
                 user_id=recipient.id,
                 channel=channel,
                 status="queued" if channel != "in_app" else "delivered",
                 sent_at=utc_now() if channel == "in_app" else None,
-            ))
+            )
+            database.add(delivery)
+            database.flush()
+            if channel == "sms":
+                dispatch_sms(delivery, notification, recipient)
+            elif channel == "whatsapp":
+                dispatch_whatsapp(delivery, notification, recipient)
 
 
 def sync_notifications(user: User, database: Session) -> None:
@@ -2617,12 +2901,19 @@ def sync_notifications(user: User, database: Session) -> None:
             entity_type = "compliance_document"
         elif alert["type"] == "stock_reorder":
             entity_type = "part"
-        elif alert["type"] in {"component_due", "driver_safety"}:
+        elif alert["type"] == "component_due":
+            entity_type = "vehicle_component"
+        elif alert["type"] == "driver_safety":
             entity_type = "vehicle"
         else:
             entity_type = "work_order"
         entity_id = str(alert["entity_id"])
-        dedupe_key = f"{alert['type']}:{entity_id}:{alert['detail']}"
+        if alert["type"] == "component_due":
+            component = database.get(VehicleComponent, int(alert["entity_id"]))
+            alert_km = (component.next_alert_km or component.next_service_km) if component is not None else alert["detail"]
+            dedupe_key = f"component_threshold:{entity_id}:{alert_km}"
+        else:
+            dedupe_key = f"{alert['type']}:{entity_id}:{alert['detail']}"
         existing = database.scalar(
             select(OperationalNotification).where(
                 OperationalNotification.organization_id == user.organization_id,
@@ -2649,7 +2940,10 @@ def sync_notifications(user: User, database: Session) -> None:
         )
         database.add(notification)
         database.flush()
-        recipients = database.scalars(select(User).where(User.organization_id == user.organization_id)).all()
+        recipients = database.scalars(select(User).where(
+            User.organization_id == user.organization_id,
+            User.role.in_(ALERT_RECIPIENT_ROLES.get(str(alert["type"]), {"owner"})),
+        )).all()
         for recipient in recipients:
             preference = database.scalar(select(NotificationPreference).where(
                 NotificationPreference.organization_id == user.organization_id,
@@ -2753,7 +3047,7 @@ def update_notification(
 def resolve_notification(
     notification_id: int,
     request: Request,
-    user: User = Depends(require_permission("notifications")),
+    user: User = Depends(require_roles("owner", "fleet_manager")),
     database: Session = Depends(get_db),
 ) -> OperationalNotification:
     notification = database.scalar(select(OperationalNotification).where(
@@ -2785,7 +3079,7 @@ def resolve_notification(
 
 
 @router.get("/expenses", response_model=list[ExpenseRead])
-def list_expenses(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[Expense]:
+def list_expenses(user: User = Depends(require_permission("finance_read")), database: Session = Depends(get_db)) -> list[Expense]:
     statement = select(Expense).where(Expense.organization_id == user.organization_id)
     if user.role not in ("owner", "accountant"):
         statement = statement.where(Expense.id == -1)
@@ -2809,7 +3103,7 @@ def create_expense(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="GST components must equal the GST amount")
     if payload.igst_amount_paise and (payload.cgst_amount_paise or payload.sgst_amount_paise):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="IGST cannot be combined with CGST or SGST")
-    expense = Expense(organization_id=user.organization_id, **payload.model_dump())
+    expense = Expense(organization_id=user.organization_id, created_by=user.id, **payload.model_dump())
     if expense.status == "Approved":
         expense.approved_by = user.id
         expense.approved_at = utc_now()
@@ -2843,6 +3137,8 @@ def update_expense_status(
     ))
     if expense is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found")
+    if payload.status == "Approved" and user.role == "accountant" and expense.created_by == user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Accountants cannot approve their own expenses")
     expense.status = payload.status
     expense.approved_by = user.id if payload.status == "Approved" else None
     expense.approved_at = utc_now() if payload.status == "Approved" else None
@@ -2875,6 +3171,8 @@ def reconcile_expense(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found")
     if expense.status == "Rejected":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Rejected expenses cannot be reconciled")
+    if user.role == "accountant" and expense.created_by == user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Accountants cannot approve their own expenses")
     expense.status = "Approved"
     expense.approved_by = user.id
     expense.approved_at = utc_now()
@@ -2923,7 +3221,7 @@ def reverse_expense(
 
 
 @router.get("/finance/summary", response_model=list[FinanceSummaryRead])
-def finance_summary(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[FinanceSummaryRead]:
+def finance_summary(user: User = Depends(require_permission("finance_read")), database: Session = Depends(get_db)) -> list[FinanceSummaryRead]:
     totals: dict[str, dict[str, int]] = {}
     expenses = database.scalars(select(Expense).where(Expense.organization_id == user.organization_id)).all()
     for expense in expenses:
@@ -2951,11 +3249,16 @@ def finance_summary(user: User = Depends(get_current_user), database: Session = 
 
 
 @router.get("/fuel-transactions", response_model=list[FuelTransactionRead])
-def list_fuel_transactions(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[FuelTransaction]:
+def list_fuel_transactions(user: User = Depends(require_permission("fuel_read")), database: Session = Depends(get_db)) -> list[FuelTransaction]:
+    statement = select(FuelTransaction).where(FuelTransaction.organization_id == user.organization_id)
+    if user.role == "driver":
+        statement = statement.where(FuelTransaction.vehicle_id.in_(
+            select(Vehicle.id).where(Vehicle.assigned_driver_id == user.id)
+        ))
+    elif user.role not in {"owner", "fleet_manager", "accountant"}:
+        statement = statement.where(FuelTransaction.id == -1)
     return list(database.scalars(
-        select(FuelTransaction)
-        .where(FuelTransaction.organization_id == user.organization_id)
-        .order_by(FuelTransaction.incurred_on.desc(), FuelTransaction.id.desc())
+        statement.order_by(FuelTransaction.incurred_on.desc(), FuelTransaction.id.desc())
     ).all())
 
 
@@ -2963,12 +3266,16 @@ def list_fuel_transactions(user: User = Depends(get_current_user), database: Ses
 def create_fuel_transaction(
     payload: FuelTransactionCreate,
     request: Request,
-    user: User = Depends(require_permission("finance")),
+    user: User = Depends(require_permission("fuel_read")),
     database: Session = Depends(get_db),
 ) -> FuelTransaction:
     vehicle = database.scalar(select(Vehicle).where(Vehicle.id == payload.vehicle_id, Vehicle.organization_id == user.organization_id))
     if vehicle is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found in this organization")
+    if user.role not in {"owner", "fleet_manager", "accountant"} and not (
+        user.role == "driver" and vehicle.assigned_driver_id == user.id
+    ):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only finance roles or the assigned driver can record fuel")
     total_amount_paise = (payload.litres_milli * payload.price_per_litre_paise) // 1000
     fuel = FuelTransaction(
         organization_id=user.organization_id,
@@ -2993,7 +3300,7 @@ def create_fuel_transaction(
 
 
 @router.get("/toll-transactions", response_model=list[TollTransactionRead])
-def list_toll_transactions(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[TollTransaction]:
+def list_toll_transactions(user: User = Depends(require_permission("finance_read")), database: Session = Depends(get_db)) -> list[TollTransaction]:
     return list(database.scalars(
         select(TollTransaction)
         .where(TollTransaction.organization_id == user.organization_id)
@@ -3029,7 +3336,7 @@ def create_toll_transaction(
 
 
 @router.get("/telematics/devices", response_model=list[TelematicsDeviceRead])
-def list_telematics_devices(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[TelematicsDevice]:
+def list_telematics_devices(user: User = Depends(require_permission("fleet")), database: Session = Depends(get_db)) -> list[TelematicsDevice]:
     return list(database.scalars(
         select(TelematicsDevice)
         .where(TelematicsDevice.organization_id == user.organization_id)
@@ -3282,6 +3589,31 @@ def sync_due_telematics(
     return results
 
 
+@router.post("/telematics/cron-sync")
+def cron_sync_telematics(
+    request: Request,
+    database: Session = Depends(get_db),
+) -> dict[str, int | list[dict[str, int | str]]]:
+    settings = get_settings()
+    expected_secret = settings.telematics_cron_secret
+    authorization = request.headers.get("authorization", "")
+    if not expected_secret or authorization != f"Bearer {expected_secret}":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid cron credentials")
+
+    now = utc_now()
+    integrations = database.scalars(select(TelematicsIntegration).where(
+        TelematicsIntegration.active.is_(True),
+    )).all()
+    results = []
+    for integration in integrations:
+        if integration.last_synced_at is not None and (
+            now - integration.last_synced_at
+        ).total_seconds() < integration.sync_interval_minutes * 60:
+            continue
+        results.append(sync_telematics_integration(integration, database))
+    return {"processed": len(results), "results": results}
+
+
 @router.post("/telematics/devices", response_model=TelematicsDeviceRead, status_code=status.HTTP_201_CREATED)
 def create_telematics_device(
     payload: TelematicsDeviceCreate,
@@ -3335,6 +3667,7 @@ def ingest_telemetry(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
     if payload.odometer_km > vehicle.odometer_km:
         vehicle.odometer_km = payload.odometer_km
+        evaluate_component_thresholds(user, vehicle, database)
     reading = TelemetryReading(
         organization_id=user.organization_id,
         vehicle_id=device.vehicle_id,
@@ -3361,7 +3694,7 @@ def ingest_telemetry(
 @router.get("/telematics/vehicles/{vehicle_id}/latest", response_model=TelemetryReadingRead)
 def latest_vehicle_telemetry(
     vehicle_id: int,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("fleet")),
     database: Session = Depends(get_db),
 ) -> TelemetryReading:
     reading = database.scalar(
@@ -3375,7 +3708,7 @@ def latest_vehicle_telemetry(
 
 
 @router.get("/vendors", response_model=list[VendorRead])
-def list_vendors(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[Vendor]:
+def list_vendors(user: User = Depends(require_permission("procurement_read")), database: Session = Depends(get_db)) -> list[Vendor]:
     return list(database.scalars(select(Vendor).where(Vendor.organization_id == user.organization_id).order_by(Vendor.name.asc())).all())
 
 
@@ -3404,7 +3737,7 @@ def create_vendor(
 
 
 @router.get("/purchase-orders", response_model=list[PurchaseOrderRead])
-def list_purchase_orders(user: User = Depends(get_current_user), database: Session = Depends(get_db)) -> list[PurchaseOrder]:
+def list_purchase_orders(user: User = Depends(require_permission("procurement_read")), database: Session = Depends(get_db)) -> list[PurchaseOrder]:
     statement = select(PurchaseOrder).options(selectinload(PurchaseOrder.lines)).where(PurchaseOrder.organization_id == user.organization_id).order_by(PurchaseOrder.id.desc())
     return list(database.scalars(statement).unique().all())
 
@@ -3612,7 +3945,7 @@ def download_purchase_order(
 @router.get("/export/{resource}")
 def export_resource(
     resource: str,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_roles("owner")),
     database: Session = Depends(get_db),
 ) -> Response:
     if resource == "vehicles":
@@ -3831,6 +4164,8 @@ def assign_vehicle_driver(
         driver_id=payload.driver_id,
         active=True,
     )
+    vehicle.assigned_driver_id = driver.id
+    vehicle.driver_name = driver.full_name
     database.add(assignment)
     database.flush()
     
@@ -3847,6 +4182,19 @@ def assign_vehicle_driver(
             "closed_assignments": closed_count,
         }),
     ))
+    queue_role_notification(
+        database,
+        organization_id=user.organization_id,
+        notification_type="vehicle_assigned",
+        severity="warning",
+        title=f"Vehicle assigned: {vehicle.registration_number}",
+        detail=f"{vehicle.model} is now assigned to you.",
+        entity_type="vehicle",
+        entity_id=str(vehicle_id),
+        roles={"owner", "fleet_manager"},
+        user_ids={driver.id},
+        dedupe_key=f"vehicle_assigned:{vehicle_id}:{driver.id}",
+    )
     database.commit()
     database.refresh(assignment)
     
@@ -3916,8 +4264,9 @@ def assign_work_order(
             detail=f"{work_order.priority} priority · {work_order.vehicle_id}",
             entity_type="work_order",
             entity_id=str(work_order_id),
-            roles=set(),
+            roles={"owner", "fleet_manager"},
             user_ids={payload.mechanic_id},
+            dedupe_key=f"work_order_assigned:{work_order_id}:{payload.mechanic_id}",
         )
     
     database.commit()
@@ -3928,8 +4277,11 @@ def assign_work_order(
         "id": work_order.id,
         "title": work_order.title,
         "vehicle_id": work_order.vehicle_id,
+        "work_order_id": work_order.id,
         "assigned_mechanic_id": work_order.assigned_user_id,
         "assigned_mechanic_name": mechanic_name,
+        "assigned_at": utc_now() if payload.mechanic_id is not None else None,
+        "status": work_order.status,
     }
 
 
@@ -4014,68 +4366,7 @@ def evaluate_vehicle_maintenance(
     if vehicle is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found in this organization")
     
-    created_work_orders = 0
-    components = list(database.scalars(
-        select(VehicleComponent).where(VehicleComponent.vehicle_id == vehicle_id)
-    ).all())
-    
-    for component in components:
-        if component.status != "Healthy":
-            continue
-        
-        # Calculate consumed and elapsed
-        current_km = vehicle.odometer_km
-        installation_km = component.installed_at_km
-        consumed = current_km - installation_km
-        
-        last_service_km = component.last_service_km or installation_km
-        elapsed_days = 0  # Would need installation date for accurate calculation
-        
-        # Check if threshold reached
-        alert_km = component.service_interval_km or 0
-        if consumed < alert_km:
-            continue
-        
-        # Check for existing work order
-        existing = database.scalar(select(WorkOrder).where(
-            WorkOrder.organization_id == user.organization_id,
-            WorkOrder.vehicle_id == vehicle_id,
-            WorkOrder.status.in_(["Open", "In progress", "REWORK"]),
-            WorkOrder.title.ilike(f"%{component.name}%"),
-        ))
-        if existing:
-            continue
-        
-        # Create work order
-        priority = "HIGH" if consumed >= alert_km else "MEDIUM"
-        work_order = WorkOrder(
-            organization_id=user.organization_id,
-            vehicle_id=vehicle_id,
-            title=f"{component.name} service threshold reached",
-            description=f"{component.name}: {consumed} km consumed since installation",
-            priority=priority,
-            status="Open",
-        )
-        database.add(work_order)
-        database.flush()
-        
-        # Record audit event
-        database.add(AuditEvent(
-            organization_id=user.organization_id,
-            actor_user_id=user.id,
-            actor_role=user.role,
-            action="MAINTENANCE_THRESHOLD_TRIGGERED",
-            entity_type="COMPONENT",
-            entity_id=str(component.id),
-            summary=f"Threshold triggered for {component.name}",
-            metadata=json.dumps({
-                "workOrderId": work_order.id,
-                "consumed_km": consumed,
-                "installation_km": installation_km,
-                "alert_km": alert_km,
-            }),
-        ))
-        created_work_orders += 1
+    created_work_orders = evaluate_component_thresholds(user, vehicle, database)
     
     database.commit()
     return {"created_work_orders": created_work_orders}
@@ -4267,7 +4558,7 @@ def system_version() -> dict:
 
 @router.get("/system/config", response_model=dict)
 def system_config(
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_roles("owner")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Get system configuration and feature flags for the organization"""
@@ -4647,7 +4938,7 @@ class OnboardingBootstrap(BaseModel):
 
 @router.get("/onboarding/status", response_model=dict)
 def get_onboarding_status(
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_roles("owner")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Get onboarding status for the organization"""
@@ -4691,7 +4982,7 @@ def get_onboarding_status(
 
 @router.get("/onboarding/checklist", response_model=list[OnboardingChecklistItem])
 def get_onboarding_checklist(
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_roles("owner")),
     database: Session = Depends(get_db),
 ) -> list[OnboardingChecklistItem]:
     """Get detailed onboarding checklist"""
@@ -4832,7 +5123,7 @@ def onboarding_bootstrap(
 @router.post("/onboarding/mark-step-complete", response_model=dict)
 def mark_onboarding_step_complete(
     payload: dict,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_roles("owner")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Mark an onboarding step as complete"""
@@ -4911,6 +5202,77 @@ def get_dashboard_summary(
     org = database.get(Organization, user.organization_id)
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
+
+    if user.role not in {"owner", "fleet_manager"}:
+        assigned_vehicle_ids = select(Vehicle.id).where(
+            Vehicle.organization_id == org.id,
+            Vehicle.assigned_driver_id == user.id,
+        )
+        assigned_work_orders = select(WorkOrder.id).where(
+            WorkOrder.organization_id == org.id,
+            WorkOrder.assigned_user_id == user.id,
+        )
+        if user.role in {"mechanic", "technician"}:
+            assigned_vehicle_ids = select(WorkOrder.vehicle_id).where(
+                WorkOrder.organization_id == org.id,
+                WorkOrder.assigned_user_id == user.id,
+            )
+        scoped_vehicle_count = database.scalar(
+            select(func.count(Vehicle.id)).where(Vehicle.id.in_(assigned_vehicle_ids))
+        ) or 0
+        scoped_work_orders = database.query(WorkOrder).filter(
+            WorkOrder.id.in_(assigned_work_orders)
+        )
+        scoped_open = scoped_work_orders.filter(WorkOrder.status == "Open").count()
+        scoped_in_progress = scoped_work_orders.filter(
+            WorkOrder.status.in_(["In progress", "In Progress"])
+        ).count()
+        scoped_completed_today = scoped_work_orders.filter(
+            WorkOrder.status == "Completed",
+            WorkOrder.completed_at >= datetime.now(timezone.utc).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            ),
+        ).count()
+        scoped_notifications = database.scalar(
+            select(func.count(OperationalNotification.id)).join(
+                NotificationDelivery,
+                NotificationDelivery.notification_id == OperationalNotification.id,
+            ).where(
+                OperationalNotification.organization_id == org.id,
+                NotificationDelivery.user_id == user.id,
+                NotificationDelivery.channel == "in_app",
+                OperationalNotification.status == "unread",
+            )
+        ) or 0
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "organization_id": org.id,
+            "organization_name": org.name,
+            "fleet_overview": {
+                "total_vehicles": scoped_vehicle_count,
+                "active_vehicles": 0,
+                "idle_vehicles": scoped_vehicle_count,
+                "avg_fleet_health": 0,
+                "active_drivers": 1 if user.role == "driver" and scoped_vehicle_count else 0,
+            },
+            "work_orders": {
+                "open": scoped_open,
+                "in_progress": scoped_in_progress,
+                "completed_today": scoped_completed_today,
+            },
+            "alerts_and_notifications": {
+                "unread_notifications": scoped_notifications,
+                "critical_alerts": 0,
+            },
+            "inventory": {
+                "low_stock_items": 0,
+                "total_items": 0,
+            },
+            "maintenance": {"upcoming_tasks": 0},
+            "fuel_efficiency": {"avg_km_per_liter": 0.0},
+            "compliance": {"expired_documents": 0, "expiring_soon": 0},
+            "recent_activity": {"work_orders": [], "notifications": []},
+        }
     
     # Count vehicles
     vehicle_count = database.query(Vehicle).filter(
@@ -5088,9 +5450,14 @@ def get_dashboard_metrics(
         raise HTTPException(status_code=404, detail="Organization not found")
     
     if metric_type == "work_orders":
-        statuses = database.query(WorkOrder.status).filter(
+        statement = database.query(WorkOrder.status).filter(
             WorkOrder.organization_id == org.id
-        ).all()
+        )
+        if user.role in {"mechanic", "technician"}:
+            statement = statement.filter(WorkOrder.assigned_user_id == user.id)
+        elif user.role == "driver":
+            return {"metric_type": "work_orders", "data": {}}
+        statuses = statement.all()
         
         status_counts = {}
         for (status,) in statuses:
@@ -5102,9 +5469,23 @@ def get_dashboard_metrics(
         }
     
     elif metric_type == "vehicle_health":
-        vehicles = database.query(Vehicle).filter(
+        statement = database.query(Vehicle).filter(
             Vehicle.organization_id == org.id
-        ).all()
+        )
+        if user.role == "driver":
+            assigned_vehicle_ids = select(VehicleAssignment.vehicle_id).where(
+                VehicleAssignment.organization_id == org.id,
+                VehicleAssignment.driver_id == user.id,
+                VehicleAssignment.active.is_(True),
+            )
+            statement = statement.where(Vehicle.id.in_(assigned_vehicle_ids))
+        elif user.role in {"mechanic", "technician"}:
+            assigned_vehicle_ids = select(WorkOrder.vehicle_id).where(
+                WorkOrder.organization_id == org.id,
+                WorkOrder.assigned_user_id == user.id,
+            )
+            statement = statement.where(Vehicle.id.in_(assigned_vehicle_ids))
+        vehicles = statement.all()
         
         health_distribution = {
             "excellent": 0,
@@ -5129,6 +5510,8 @@ def get_dashboard_metrics(
         }
     
     elif metric_type == "expenses":
+        if user.role not in {"owner", "accountant"}:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Finance metrics are restricted")
         # Sum expenses by category
         expenses = database.query(
             Expense.category,
@@ -5178,20 +5561,25 @@ class WorkOrderBulkUpdate(BaseModel):
 def reserve_part_for_work_order(
     work_order_id: int,
     payload: WorkOrderPartReservation,
-    user: User = Depends(require_roles("owner", "fleet_manager", "mechanic")),
+    request: Request,
+    user: User = Depends(require_roles("owner", "mechanic", "technician")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Reserve a part for a work order"""
-    reserve_idempotency_key(Request(), user, database)
+    reserve_idempotency_key(request, user, database)
     
     work_order = database.get(WorkOrder, work_order_id)
     if not work_order or work_order.organization_id != user.organization_id:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    if user.role in ("mechanic", "technician") and work_order.assigned_user_id != user.id:
         raise HTTPException(status_code=404, detail="Work order not found")
     
     part = database.get(Part, payload.part_id)
     if not part or part.organization_id != user.organization_id:
         raise HTTPException(status_code=404, detail="Part not found")
     
+    if payload.quantity <= 0:
+        raise HTTPException(status_code=400, detail="Part quantity must be positive")
     if part.quantity_on_hand < payload.quantity:
         raise HTTPException(status_code=400, detail="Insufficient inventory")
     
@@ -5206,10 +5594,6 @@ def reserve_part_for_work_order(
     )
     
     database.add(part_usage)
-    
-    # Deduct from inventory
-    part.quantity_on_hand -= payload.quantity
-    database.add(part)
     
     database.commit()
     database.refresh(part_usage)
@@ -5229,14 +5613,17 @@ def reserve_part_for_work_order(
 def return_reserved_part(
     work_order_id: int,
     payload: dict,
-    user: User = Depends(require_roles("owner", "fleet_manager", "mechanic")),
+    request: Request,
+    user: User = Depends(require_roles("owner", "mechanic", "technician")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Return a reserved part (unused) back to inventory"""
-    reserve_idempotency_key(Request(), user, database)
+    reserve_idempotency_key(request, user, database)
     
     work_order = database.get(WorkOrder, work_order_id)
     if not work_order or work_order.organization_id != user.organization_id:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    if user.role in ("mechanic", "technician") and work_order.assigned_user_id != user.id:
         raise HTTPException(status_code=404, detail="Work order not found")
     
     part_id = payload.get("part_id")
@@ -5255,10 +5642,6 @@ def return_reserved_part(
     
     if not part_usage or part_usage.quantity < quantity:
         raise HTTPException(status_code=400, detail="Part not reserved in this work order")
-    
-    # Return to inventory
-    part.quantity_on_hand += quantity
-    database.add(part)
     
     # Update the usage record
     part_usage.quantity -= quantity
@@ -5280,7 +5663,7 @@ def return_reserved_part(
 
 @router.get("/work-orders/board", response_model=dict)
 def get_work_order_board(
-    user: User = Depends(require_roles("owner", "fleet_manager", "mechanic")),
+    user: User = Depends(require_roles("owner", "fleet_manager", "mechanic", "technician")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Get work order board (kanban view) organized by status"""
@@ -5288,11 +5671,14 @@ def get_work_order_board(
     board = {}
     
     for status in statuses:
-        work_orders = database.query(WorkOrder).filter(
+        statement = database.query(WorkOrder).filter(
             WorkOrder.organization_id == user.organization_id,
             WorkOrder.status == status,
             WorkOrder.archived_at == None,
-        ).order_by(WorkOrder.created_at.desc()).all()
+        )
+        if user.role in ("mechanic", "technician"):
+            statement = statement.filter(WorkOrder.assigned_user_id == user.id)
+        work_orders = statement.order_by(WorkOrder.created_at.desc()).all()
         
         board[status] = [
             {
@@ -5479,7 +5865,7 @@ def reorder_parts_for_work_order(
 @router.get("/inventory/parts/{part_id}/detail", response_model=dict)
 def get_inventory_part_detail(
     part_id: int,
-    user: User = Depends(require_roles("owner", "fleet_manager")),
+    user: User = Depends(require_roles("owner", "fleet_manager", "inventory_manager")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Get detailed inventory information for a part"""
@@ -5551,7 +5937,7 @@ def get_inventory_part_detail(
 @router.get("/inventory/parts/{part_id}/references", response_model=dict)
 def get_inventory_part_references(
     part_id: int,
-    user: User = Depends(require_roles("owner", "fleet_manager")),
+    user: User = Depends(require_roles("owner", "fleet_manager", "inventory_manager")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Get all references to a part across the system"""
@@ -5606,7 +5992,7 @@ def get_inventory_part_references(
 
 @router.get("/inventory/movements/export", response_model=dict)
 def export_inventory_movements(
-    user: User = Depends(require_roles("owner", "fleet_manager")),
+    user: User = Depends(require_roles("owner", "fleet_manager", "inventory_manager")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Export inventory movements as CSV-formatted data"""
@@ -5648,7 +6034,7 @@ def export_inventory_movements(
 @router.post("/inventory/movements/import", response_model=dict)
 def import_inventory_movements(
     file: UploadFile = File(...),
-    user: User = Depends(require_roles("owner", "fleet_manager")),
+    user: User = Depends(require_roles("owner", "inventory_manager")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Import inventory movements from CSV file"""
@@ -5703,7 +6089,7 @@ def import_inventory_movements(
 @router.post("/inventory/movements/preview", response_model=dict)
 def preview_inventory_import(
     file: UploadFile = File(...),
-    user: User = Depends(require_roles("owner", "fleet_manager")),
+    user: User = Depends(require_roles("owner", "inventory_manager")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Preview inventory import without committing"""
@@ -5730,7 +6116,7 @@ def preview_inventory_import(
 @router.get("/inventory/parts/by-location/{location_id}", response_model=list[dict])
 def get_inventory_by_location(
     location_id: int,
-    user: User = Depends(require_roles("owner", "fleet_manager")),
+    user: User = Depends(require_roles("owner", "fleet_manager", "inventory_manager")),
     database: Session = Depends(get_db),
 ) -> list[dict]:
     """Get all inventory at a specific location"""
@@ -5774,7 +6160,7 @@ def get_inventory_by_location(
 
 @router.get("/inventory/summary", response_model=dict)
 def get_inventory_summary(
-    user: User = Depends(require_roles("owner", "fleet_manager")),
+    user: User = Depends(require_roles("owner", "fleet_manager", "inventory_manager")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Get inventory summary and analytics"""
@@ -7267,7 +7653,7 @@ def get_fuel_efficiency_report(
 
 @router.get("/financials/metrics", response_model=dict)
 def get_financial_metrics(
-    user: User = Depends(require_roles("owner", "fleet_manager")),
+    user: User = Depends(require_roles("owner", "fleet_manager", "accountant")),
     database: Session = Depends(get_db),
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -7380,7 +7766,7 @@ def get_financial_metrics(
 
 @router.get("/financials/reconciliation", response_model=dict)
 def get_financial_reconciliation(
-    user: User = Depends(require_roles("owner", "fleet_manager")),
+    user: User = Depends(require_roles("owner", "accountant")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Get financial reconciliation summary"""
@@ -7447,7 +7833,7 @@ def get_financial_reconciliation(
 
 @router.get("/financials/approval-queue", response_model=dict)
 def get_financial_approval_queue(
-    user: User = Depends(require_roles("owner", "fleet_manager")),
+    user: User = Depends(require_roles("owner", "accountant")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Get queue of expenses pending approval"""
@@ -7515,7 +7901,7 @@ def get_financial_approval_queue(
 @router.post("/financials/expenses/{expense_id}/approve", response_model=dict)
 def approve_expense(
     expense_id: int,
-    user: User = Depends(require_roles("owner", "fleet_manager")),
+    user: User = Depends(require_roles("owner", "accountant")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Approve an expense for reimbursement"""
@@ -7524,6 +7910,8 @@ def approve_expense(
     expense = database.get(Expense, expense_id)
     if not expense or expense.organization_id != user.organization_id:
         raise HTTPException(status_code=404, detail="Expense not found")
+    if user.role == "accountant" and expense.created_by == user.id:
+        raise HTTPException(status_code=403, detail="Accountants cannot approve their own expenses")
     
     expense.status = "Approved"
     expense.approved_by = user.id
@@ -7560,7 +7948,7 @@ def approve_expense(
 def reject_expense(
     expense_id: int,
     payload: dict,
-    user: User = Depends(require_roles("owner", "fleet_manager")),
+    user: User = Depends(require_roles("owner", "accountant")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Reject an expense"""
@@ -7603,7 +7991,7 @@ def reject_expense(
 @router.post("/financials/bulk-approve", response_model=dict)
 def bulk_approve_expenses(
     payload: dict,
-    user: User = Depends(require_roles("owner", "fleet_manager")),
+    user: User = Depends(require_roles("owner", "accountant")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Bulk approve multiple expenses"""
@@ -7626,6 +8014,8 @@ def bulk_approve_expenses(
     total_approved_paise = 0
     
     for expense in expenses:
+        if user.role == "accountant" and expense.created_by == user.id:
+            continue
         if expense.status not in ["Approved"]:  # Don't reapprove
             expense.status = "Approved"
             expense.approved_by = user.id
@@ -8016,21 +8406,37 @@ def simulate_payment(
 @router.get("/notifications/{notification_id}/source-detail", response_model=dict)
 def get_notification_source_detail(
     notification_id: int,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("notifications")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Get detailed source information for a notification"""
     notification = database.get(OperationalNotification, notification_id)
     if not notification or notification.organization_id != user.organization_id:
         raise HTTPException(status_code=404, detail="Notification not found")
+    delivery = database.scalar(select(NotificationDelivery).where(
+        NotificationDelivery.notification_id == notification_id,
+        NotificationDelivery.organization_id == user.organization_id,
+        NotificationDelivery.user_id == user.id,
+        NotificationDelivery.channel == "in_app",
+    ))
+    if delivery is None:
+        raise HTTPException(status_code=404, detail="Notification not found")
     
     # Fetch the related entity
     entity_data = None
     
     if notification.entity_type == "work_order":
-        entity = database.get(WorkOrder, int(notification.entity_id))
+        entity = database.scalar(select(WorkOrder).where(
+            WorkOrder.id == int(notification.entity_id),
+            WorkOrder.organization_id == user.organization_id,
+        ))
+        if entity and user.role in ("mechanic", "technician") and entity.assigned_user_id != user.id:
+            entity = None
         if entity:
-            vehicle = database.get(Vehicle, entity.vehicle_id)
+            vehicle = database.scalar(select(Vehicle).where(
+                Vehicle.id == entity.vehicle_id,
+                Vehicle.organization_id == user.organization_id,
+            ))
             entity_data = {
                 "type": "work_order",
                 "id": entity.id,
@@ -8045,7 +8451,12 @@ def get_notification_source_detail(
             }
     
     elif notification.entity_type == "vehicle":
-        entity = database.get(Vehicle, int(notification.entity_id))
+        entity = database.scalar(select(Vehicle).where(
+            Vehicle.id == int(notification.entity_id),
+            Vehicle.organization_id == user.organization_id,
+        ))
+        if entity and user.role == "driver" and entity.assigned_driver_id != user.id:
+            entity = None
         if entity:
             entity_data = {
                 "type": "vehicle",
@@ -8057,7 +8468,10 @@ def get_notification_source_detail(
             }
     
     elif notification.entity_type == "compliance_document":
-        entity = database.get(ComplianceDocument, int(notification.entity_id))
+        entity = database.scalar(select(ComplianceDocument).where(
+            ComplianceDocument.id == int(notification.entity_id),
+            ComplianceDocument.organization_id == user.organization_id,
+        ))
         if entity:
             entity_data = {
                 "type": "compliance_document",
@@ -8069,7 +8483,10 @@ def get_notification_source_detail(
             }
     
     elif notification.entity_type == "triage_issue":
-        entity = database.get(VehicleIssue, int(notification.entity_id))
+        entity = database.scalar(select(VehicleIssue).where(
+            VehicleIssue.id == int(notification.entity_id),
+            VehicleIssue.organization_id == user.organization_id,
+        ))
         if entity:
             entity_data = {
                 "type": "triage_issue",
@@ -8153,7 +8570,7 @@ def escalate_notification(
 def resolve_notification(
     notification_id: int,
     payload: dict,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_roles("owner", "fleet_manager")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Mark a notification as resolved"""
@@ -8195,14 +8612,20 @@ def resolve_notification(
 
 @router.get("/notifications/pending", response_model=dict)
 def get_pending_notifications(
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("notifications")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Get pending unresolved notifications"""
-    notifications = database.query(OperationalNotification).filter(
+    notifications = database.query(OperationalNotification).join(
+        NotificationDelivery,
+        NotificationDelivery.notification_id == OperationalNotification.id,
+    ).filter(
         OperationalNotification.organization_id == user.organization_id,
+        NotificationDelivery.organization_id == user.organization_id,
+        NotificationDelivery.user_id == user.id,
+        NotificationDelivery.channel == "in_app",
         OperationalNotification.status.in_(["unread", "read"]),
-    ).order_by(OperationalNotification.severity.desc(), OperationalNotification.created_at.desc()).all()
+    ).distinct().order_by(OperationalNotification.severity.desc(), OperationalNotification.created_at.desc()).all()
     
     # Group by severity
     by_severity = {
@@ -8232,7 +8655,7 @@ def get_pending_notifications(
 @router.post("/notifications/bulk-resolve", response_model=dict)
 def bulk_resolve_notifications(
     payload: dict,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_roles("owner", "fleet_manager")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Bulk resolve multiple notifications"""
@@ -8243,10 +8666,16 @@ def bulk_resolve_notifications(
     if not notification_ids:
         raise HTTPException(status_code=400, detail="No notification IDs provided")
     
-    notifications = database.query(OperationalNotification).filter(
+    notifications = database.query(OperationalNotification).join(
+        NotificationDelivery,
+        NotificationDelivery.notification_id == OperationalNotification.id,
+    ).filter(
         OperationalNotification.organization_id == user.organization_id,
+        NotificationDelivery.organization_id == user.organization_id,
+        NotificationDelivery.user_id == user.id,
+        NotificationDelivery.channel == "in_app",
         OperationalNotification.id.in_(notification_ids),
-    ).all()
+    ).distinct().all()
     
     if not notifications:
         raise HTTPException(status_code=404, detail="No notifications found")
@@ -8277,7 +8706,7 @@ def bulk_resolve_notifications(
 @router.get("/vendors/{vendor_id}/pricing-history", response_model=dict)
 def get_vendor_pricing_history(
     vendor_id: int,
-    user: User = Depends(require_roles("owner", "fleet_manager")),
+    user: User = Depends(require_roles("owner", "inventory_manager", "accountant")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Get pricing history for parts from a vendor"""
@@ -8357,7 +8786,7 @@ def get_vendor_pricing_history(
 def receive_partial_purchase_order(
     po_id: int,
     payload: dict,
-    user: User = Depends(require_roles("owner", "fleet_manager")),
+    user: User = Depends(require_roles("owner", "inventory_manager")),
     database: Session = Depends(get_db),
 ) -> dict:
     """Receive partial shipment with variance tracking"""
@@ -8572,7 +9001,7 @@ def get_compliance_summary(
 
 @router.get("/activity-feed", response_model=dict)
 def get_activity_feed(
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_roles("owner", "fleet_manager", "accountant")),
     database: Session = Depends(get_db),
     limit: int = 50,
 ) -> dict:
@@ -8581,16 +9010,28 @@ def get_activity_feed(
     audit_events = database.query(AuditEvent).filter(
         AuditEvent.organization_id == user.organization_id
     ).order_by(AuditEvent.created_at.desc()).limit(limit).all()
+    if user.role == "accountant":
+        audit_events = [
+            event for event in audit_events
+            if event.entity_type in {"expense", "fuel_transaction", "toll_transaction"}
+            or event.action.startswith(("expense.", "finance.", "fuel.", "toll."))
+        ]
     
     # Get recent work order updates
-    work_orders = database.query(WorkOrder).filter(
+    work_orders = [] if user.role == "accountant" else database.query(WorkOrder).filter(
         WorkOrder.organization_id == user.organization_id
     ).order_by(WorkOrder.created_at.desc()).limit(limit).all()
     
     # Get recent notifications
-    notifications = database.query(OperationalNotification).filter(
-        OperationalNotification.organization_id == user.organization_id
-    ).order_by(OperationalNotification.created_at.desc()).limit(limit).all()
+    notifications = database.query(OperationalNotification).join(
+        NotificationDelivery,
+        NotificationDelivery.notification_id == OperationalNotification.id,
+    ).filter(
+        OperationalNotification.organization_id == user.organization_id,
+        NotificationDelivery.organization_id == user.organization_id,
+        NotificationDelivery.user_id == user.id,
+        NotificationDelivery.channel == "in_app",
+    ).distinct().order_by(OperationalNotification.created_at.desc()).limit(limit).all()
     
     # Build activity feed
     activities = []
@@ -8639,7 +9080,7 @@ def get_activity_feed(
 
 @router.get("/activity-feed/by-type", response_model=dict)
 def get_activity_feed_by_type(
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_roles("owner", "fleet_manager", "accountant")),
     database: Session = Depends(get_db),
     activity_type: str = "all",
 ) -> dict:
@@ -8648,10 +9089,16 @@ def get_activity_feed_by_type(
         audit_events = database.query(AuditEvent).filter(
             AuditEvent.organization_id == user.organization_id
         ).order_by(AuditEvent.created_at.desc()).limit(100).all()
+        if user.role == "accountant":
+            audit_events = [
+                event for event in audit_events
+                if event.entity_type in {"expense", "fuel_transaction", "toll_transaction"}
+                or event.action.startswith(("expense.", "finance.", "fuel.", "toll."))
+            ]
     else:
         audit_events = []
     
-    if activity_type == "work_orders" or activity_type == "all":
+    if user.role != "accountant" and (activity_type == "work_orders" or activity_type == "all"):
         work_orders = database.query(WorkOrder).filter(
             WorkOrder.organization_id == user.organization_id
         ).order_by(WorkOrder.created_at.desc()).limit(100).all()
@@ -8659,9 +9106,15 @@ def get_activity_feed_by_type(
         work_orders = []
     
     if activity_type == "notifications" or activity_type == "all":
-        notifications = database.query(OperationalNotification).filter(
-            OperationalNotification.organization_id == user.organization_id
-        ).order_by(OperationalNotification.created_at.desc()).limit(100).all()
+        notifications = database.query(OperationalNotification).join(
+            NotificationDelivery,
+            NotificationDelivery.notification_id == OperationalNotification.id,
+        ).filter(
+            OperationalNotification.organization_id == user.organization_id,
+            NotificationDelivery.organization_id == user.organization_id,
+            NotificationDelivery.user_id == user.id,
+            NotificationDelivery.channel == "in_app",
+        ).distinct().order_by(OperationalNotification.created_at.desc()).limit(100).all()
     else:
         notifications = []
     
